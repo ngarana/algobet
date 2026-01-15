@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:18
+    container_name: algobet-db
+    environment:
+      POSTGRES_USER: algobet
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: football
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U algobet -d football" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

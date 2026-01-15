@@ -1,0 +1,5 @@
+.venv
+__pycache__/
+.env
+algobet.egg-info/
+football.db
