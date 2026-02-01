@@ -10,6 +10,7 @@ from sqlalchemy import select
 from .database import init_db, session_scope
 from .models import Tournament, Season, Team, Match
 from .scraper import OddsPortalScraper, ScrapedMatch
+from .predictions_cli import predictions
 
 
 def parse_league_info(url: str) -> tuple[str, str, str]:
@@ -242,6 +243,10 @@ def save_upcoming_matches(session, matches_data: list[dict]) -> int:
 def cli():
     """AlgoBet - Football match database and OddsPortal scraper."""
     pass
+
+
+# Add predictions as a subcommand group
+cli.add_command(predictions)
 
 
 @cli.command()
