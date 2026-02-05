@@ -53,7 +53,7 @@ class TournamentResponse(BaseModel):
     name: str
     country: str
     url_slug: str
-    
+
     class Config:
         from_attributes = True
 ```
@@ -67,7 +67,7 @@ class SeasonResponse(BaseModel):
     start_year: int
     end_year: int
     url_suffix: Optional[str]
-    
+
     class Config:
         from_attributes = True
 ```
@@ -77,7 +77,7 @@ class SeasonResponse(BaseModel):
 class TeamResponse(BaseModel):
     id: int
     name: str
-    
+
     class Config:
         from_attributes = True
 
@@ -110,10 +110,10 @@ class MatchResponse(BaseModel):
     num_bookmakers: Optional[int]
     created_at: datetime
     updated_at: datetime
-    
+
     # Computed fields
     result: Optional[str]  # 'H', 'D', 'A' or None
-    
+
     class Config:
         from_attributes = True
 
@@ -142,7 +142,7 @@ class ModelVersionResponse(BaseModel):
     hyperparameters: Optional[dict]  # JSONB field
     feature_schema_version: Optional[str]
     description: Optional[str]
-    
+
     class Config:
         from_attributes = True
 ```
@@ -160,10 +160,10 @@ class PredictionResponse(BaseModel):
     confidence: float
     predicted_at: datetime
     actual_roi: Optional[float]
-    
+
     # Computed field
     max_probability: float
-    
+
     class Config:
         from_attributes = True
 
@@ -285,11 +285,14 @@ GET    /api/v1/value-bets                     # Find value betting opportunities
 | **Styling** | Tailwind CSS 3.4+ | Utility-first, responsive, small bundle |
 | **Data Fetching** | TanStack Query (React Query) v5 | Caching, deduplication, optimistic updates |
 | **Forms** | React Hook Form + Zod | Type-safe validation, great DX |
+| **Runtime Validation** | Zod | API response validation for resilience |
 | **Charts** | Recharts | Declarative, responsive, composable |
 | **State** | Zustand | Lightweight, no boilerplate, devtools support |
 | **Icons** | Lucide React | Consistent icon set |
 | **Date Handling** | date-fns | Lightweight date manipulation |
 | **HTTP Client** | Native fetch + tanstack-query | No axios needed with modern fetch |
+| **API Mocking** | MSW (Mock Service Worker) | API mocking for development and testing |
+| **Real-time** | WebSocket | Live match updates and odds streaming |
 
 ### 2.2 Project Structure
 ```
@@ -372,11 +375,15 @@ frontend/
 │   │   └── use-value-bets.ts
 │   ├── types/                     # TypeScript type definitions
 │   │   ├── api.ts                 # API response types
+│   │   ├── schemas.ts             # Zod schemas for runtime validation
 │   │   └── index.ts
 │   ├── utils/
 │   │   ├── cn.ts                  # Tailwind class merger
 │   │   ├── format.ts              # Date/formatting utilities
 │   │   └── odds.ts                # Odds calculations
+│   ├── socket/                    # WebSocket utilities
+│   │   ├── client.ts              # WebSocket client setup
+│   │   └── use-match-updates.ts   # Real-time match updates hook
 │   └── config.ts                  # Environment configuration
 ├── hooks/                         # Custom React hooks
 │   ├── use-debounce.ts
@@ -385,6 +392,14 @@ frontend/
 ├── stores/                        # Zustand stores
 │   ├── filter-store.ts            # Global filter state
 │   └── ui-store.ts                # UI state (sidebar, etc.)
+├── mocks/                         # MSW API mocking
+│   ├── handlers.ts                # API mock handlers
+│   ├── browser.ts                 # Browser service worker setup
+│   ├── server.ts                  # Node server setup for tests
+│   └── data/                      # Mock data fixtures
+│       ├── matches.ts
+│       ├── predictions.ts
+│       └── models.ts
 ├── public/
 │   └── assets/
 │       └── logos/                 # Tournament/team logos
@@ -527,7 +542,300 @@ export interface PredictionFilters {
 }
 ```
 
-### 2.4 API Client with Error Handling
+### 2.4 Zod Runtime Validation Schemas
+
+Runtime validation ensures API responses match expected types, providing resilience against backend changes:
+
+```typescript
+// lib/types/schemas.ts
+
+import { z } from 'zod';
+
+// Enum schemas
+export const MatchStatusSchema = z.enum(['SCHEDULED', 'FINISHED', 'LIVE']);
+export const PredictedOutcomeSchema = z.enum(['H', 'D', 'A']);
+
+// Entity schemas
+export const TournamentSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  country: z.string(),
+  url_slug: z.string(),
+});
+
+export const TeamSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+});
+
+export const SeasonSchema = z.object({
+  id: z.number(),
+  tournament_id: z.number(),
+  name: z.string(),
+  start_year: z.number(),
+  end_year: z.number(),
+  url_suffix: z.string().nullable(),
+});
+
+export const MatchSchema = z.object({
+  id: z.number(),
+  tournament_id: z.number(),
+  season_id: z.number(),
+  home_team_id: z.number(),
+  away_team_id: z.number(),
+  match_date: z.string(),
+  home_score: z.number().nullable(),
+  away_score: z.number().nullable(),
+  status: MatchStatusSchema,
+  odds_home: z.number().nullable(),
+  odds_draw: z.number().nullable(),
+  odds_away: z.number().nullable(),
+  num_bookmakers: z.number().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  result: PredictedOutcomeSchema.nullable(),
+});
+
+export const PredictionSchema = z.object({
+  id: z.number(),
+  match_id: z.number(),
+  model_version_id: z.number(),
+  prob_home: z.number(),
+  prob_draw: z.number(),
+  prob_away: z.number(),
+  predicted_outcome: PredictedOutcomeSchema,
+  confidence: z.number(),
+  predicted_at: z.string(),
+  actual_roi: z.number().nullable(),
+  max_probability: z.number(),
+});
+
+export const ModelVersionSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  version: z.string(),
+  algorithm: z.string(),
+  accuracy: z.number().nullable(),
+  file_path: z.string(),
+  is_active: z.boolean(),
+  created_at: z.string(),
+  metrics: z.record(z.string(), z.number()).nullable(),
+  hyperparameters: z.record(z.string(), z.unknown()).nullable(),
+  feature_schema_version: z.string().nullable(),
+  description: z.string().nullable(),
+});
+
+export const ValueBetSchema = z.object({
+  match_id: z.number(),
+  outcome: PredictedOutcomeSchema,
+  predicted_probability: z.number(),
+  market_odds: z.number(),
+  expected_value: z.number(),
+  kelly_fraction: z.number(),
+});
+
+// Response array schemas
+export const MatchListSchema = z.array(MatchSchema);
+export const PredictionListSchema = z.array(PredictionSchema);
+export const ModelVersionListSchema = z.array(ModelVersionSchema);
+export const ValueBetListSchema = z.array(ValueBetSchema);
+
+// Type inference from schemas
+export type MatchValidated = z.infer<typeof MatchSchema>;
+export type PredictionValidated = z.infer<typeof PredictionSchema>;
+```
+
+### 2.5 MSW API Mocking
+
+Mock Service Worker enables API mocking for development and testing without backend dependency:
+
+```typescript
+// mocks/handlers.ts
+
+import { http, HttpResponse } from 'msw';
+import { mockMatches, mockMatchDetail } from './data/matches';
+import { mockPredictions, mockUpcomingPredictions } from './data/predictions';
+import { mockModels, mockActiveModel } from './data/models';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+export const handlers = [
+  // Matches
+  http.get(`${API_BASE}/api/v1/matches`, ({ request }) => {
+    const url = new URL(request.url);
+    const status = url.searchParams.get('status');
+    const limit = parseInt(url.searchParams.get('limit') || '50');
+
+    let results = mockMatches;
+    if (status) {
+      results = results.filter(m => m.status === status);
+    }
+    return HttpResponse.json(results.slice(0, limit));
+  }),
+
+  http.get(`${API_BASE}/api/v1/matches/:id`, ({ params }) => {
+    const match = mockMatchDetail(Number(params.id));
+    if (!match) {
+      return new HttpResponse(null, { status: 404 });
+    }
+    return HttpResponse.json(match);
+  }),
+
+  // Predictions
+  http.get(`${API_BASE}/api/v1/predictions`, () => {
+    return HttpResponse.json(mockPredictions);
+  }),
+
+  http.get(`${API_BASE}/api/v1/predictions/upcoming`, () => {
+    return HttpResponse.json(mockUpcomingPredictions);
+  }),
+
+  http.post(`${API_BASE}/api/v1/predictions/generate`, async ({ request }) => {
+    const body = await request.json();
+    // Simulate prediction generation
+    return HttpResponse.json({
+      generated: body.match_ids?.length || 0,
+      predictions: mockPredictions.slice(0, 5),
+    });
+  }),
+
+  // Models
+  http.get(`${API_BASE}/api/v1/models`, () => {
+    return HttpResponse.json(mockModels);
+  }),
+
+  http.get(`${API_BASE}/api/v1/models/active`, () => {
+    return HttpResponse.json(mockActiveModel);
+  }),
+
+  http.post(`${API_BASE}/api/v1/models/:id/activate`, ({ params }) => {
+    return HttpResponse.json({ activated: params.id });
+  }),
+
+  // Value Bets
+  http.get(`${API_BASE}/api/v1/value-bets`, () => {
+    return HttpResponse.json([
+      {
+        match_id: 1,
+        outcome: 'H',
+        predicted_probability: 0.65,
+        market_odds: 2.10,
+        expected_value: 0.15,
+        kelly_fraction: 0.08,
+      },
+    ]);
+  }),
+];
+```
+
+```typescript
+// mocks/browser.ts
+import { setupWorker } from 'msw/browser';
+import { handlers } from './handlers';
+
+export const worker = setupWorker(...handlers);
+```
+
+```typescript
+// mocks/server.ts (for tests)
+import { setupServer } from 'msw/node';
+import { handlers } from './handlers';
+
+export const server = setupServer(...handlers);
+```
+
+```typescript
+// mocks/data/matches.ts
+import type { Match, MatchDetail } from '@/lib/types/api';
+
+export const mockMatches: Match[] = [
+  {
+    id: 1,
+    tournament_id: 1,
+    season_id: 1,
+    home_team_id: 1,
+    away_team_id: 2,
+    match_date: '2026-02-15T15:00:00Z',
+    home_score: null,
+    away_score: null,
+    status: 'SCHEDULED',
+    odds_home: 2.10,
+    odds_draw: 3.40,
+    odds_away: 3.20,
+    num_bookmakers: 12,
+    created_at: '2026-02-01T10:00:00Z',
+    updated_at: '2026-02-01T10:00:00Z',
+    result: null,
+  },
+  // Add more mock matches...
+];
+
+export function mockMatchDetail(id: number): MatchDetail | null {
+  const match = mockMatches.find(m => m.id === id);
+  if (!match) return null;
+
+  return {
+    ...match,
+    tournament: { id: 1, name: 'Premier League', country: 'England', url_slug: 'premier-league' },
+    season: { id: 1, tournament_id: 1, name: '2025/2026', start_year: 2025, end_year: 2026, url_suffix: null },
+    home_team: { id: 1, name: 'Manchester United' },
+    away_team: { id: 2, name: 'Arsenal' },
+    predictions: [],
+    h2h_matches: [],
+  };
+}
+```
+
+**MSW Setup Integration:**
+
+```typescript
+// app/providers.tsx (add MSW initialization)
+'use client';
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ThemeProvider } from 'next-themes';
+import { ReactNode, useEffect, useState } from 'react';
+
+async function initMSW() {
+  if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_ENABLE_MOCKING === 'true') {
+    const { worker } = await import('@/mocks/browser');
+    await worker.start({ onUnhandledRequest: 'bypass' });
+  }
+}
+
+export function Providers({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient());
+  const [mswReady, setMswReady] = useState(false);
+
+  useEffect(() => {
+    initMSW().then(() => setMswReady(true));
+  }, []);
+
+  // In production or when mocking is disabled, render immediately
+  if (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_ENABLE_MOCKING !== 'true') {
+    return (
+      <ThemeProvider attribute="class" defaultTheme="dark">
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      </ThemeProvider>
+    );
+  }
+
+  // Wait for MSW to initialize in development with mocking enabled
+  if (!mswReady) return null;
+
+  return (
+    <ThemeProvider attribute="class" defaultTheme="dark">
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
+    </ThemeProvider>
+  );
+}
+```
+
+### 2.6 API Client with Error Handling
 
 ```typescript
 // lib/api/client.ts
@@ -552,7 +860,7 @@ export async function fetchAPI<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
-  
+
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -604,7 +912,7 @@ const MATCHES_KEY = 'matches';
 
 export function useMatches(filters: MatchFilters = {}) {
   const queryString = new URLSearchParams();
-  
+
   if (filters.status) queryString.set('status', filters.status);
   if (filters.tournament_id) queryString.set('tournament_id', String(filters.tournament_id));
   if (filters.season_id) queryString.set('season_id', String(filters.season_id));
@@ -613,7 +921,7 @@ export function useMatches(filters: MatchFilters = {}) {
   if (filters.to_date) queryString.set('to_date', filters.to_date);
   if (filters.days_ahead) queryString.set('days_ahead', String(filters.days_ahead));
   if (filters.has_odds !== undefined) queryString.set('has_odds', String(filters.has_odds));
-  
+
   return useInfiniteQuery({
     queryKey: [MATCHES_KEY, filters],
     queryFn: async ({ pageParam = 0 }) => {
@@ -657,14 +965,14 @@ const PREDICTIONS_KEY = 'predictions';
 
 export function usePredictions(filters: PredictionFilters = {}) {
   const queryString = new URLSearchParams();
-  
+
   if (filters.match_id) queryString.set('match_id', String(filters.match_id));
   if (filters.model_version_id) queryString.set('model_version_id', String(filters.model_version_id));
   if (filters.has_result !== undefined) queryString.set('has_result', String(filters.has_result));
   if (filters.from_date) queryString.set('from_date', filters.from_date);
   if (filters.to_date) queryString.set('to_date', filters.to_date);
   if (filters.min_confidence) queryString.set('min_confidence', String(filters.min_confidence));
-  
+
   return useQuery({
     queryKey: [PREDICTIONS_KEY, filters],
     queryFn: () => fetchAPI<PredictionWithMatch[]>(`/api/v1/predictions?${queryString.toString()}`),
@@ -680,9 +988,9 @@ export function useUpcomingPredictions(days: number = 7) {
 
 export function useGeneratePredictions() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: (data: { match_ids?: number[]; tournament_id?: number; days_ahead?: number }) => 
+    mutationFn: (data: { match_ids?: number[]; tournament_id?: number; days_ahead?: number }) =>
       fetchAPI<Prediction[]>('/api/v1/predictions/generate', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -713,7 +1021,7 @@ const MODELS_KEY = 'models';
 
 export function useModels(activeOnly: boolean = false) {
   const queryString = activeOnly ? '?active_only=true' : '';
-  
+
   return useQuery({
     queryKey: [MODELS_KEY, { activeOnly }],
     queryFn: () => fetchAPI<ModelVersion[]>(`/api/v1/models${queryString}`),
@@ -737,9 +1045,9 @@ export function useModel(id: number) {
 
 export function useActivateModel() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: (id: number) => 
+    mutationFn: (id: number) =>
       fetchAPI(`/api/v1/models/${id}/activate`, { method: 'POST' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [MODELS_KEY] });
@@ -748,7 +1056,215 @@ export function useActivateModel() {
 }
 ```
 
-### 2.6 Zustand Store Structure
+### 2.9 WebSocket Real-Time Updates
+
+Real-time updates for live matches, odds changes, and prediction notifications:
+
+```typescript
+// lib/socket/client.ts
+
+type MessageHandler = (data: unknown) => void;
+
+class WebSocketClient {
+  private ws: WebSocket | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private handlers: Map<string, Set<MessageHandler>> = new Map();
+
+  constructor(private url: string) {}
+
+  connect(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.ws = new WebSocket(this.url);
+
+      this.ws.onopen = () => {
+        this.reconnectAttempts = 0;
+        resolve();
+      };
+
+      this.ws.onerror = (error) => {
+        reject(error);
+      };
+
+      this.ws.onclose = () => {
+        this.attemptReconnect();
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          const { type, data } = message;
+
+          const typeHandlers = this.handlers.get(type);
+          if (typeHandlers) {
+            typeHandlers.forEach(handler => handler(data));
+          }
+        } catch (error) {
+          console.error('WebSocket message parse error:', error);
+        }
+      };
+    });
+  }
+
+  subscribe(eventType: string, handler: MessageHandler): () => void {
+    if (!this.handlers.has(eventType)) {
+      this.handlers.set(eventType, new Set());
+    }
+    this.handlers.get(eventType)!.add(handler);
+
+    // Return unsubscribe function
+    return () => {
+      this.handlers.get(eventType)?.delete(handler);
+    };
+  }
+
+  send(type: string, data: unknown): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type, data }));
+    }
+  }
+
+  private attemptReconnect(): void {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+      setTimeout(() => this.connect(), delay);
+    }
+  }
+
+  disconnect(): void {
+    this.ws?.close();
+    this.handlers.clear();
+  }
+}
+
+export const wsClient = new WebSocketClient(
+  process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws'
+);
+```
+
+```typescript
+// lib/socket/use-match-updates.ts
+
+import { useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { wsClient } from './client';
+import type { Match } from '@/lib/types/api';
+
+interface MatchUpdate {
+  match_id: number;
+  status?: string;
+  home_score?: number;
+  away_score?: number;
+  odds_home?: number;
+  odds_draw?: number;
+  odds_away?: number;
+}
+
+export function useMatchUpdates(matchId?: number) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    // Subscribe to match updates
+    const unsubscribe = wsClient.subscribe('match_update', (data) => {
+      const update = data as MatchUpdate;
+
+      // If watching a specific match, only process that match's updates
+      if (matchId && update.match_id !== matchId) return;
+
+      // Update the query cache optimistically
+      queryClient.setQueryData<Match[]>(['matches'], (oldData) => {
+        if (!oldData) return oldData;
+        return oldData.map((match) =>
+          match.id === update.match_id
+            ? { ...match, ...update }
+            : match
+        );
+      });
+
+      // Also update individual match cache
+      queryClient.setQueryData(['matches', update.match_id], (oldData: Match | undefined) => {
+        if (!oldData) return oldData;
+        return { ...oldData, ...update };
+      });
+    });
+
+    return unsubscribe;
+  }, [matchId, queryClient]);
+}
+
+export function useLiveOddsUpdates() {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const unsubscribe = wsClient.subscribe('odds_update', (data) => {
+      const update = data as MatchUpdate;
+
+      // Update match with new odds
+      queryClient.setQueryData<Match[]>(['matches'], (oldData) => {
+        if (!oldData) return oldData;
+        return oldData.map((match) =>
+          match.id === update.match_id
+            ? {
+                ...match,
+                odds_home: update.odds_home ?? match.odds_home,
+                odds_draw: update.odds_draw ?? match.odds_draw,
+                odds_away: update.odds_away ?? match.odds_away,
+              }
+            : match
+        );
+      });
+    });
+
+    return unsubscribe;
+  }, [queryClient]);
+}
+```
+
+```typescript
+// Usage in components
+// components/matches/live-match-card.tsx
+
+'use client';
+
+import { useMatch } from '@/lib/queries/use-matches';
+import { useMatchUpdates } from '@/lib/socket/use-match-updates';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+
+export function LiveMatchCard({ matchId }: { matchId: number }) {
+  const { data: match, isLoading } = useMatch(matchId);
+
+  // Subscribe to real-time updates for this match
+  useMatchUpdates(matchId);
+
+  if (isLoading || !match) return <MatchCardSkeleton />;
+
+  return (
+    <Card className="border-primary/50">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <span className="text-sm text-muted-foreground">
+          {match.tournament.name}
+        </span>
+        <Badge variant="destructive" className="animate-pulse">
+          LIVE
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between text-lg font-semibold">
+          <span>{match.home_team.name}</span>
+          <span className="text-2xl font-bold text-primary">
+            {match.home_score ?? 0} - {match.away_score ?? 0}
+          </span>
+          <span>{match.away_team.name}</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### 2.10 Zustand Store Structure
 
 ```typescript
 // stores/filter-store.ts
@@ -763,11 +1279,11 @@ interface FilterState {
   selectedSeason: number | null;
   selectedStatus: MatchStatus | null;
   dateRange: { from: Date | null; to: Date | null } | null;
-  
+
   // Prediction filters
   minConfidence: number;
   selectedModelVersion: number | null;
-  
+
   // Actions
   setTournament: (id: number | null) => void;
   setSeason: (id: number | null) => void;
@@ -787,7 +1303,7 @@ export const useFilterStore = create<FilterState>()(
       dateRange: null,
       minConfidence: 0,
       selectedModelVersion: null,
-      
+
       setTournament: (id) => set({ selectedTournament: id, selectedSeason: null }),
       setSeason: (id) => set({ selectedSeason: id }),
       setStatus: (status) => set({ selectedStatus: status }),
@@ -818,7 +1334,7 @@ interface UIState {
   sidebarOpen: boolean;
   activeModal: string | null;
   modalData: unknown;
-  
+
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   openModal: (modal: string, data?: unknown) => void;
@@ -829,7 +1345,7 @@ export const useUIStore = create<UIState>((set) => ({
   sidebarOpen: true,
   activeModal: null,
   modalData: null,
-  
+
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   openModal: (modal, data) => set({ activeModal: modal, modalData: data }),
@@ -840,6 +1356,318 @@ export const useUIStore = create<UIState>((set) => ({
 ---
 
 ## Phase 3: Core Pages & Features
+
+### 3.0 Suspense Boundaries & Error Handling
+
+Leverage React 18+ Suspense for streaming and provide resilient error handling:
+
+#### Suspense Boundaries for Parallel Data Streaming
+
+```typescript
+// app/matches/page.tsx
+
+import { Suspense } from 'react';
+import { MatchList } from '@/components/matches/match-list';
+import { MatchFilters } from '@/components/matches/match-filters';
+import { MatchListSkeleton } from '@/components/matches/match-list-skeleton';
+import { FiltersSkeleton } from '@/components/matches/filters-skeleton';
+
+export default function MatchesPage() {
+  return (
+    <div className="container mx-auto py-8 space-y-6">
+      <h1 className="text-3xl font-bold">Matches</h1>
+
+      {/* Filters load independently */}
+      <Suspense fallback={<FiltersSkeleton />}>
+        <MatchFilters />
+      </Suspense>
+
+      {/* Match list streams in as data loads */}
+      <Suspense fallback={<MatchListSkeleton count={10} />}>
+        <MatchList />
+      </Suspense>
+    </div>
+  );
+}
+```
+
+```typescript
+// app/dashboard/page.tsx
+
+import { Suspense } from 'react';
+import { UpcomingMatches } from '@/components/dashboard/upcoming-matches';
+import { ValueBetsSummary } from '@/components/dashboard/value-bets-summary';
+import { ActiveModelCard } from '@/components/dashboard/active-model-card';
+import { PredictionAccuracyChart } from '@/components/charts/prediction-accuracy';
+import {
+  UpcomingMatchesSkeleton,
+  ValueBetsSkeleton,
+  ModelCardSkeleton,
+  ChartSkeleton
+} from '@/components/skeletons';
+
+export default function DashboardPage() {
+  return (
+    <div className="container mx-auto py-8">
+      <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* Each section loads independently for faster perceived performance */}
+        <Suspense fallback={<UpcomingMatchesSkeleton />}>
+          <UpcomingMatches />
+        </Suspense>
+
+        <Suspense fallback={<ValueBetsSkeleton />}>
+          <ValueBetsSummary />
+        </Suspense>
+
+        <Suspense fallback={<ModelCardSkeleton />}>
+          <ActiveModelCard />
+        </Suspense>
+      </div>
+
+      <div className="mt-8">
+        <Suspense fallback={<ChartSkeleton height={300} />}>
+          <PredictionAccuracyChart />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+```
+
+#### Route-Level Error Boundaries
+
+```typescript
+// app/matches/error.tsx
+
+'use client';
+
+import { useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { AlertCircle, RefreshCw } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+interface ErrorBoundaryProps {
+  error: Error & { digest?: string };
+  reset: () => void;
+}
+
+export default function MatchError({ error, reset }: ErrorBoundaryProps) {
+  useEffect(() => {
+    // Log to error monitoring service (e.g., Sentry)
+    console.error('Match page error:', error);
+  }, [error]);
+
+  return (
+    <div className="container mx-auto py-8">
+      <Card className="border-destructive/50 bg-destructive/10">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-5 w-5" />
+            Something went wrong
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground">
+            {error.message || 'Failed to load matches. Please try again.'}
+          </p>
+          {error.digest && (
+            <p className="text-xs text-muted-foreground">
+              Error ID: {error.digest}
+            </p>
+          )}
+          <div className="flex gap-4">
+            <Button onClick={reset} variant="outline">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Try Again
+            </Button>
+            <Button variant="ghost" asChild>
+              <a href="/">Go to Dashboard</a>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+```
+
+#### Reusable Error Boundary Component
+
+```typescript
+// components/error-boundary.tsx
+
+'use client';
+
+import { Component, ReactNode } from 'react';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle } from 'lucide-react';
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  fallback?: ReactNode;
+  onError?: (error: Error) => void;
+}
+
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError?.(error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+
+      return (
+        <div className="p-4 rounded-lg border border-destructive/50 bg-destructive/10">
+          <div className="flex items-center gap-2 text-destructive mb-2">
+            <AlertTriangle className="h-4 w-4" />
+            <span className="font-medium">Something went wrong</span>
+          </div>
+          <p className="text-sm text-muted-foreground mb-4">
+            {this.state.error?.message || 'An unexpected error occurred'}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => this.setState({ hasError: false, error: null })}
+          >
+            Try Again
+          </Button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+```
+
+#### Skeleton Components Library
+
+```typescript
+// components/skeletons/index.tsx
+
+import { Skeleton } from '@/components/ui/skeleton';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+
+export function MatchListSkeleton({ count = 5 }: { count?: number }) {
+  return (
+    <div className="space-y-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <Card key={i}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-48" />
+              </div>
+              <div className="space-y-2 text-right">
+                <Skeleton className="h-4 w-20 ml-auto" />
+                <Skeleton className="h-6 w-16 ml-auto" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+export function UpcomingMatchesSkeleton() {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-6 w-40" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex justify-between items-center">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-6 w-16" />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ValueBetsSkeleton() {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-6 w-32" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="flex justify-between items-center">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-4 w-20" />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ModelCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-6 w-28" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Skeleton className="h-8 w-full" />
+        <div className="flex gap-4">
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-20" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ChartSkeleton({ height = 200 }: { height?: number }) {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-6 w-40" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="w-full" style={{ height }} />
+      </CardContent>
+    </Card>
+  );
+}
+
+export function FiltersSkeleton() {
+  return (
+    <div className="flex gap-4 flex-wrap">
+      <Skeleton className="h-10 w-40" />
+      <Skeleton className="h-10 w-32" />
+      <Skeleton className="h-10 w-48" />
+      <Skeleton className="h-10 w-24" />
+    </div>
+  );
+}
+```
 
 ### 3.1 Dashboard (`/`)
 **Purpose**: At-a-glance view of upcoming matches, top predictions, system health
@@ -879,8 +1707,8 @@ const searchParams = useSearchParams();
 // Read initial state from URL
 const initialFilters = {
   status: searchParams.get('status') as MatchStatus || 'SCHEDULED',
-  tournament_id: searchParams.get('tournament_id') 
-    ? Number(searchParams.get('tournament_id')) 
+  tournament_id: searchParams.get('tournament_id')
+    ? Number(searchParams.get('tournament_id'))
     : null,
   // ...
 };
@@ -1031,13 +1859,13 @@ export function ConfidenceBadge({ confidence }: ConfidenceBadgeProps) {
     if (confidence >= 0.5) return 'warning';
     return 'destructive';
   };
-  
+
   const getLabel = () => {
     if (confidence >= 0.7) return 'High';
     if (confidence >= 0.5) return 'Medium';
     return 'Low';
   };
-  
+
   return (
     <Badge variant={getVariant()}>
       {getLabel()} Confidence ({(confidence * 100).toFixed(0)}%)
@@ -1226,36 +2054,300 @@ def get_team_form(team_id: int, db: Session = Depends(get_db)):
 - **Utils**: Formatting, odds calculations
 - **Hooks**: Custom React hooks with React Testing Library
 - **Stores**: Zustand store actions
+- **Schemas**: Zod validation testing
 
-### 7.2 Integration Tests
+### 7.2 Integration Tests with MSW
 - API client error handling
 - Query hook data fetching
 - Form validation flows
+- WebSocket connection handling
+
+#### MSW Test Setup
+
+```typescript
+// tests/setup.ts
+
+import { beforeAll, afterEach, afterAll } from 'vitest';
+import { server } from '@/mocks/server';
+import '@testing-library/jest-dom/vitest';
+
+// Start server before all tests
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+
+// Reset handlers after each test
+afterEach(() => server.resetHandlers());
+
+// Close server after all tests
+afterAll(() => server.close());
+```
+
+```typescript
+// vitest.config.ts
+
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./tests/setup.ts'],
+    globals: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      exclude: ['node_modules/', 'tests/', 'mocks/'],
+    },
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './'),
+    },
+  },
+});
+```
+
+#### Hook Testing Example
+
+```typescript
+// tests/unit/hooks/use-matches.test.ts
+
+import { describe, it, expect } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useMatches } from '@/lib/queries/use-matches';
+import { ReactNode } from 'react';
+
+const createWrapper = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+
+  return ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+};
+
+describe('useMatches', () => {
+  it('fetches scheduled matches', async () => {
+    const { result } = renderHook(
+      () => useMatches({ status: 'SCHEDULED' }),
+      { wrapper: createWrapper() }
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.pages[0]).toHaveLength(1);
+    expect(result.current.data?.pages[0][0].status).toBe('SCHEDULED');
+  });
+
+  it('handles API errors gracefully', async () => {
+    // Override handler for error testing
+    server.use(
+      http.get('*/api/v1/matches', () => {
+        return new HttpResponse(null, { status: 500 });
+      })
+    );
+
+    const { result } = renderHook(
+      () => useMatches(),
+      { wrapper: createWrapper() }
+    );
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error).toBeDefined();
+  });
+});
+```
+
+#### Component Testing Example
+
+```typescript
+// tests/integration/match-card.test.tsx
+
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MatchCard } from '@/components/matches/match-card';
+import { mockMatches } from '@/mocks/data/matches';
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
+describe('MatchCard', () => {
+  it('renders match details correctly', () => {
+    const match = mockMatches[0];
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MatchCard match={match} />
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByText('Manchester United')).toBeInTheDocument();
+    expect(screen.getByText('Arsenal')).toBeInTheDocument();
+    expect(screen.getByText('SCHEDULED')).toBeInTheDocument();
+  });
+
+  it('displays odds when available', () => {
+    const match = { ...mockMatches[0], odds_home: 2.10 };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MatchCard match={match} />
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByText('2.10')).toBeInTheDocument();
+  });
+});
+```
 
 ### 7.3 E2E Tests (Playwright)
 - Match listing and filtering
 - Prediction generation workflow
 - Model activation flow
 - Value bets display
+- Real-time updates (WebSocket)
+
+#### Playwright Configuration
+
+```typescript
+// playwright.config.ts
+
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './tests/e2e',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+  use: {
+    baseURL: 'http://localhost:3000',
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+    {
+      name: 'Mobile Chrome',
+      use: { ...devices['Pixel 5'] },
+    },
+  ],
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:3000',
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+#### E2E Test Example
+
+```typescript
+// tests/e2e/matches.spec.ts
+
+import { test, expect } from '@playwright/test';
+
+test.describe('Matches Page', () => {
+  test('displays scheduled matches', async ({ page }) => {
+    await page.goto('/matches');
+
+    // Wait for loading to complete
+    await expect(page.locator('[data-testid="match-list"]')).toBeVisible();
+
+    // Verify matches are displayed
+    const matchCards = page.locator('[data-testid="match-card"]');
+    await expect(matchCards).toHaveCount(10);
+  });
+
+  test('filters matches by status', async ({ page }) => {
+    await page.goto('/matches');
+
+    // Select "Finished" status
+    await page.getByRole('combobox', { name: 'Status' }).click();
+    await page.getByRole('option', { name: 'Finished' }).click();
+
+    // Wait for filtered results
+    await page.waitForResponse('**/api/v1/matches*status=FINISHED*');
+
+    // Verify all displayed matches are finished
+    const statuses = page.locator('[data-testid="match-status"]');
+    for (const status of await statuses.all()) {
+      await expect(status).toHaveText('FINISHED');
+    }
+  });
+
+  test('navigates to match detail', async ({ page }) => {
+    await page.goto('/matches');
+
+    // Click on first match
+    await page.locator('[data-testid="match-card"]').first().click();
+
+    // Verify navigation to detail page
+    await expect(page).toHaveURL(/\/matches\/\d+/);
+    await expect(page.locator('h1')).toContainText('vs');
+  });
+});
+```
 
 ### 7.4 Test Structure
 ```
 frontend/
 ├── tests/
+│   ├── setup.ts               # Global test setup with MSW
 │   ├── unit/
 │   │   ├── utils/
-│   │   └── hooks/
+│   │   │   ├── format.test.ts
+│   │   │   └── odds.test.ts
+│   │   ├── hooks/
+│   │   │   ├── use-matches.test.ts
+│   │   │   ├── use-predictions.test.ts
+│   │   │   └── use-debounce.test.ts
+│   │   ├── stores/
+│   │   │   ├── filter-store.test.ts
+│   │   │   └── ui-store.test.ts
+│   │   └── schemas/
+│   │       └── validation.test.ts
 │   ├── integration/
-│   │   └── api/
+│   │   ├── api/
+│   │   │   ├── client.test.ts
+│   │   │   └── error-handling.test.ts
+│   │   └── components/
+│   │       ├── match-card.test.tsx
+│   │       ├── prediction-card.test.tsx
+│   │       └── filters.test.tsx
 │   └── e2e/
 │       ├── matches.spec.ts
 │       ├── predictions.spec.ts
-│       └── models.spec.ts
+│       ├── models.spec.ts
+│       └── value-bets.spec.ts
+├── vitest.config.ts
+└── playwright.config.ts
 ```
 
 ---
 
-## Phase 8: Deployment Considerations
+## Phase 8: Deployment & CI/CD
 
 ### 8.1 Frontend Deployment
 - **Vercel**: Recommended for Next.js
@@ -1292,7 +2384,392 @@ services:
 - Optional: Redis for caching query results
 - Optional: Cloud storage for model artifacts (S3/GCS)
 
----
+### 8.4 CI/CD Pipeline with GitHub Actions
+
+#### Frontend CI Workflow
+
+```yaml
+# .github/workflows/frontend-ci.yml
+
+name: Frontend CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'frontend/**'
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript type check
+        run: npm run typecheck
+
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./frontend/coverage/coverage-final.json
+          flags: frontend
+          fail_ci_if_error: false
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_ENABLE_MOCKING: 'true'
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 30
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js app
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.API_URL }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextjs-build
+          path: frontend/.next/
+          retention-days: 7
+```
+
+#### Backend CI Workflow
+
+```yaml
+# .github/workflows/backend-ci.yml
+
+name: Backend CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'algobet/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'algobet/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv pip install -e ".[dev]" --system
+
+      - name: Run Ruff
+        run: ruff check algobet/
+
+      - name: Run mypy
+        run: mypy algobet/
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: algobet
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: football_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv pip install -e ".[dev]" --system
+
+      - name: Run pytest
+        run: pytest tests/ --cov=algobet --cov-report=xml
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: algobet
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: football_test
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: backend
+```
+
+#### CD Workflow (Deploy)
+
+```yaml
+# .github/workflows/deploy.yml
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-frontend:
+    name: Deploy Frontend to Vercel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+          working-directory: frontend
+
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy API to production
+        # Customize based on your hosting provider
+        run: |
+          echo "Deploy to your preferred hosting (Railway, Fly.io, AWS, etc.)"
+```
+
+### 8.5 OpenAPI Type Generation
+
+Automatically generate TypeScript types from FastAPI's OpenAPI schema to ensure type consistency:
+
+#### Generation Script
+
+```bash
+# scripts/generate-api-types.sh
+#!/bin/bash
+
+# Fetch OpenAPI schema from running API
+API_URL="${API_URL:-http://localhost:8000}"
+OUTPUT_DIR="frontend/lib/types"
+
+echo "Fetching OpenAPI schema from $API_URL..."
+
+# Generate TypeScript types
+npx openapi-typescript "$API_URL/openapi.json" \
+  --output "$OUTPUT_DIR/api-generated.ts" \
+  --export-type \
+  --immutable-types
+
+echo "Types generated at $OUTPUT_DIR/api-generated.ts"
+```
+
+#### Package.json Script
+
+```json
+{
+  "scripts": {
+    "generate:types": "bash ../scripts/generate-api-types.sh",
+    "generate:types:watch": "nodemon --watch ../algobet/api --ext py --exec 'npm run generate:types'"
+  }
+}
+```
+
+#### Usage with Generated Types
+
+```typescript
+// lib/api/client.ts (updated to use generated types)
+
+import type { paths, components } from '@/lib/types/api-generated';
+
+// Extract response types from generated schema
+type MatchResponse = components['schemas']['MatchResponse'];
+type PredictionResponse = components['schemas']['PredictionResponse'];
+
+// Type-safe API calls
+export async function getMatches(
+  params?: paths['/api/v1/matches']['get']['parameters']['query']
+): Promise<MatchResponse[]> {
+  const queryString = new URLSearchParams(params as Record<string, string>);
+  return fetchAPI(`/api/v1/matches?${queryString}`);
+}
+
+export async function getMatch(
+  id: number
+): Promise<paths['/api/v1/matches/{id}']['get']['responses']['200']['content']['application/json']> {
+  return fetchAPI(`/api/v1/matches/${id}`);
+}
+```
+
+#### CI Integration for Type Generation
+
+```yaml
+# Add to .github/workflows/frontend-ci.yml
+
+  type-sync:
+    name: Verify API Types Sync
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: algobet
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: football
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install backend dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Start API server
+        run: |
+          uvicorn algobet.api.main:app --host 0.0.0.0 --port 8000 &
+          sleep 5
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_DB: football
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate types
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run generate:types
+
+      - name: Check for type changes
+        run: |
+          if [[ -n $(git status --porcelain frontend/lib/types/api-generated.ts) ]]; then
+            echo "::error::API types are out of sync. Run 'npm run generate:types' and commit the changes."
+            exit 1
+          fi
+```
 
 ## Phase 9: Performance Optimization Guidelines
 
@@ -1322,13 +2799,15 @@ services:
 ## Phase 10: Future Enhancements
 
 1. **Authentication**: User accounts for saved predictions, custom models
-2. **WebSocket**: Real-time odds updates and live match status
+2. ~~**WebSocket**: Real-time odds updates and live match status~~ ✅ *Implemented in Section 2.9*
 3. **Mobile App**: React Native wrapper or PWA
 4. **Export**: PDF reports, scheduled email digests
 5. **Advanced Analytics**: A/B testing of models, ROI tracking per strategy
 6. **Social Features**: Share predictions, community leaderboards
-7. **Notifications**: Alert when value bets are detected
-8. **Import**: User data import/export
+7. **Notifications**: Alert when value bets are detected (push notifications)
+8. **Import/Export**: User data import/export (CSV, JSON)
+9. **Multi-language Support**: i18n with next-intl
+10. **Offline Support**: Service worker for offline access to cached data
 
 ---
 
@@ -1350,6 +2829,17 @@ services:
 | GET | `/value-bets` | Value bet opportunities | min_ev, days, max_matches |
 | GET | `/models` | List models | active_only, algorithm |
 | POST | `/models/{id}/activate` | Activate model | - |
+| WS | `/ws` | WebSocket connection | - |
+
+### WebSocket Event Types
+
+| Event Type | Direction | Description |
+|------------|-----------|-------------|
+| `match_update` | Server → Client | Live match score/status update |
+| `odds_update` | Server → Client | Real-time odds change |
+| `prediction_ready` | Server → Client | New prediction generated |
+| `subscribe` | Client → Server | Subscribe to specific match updates |
+| `unsubscribe` | Client → Server | Unsubscribe from match updates |
 
 ### Component Naming Convention
 - Pages: `page.tsx` (Next.js convention)
@@ -1359,8 +2849,36 @@ services:
 - Components: kebab-case (e.g., `match-card.tsx`)
 - Hooks: camelCase with `use` prefix (e.g., `use-matches.ts`)
 - Stores: kebab-case (e.g., `filter-store.ts`)
+- Skeletons: `*-skeleton.tsx` (e.g., `match-list-skeleton.tsx`)
+- Tests: `*.test.ts` or `*.spec.ts`
+
+### NPM Scripts Reference
+
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | TypeScript type checking |
+| `npm run test` | Run Vitest unit/integration tests |
+| `npm run test:coverage` | Tests with coverage report |
+| `npm run test:e2e` | Run Playwright E2E tests |
+| `npm run generate:types` | Generate API types from OpenAPI |
 
 ---
 
-*Document Version: 1.1*
+*Document Version: 2.0*
 *Last Updated: 2026-02-01*
+
+### Changelog
+
+#### v2.0 (2026-02-01)
+- Added Zod runtime validation schemas (Section 2.4)
+- Added MSW API mocking for development/testing (Section 2.5)
+- Added WebSocket real-time updates (Section 2.9)
+- Added Suspense boundaries and Error Handling patterns (Section 3.0)
+- Added comprehensive skeleton components library
+- Expanded testing section with MSW integration, Vitest, and Playwright examples
+- Added CI/CD pipelines with GitHub Actions (Section 8.4)
+- Added OpenAPI type generation workflow (Section 8.5)
+- Updated Future Enhancements with completed items

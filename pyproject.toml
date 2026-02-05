@@ -14,11 +14,78 @@ dependencies = [
     "xgboost>=2.0.0",
     "numpy>=1.24.0",
     "pandas>=2.0.0",
-    "tabulate>=0.9.0"
+    "tabulate>=0.9.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "pytest>=7.4.0",
+    "httpx>=0.25.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.1.0",
+    "pre-commit>=3.5.0",
+    "mypy>=1.7.0",
 ]
 
 [project.scripts]
 algobet = "algobet.cli:cli"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+indent-width = 4
+exclude = [
+    ".git",
+    ".git-rewrite",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "__pypackages__",
+    "__pycache__",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # Pyflakes
+    "I",    # isort
+    "W",    # pycodestyle warnings
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "B008",  # FastAPI uses function calls in argument defaults (Query, Depends)
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/conftest.py" = ["E402"]  # Imports not at top for monkeypatching
+"algobet/scraper.py" = ["E501", "W291", "W293"]  # JavaScript strings inside Python
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["algobet"]
+force-single-line = false
+combine-as-imports = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -26,3 +93,43 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_configs = true
+show_error_codes = true
+ignore_missing_imports = false
+
+# Ignore missing imports for libraries without stubs
+[[tool.mypy.overrides]]
+module = [
+    "playwright.*",
+    "psycopg2.*",
+    "psycopg2_binary.*",
+    "tabulate.*",
+]
+ignore_missing_imports = true
+
+# SQLAlchemy plugin settings for 2.0 style
+[[tool.mypy.overrides]]
+module = ["algobet.models", "algobet.database"]
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = ["sqlalchemy.*"]
+ignore_missing_imports = false
+
+# Pydantic plugin settings for v2
+[[tool.mypy.overrides]]
+module = ["pydantic.*"]
+ignore_missing_imports = false
+
+# Tests - disable strict checking
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+strict = false

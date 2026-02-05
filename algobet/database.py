@@ -1,11 +1,11 @@
 """Database connection and session management."""
 
 import os
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from algobet.models import Base
@@ -24,7 +24,7 @@ def get_db_url() -> str:
     return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
 
 
-def create_db_engine():
+def create_db_engine() -> Engine:
     """Create database engine."""
     return create_engine(get_db_url())
 

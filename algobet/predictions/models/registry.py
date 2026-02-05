@@ -1,11 +1,13 @@
 """Model registry for managing trained ML model versions."""
 
+import contextlib
 import json
 import pickle
-from dataclasses import dataclass, asdict
+from collections.abc import Iterator
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,8 +27,8 @@ class ModelMetadata:
     feature_schema_version: str
     artifact_path: Path
     is_production: bool = False
-    tags: Optional[dict[str, str]] = None
-    description: Optional[str] = None
+    tags: dict[str, str] | None = None
+    description: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert metadata to dictionary for serialization."""
@@ -69,8 +71,8 @@ class ModelRegistry:
         metrics: dict[str, float],
         model_type: str = "xgboost",
         feature_schema_version: str = "v1.0",
-        description: Optional[str] = None,
-        tags: Optional[dict[str, str]] = None,
+        description: str | None = None,
+        tags: dict[str, str] | None = None,
     ) -> str:
         """Save model to disk and register in database.
 
@@ -206,7 +208,7 @@ class ModelRegistry:
         return model, metadata
 
     def list_models(
-        self, model_type: Optional[str] = None, active_only: bool = False
+        self, model_type: str | None = None, active_only: bool = False
     ) -> Iterator[ModelMetadata]:
         """List all registered model versions.
 
@@ -288,9 +290,7 @@ class ModelRegistry:
             metadata_path.unlink()
 
         # Try to remove empty parent directory
-        try:
-            artifact_path.parent.rmdir()
-        except OSError:
-            pass  # Directory not empty
+        with contextlib.suppress(OSError):
+            artifact_path.parent.rmdir()  # Directory not empty
 
         self.session.flush()

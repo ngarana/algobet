@@ -2,15 +2,16 @@
 
 import csv
 import re
-from typing import Optional
+from typing import Any
 
 import click
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from .database import init_db, session_scope
-from .models import Tournament, Season, Team, Match
-from .scraper import OddsPortalScraper, ScrapedMatch
+from .models import Match, Season, Team, Tournament
 from .predictions_cli import predictions
+from .scraper import OddsPortalScraper, ScrapedMatch
 
 
 def parse_league_info(url: str) -> tuple[str, str, str]:
@@ -34,7 +35,7 @@ def parse_league_info(url: str) -> tuple[str, str, str]:
     return country, league_name, slug
 
 
-def extract_season_from_url(url: str) -> Optional[str]:
+def extract_season_from_url(url: str) -> str | None:
     """Extract season suffix from URL if present.
 
     Args:
@@ -47,7 +48,9 @@ def extract_season_from_url(url: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def get_or_create_tournament(session, country: str, name: str, slug: str) -> Tournament:
+def get_or_create_tournament(
+    session: Session, country: str, name: str, slug: str
+) -> Tournament:
     """Get or create a tournament."""
     tournament = session.execute(
         select(Tournament).where(Tournament.url_slug == slug)
@@ -62,7 +65,7 @@ def get_or_create_tournament(session, country: str, name: str, slug: str) -> Tou
 
 
 def get_or_create_season(
-    session, tournament: Tournament, name: str, url_suffix: Optional[str]
+    session: Session, tournament: Tournament, name: str, url_suffix: str | None
 ) -> Season:
     """Get or create a season."""
     season = session.execute(
@@ -88,7 +91,7 @@ def get_or_create_season(
     return season
 
 
-def get_or_create_team(session, name: str) -> Team:
+def get_or_create_team(session: Session, name: str) -> Team:
     """Get or create a team."""
     team = session.execute(select(Team).where(Team.name == name)).scalar_one_or_none()
 
@@ -101,7 +104,10 @@ def get_or_create_team(session, name: str) -> Team:
 
 
 def save_matches_to_db(
-    session, matches: list[ScrapedMatch], tournament: Tournament, season: Season
+    session: Session,
+    matches: list[ScrapedMatch],
+    tournament: Tournament,
+    season: Season,
 ) -> int:
     """Save scraped matches to database.
 
@@ -147,7 +153,7 @@ def save_matches_to_db(
     return saved_count
 
 
-def save_upcoming_matches(session, matches_data: list[dict]) -> int:
+def save_upcoming_matches(session: Session, matches_data: list[dict[str, Any]]) -> int:
     """Save upcoming matches to database.
 
     Args:
@@ -240,7 +246,7 @@ def save_upcoming_matches(session, matches_data: list[dict]) -> int:
 
 
 @click.group()
-def cli():
+def cli() -> None:
     """AlgoBet - Football match database and OddsPortal scraper."""
     pass
 
@@ -250,9 +256,10 @@ cli.add_command(predictions)
 
 
 @cli.command()
-def init():
+def init() -> None:
     """Initialize the database."""
     import time
+
     from sqlalchemy.exc import OperationalError
 
     max_retries = 30
@@ -280,7 +287,7 @@ def init():
     help="OddsPortal upcoming matches URL",
 )
 @click.option("--headless/--no-headless", default=True, help="Run browser headlessly")
-def scrape_upcoming(url: str, headless: bool):
+def scrape_upcoming(url: str, headless: bool) -> None:
     """Scrape upcoming matches from OddsPortal."""
     click.echo(f"Scraping upcoming matches from: {url}")
 
@@ -309,7 +316,7 @@ def scrape_upcoming(url: str, headless: bool):
     "--pages", type=int, default=None, help="Max pages to scrape (all if not set)"
 )
 @click.option("--headless/--no-headless", default=True, help="Run browser headlessly")
-def scrape(url: str, pages: Optional[int], headless: bool):
+def scrape(url: str, pages: int | None, headless: bool) -> None:
     """Scrape matches from an OddsPortal results page."""
 
     # Ensure database exists/connected
@@ -366,7 +373,7 @@ def scrape(url: str, pages: Optional[int], headless: bool):
     "--url", required=True, help="OddsPortal results page URL (current season)"
 )
 @click.option("--headless/--no-headless", default=True, help="Run browser headlessly")
-def seasons(url: str, headless: bool):
+def seasons(url: str, headless: bool) -> None:
     """List available seasons for a league."""
     with OddsPortalScraper(headless=headless) as scraper:
         scraper.navigate_to_results(url)
@@ -390,11 +397,11 @@ def seasons(url: str, headless: bool):
 @click.option("--headless/--no-headless", default=True, help="Run browser headlessly")
 def scrape_all(
     url: str,
-    from_season: Optional[str],
-    to_season: Optional[str],
-    pages: Optional[int],
+    from_season: str | None,
+    to_season: str | None,
+    pages: int | None,
     headless: bool,
-):
+) -> None:
     """Scrape matches from multiple seasons.
 
     Examples:
@@ -484,9 +491,9 @@ def scrape_all(
 @click.option("--season", help="Filter by season (e.g., 2023/2024)")
 def export(
     output: str,
-    tournament: Optional[str],
-    season: Optional[str],
-):
+    tournament: str | None,
+    season: str | None,
+) -> None:
     """Export matches to CSV."""
     with session_scope() as session:
         query = select(Match)

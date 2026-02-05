@@ -1,11 +1,12 @@
 """Playwright-based web scraper for OddsPortal football match data."""
 
+import contextlib
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any
 
-from playwright.sync_api import sync_playwright, Page, Browser
+from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 
 
 @dataclass
@@ -17,10 +18,10 @@ class ScrapedMatch:
     away_team: str
     home_score: int
     away_score: int
-    odds_home: Optional[float] = None
-    odds_draw: Optional[float] = None
-    odds_away: Optional[float] = None
-    num_bookmakers: Optional[int] = None
+    odds_home: float | None = None
+    odds_draw: float | None = None
+    odds_away: float | None = None
+    num_bookmakers: int | None = None
 
 
 @dataclass
@@ -28,7 +29,7 @@ class SeasonInfo:
     """Information about a season."""
 
     name: str  # e.g., "2023/2024"
-    url_suffix: Optional[str]  # e.g., "2023-2024" or None for current
+    url_suffix: str | None  # e.g., "2023-2024" or None for current
     is_current: bool
 
 
@@ -47,16 +48,16 @@ class OddsPortalScraper:
             headless: Run browser in headless mode (no GUI).
         """
         self.headless = headless
-        self._playwright = None
-        self._browser: Optional[Browser] = None
-        self._page: Optional[Page] = None
+        self._playwright: Playwright | None = None
+        self._browser: Browser | None = None
+        self._page: Page | None = None
 
-    def __enter__(self):
+    def __enter__(self) -> "OddsPortalScraper":
         """Context manager entry."""
         self.start()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit."""
         self.close()
 
@@ -81,6 +82,8 @@ class OddsPortalScraper:
         Args:
             url: The URL of the results page.
         """
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
         # Use domcontentloaded instead of load for faster initial response
         self._page.goto(url, wait_until="domcontentloaded", timeout=120000)
         # Wait for match rows to load (may take time due to JS rendering)
@@ -97,6 +100,8 @@ class OddsPortalScraper:
         Returns:
             List of SeasonInfo objects.
         """
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
         seasons = []
 
         # Find all season links
@@ -150,6 +155,8 @@ class OddsPortalScraper:
         Returns:
             List of ScrapedMatch objects.
         """
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
         matches = []
 
         # Ensure content is loaded - wait for at least one game row
@@ -161,29 +168,31 @@ class OddsPortalScraper:
             )
         except Exception:
             print(
-                "Warning: Timeout waiting for game rows or odds, attempting to scrape anyway..."
+                "Warning: Timeout waiting for game rows or odds, "
+                "attempting to scrape anyway..."
             )
 
         # Use JavaScript to extract all match data with proper date association
         # This iterates through all children of ALL eventRow containers
-        match_data = self._page.evaluate("""
+        match_data = self._page.evaluate(
+            """
             () => {
                 const results = [];
                 let currentDate = null;
-                
+
                 // Find all containers with events
                 const containers = Array.from(document.querySelectorAll('.eventRow'));
-                
+
                 // Fallback if no eventRow class found
                 if (containers.length === 0) {
                     const panel = document.querySelector('div[data-testid="results-panel"]');
                     if (panel) containers.push(panel);
                 }
-                
+
                 for (const container of containers) {
                     // Get all direct children
                     const children = Array.from(container.children);
-                    
+
                     for (const child of children) {
                         // Check if this is a date header
                         const dateHeader = child.querySelector('div[data-testid="date-header"]');
@@ -195,34 +204,34 @@ class OddsPortalScraper:
                             }
                             continue;
                         }
-                        
+
                         // Check if this is a match row
-                        const gameRow = child.querySelector('div[data-testid="game-row"]') || 
+                        const gameRow = child.querySelector('div[data-testid="game-row"]') ||
                                         (child.getAttribute('data-testid') === 'game-row' ? child : null);
                         if (!gameRow) continue;
-                        
+
                         // Extract time
                         const timeElem = gameRow.querySelector('div[data-testid="time-item"]');
                         const timeStr = timeElem ? timeElem.innerText.trim() : '00:00';
-                        
+
                         // Extract teams (links with title attribute)
                         const teamLinks = Array.from(gameRow.querySelectorAll('a[title]'));
                         if (teamLinks.length < 2) continue;
-                        
+
                         const homeTeam = teamLinks[0].getAttribute('title') || teamLinks[0].innerText.trim();
                         const awayTeam = teamLinks[1].getAttribute('title') || teamLinks[1].innerText.trim();
-                        
+
                         // Extract score
                         const rowText = gameRow.innerText;
                         const scoreMatch = rowText.match(/(\\d+)\\s*[–-]\\s*(\\d+)/);
                         if (!scoreMatch) continue;
-                        
+
                         const homeScore = parseInt(scoreMatch[1]);
                         const awayScore = parseInt(scoreMatch[2]);
-                        
+
                         // Extract odds (decimal numbers)
                         const oddsMatches = rowText.match(/(\\d+\\.\\d+)/g) || [];
-                        
+
                         results.push({
                             date: currentDate,
                             time: timeStr,
@@ -237,10 +246,11 @@ class OddsPortalScraper:
                         });
                     }
                 }
-                
+
                 return results;
             }
-        """)
+        """
+        )
 
         # Convert JavaScript results to ScrapedMatch objects
         for data in match_data:
@@ -255,10 +265,8 @@ class OddsPortalScraper:
                             f"{date_str} {time_str}", "%d %b %Y %H:%M"
                         )
                     except ValueError:
-                        try:
+                        with contextlib.suppress(ValueError):
                             match_date = datetime.strptime(date_str, "%d %b %Y")
-                        except ValueError:
-                            pass
 
                 match = ScrapedMatch(
                     match_date=match_date,
@@ -288,6 +296,8 @@ class OddsPortalScraper:
         Args:
             url: The URL of the matches page.
         """
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
         # Use domcontentloaded instead of load for faster initial response
         self._page.goto(url, wait_until="domcontentloaded", timeout=120000)
         # Wait for match rows to load
@@ -298,12 +308,14 @@ class OddsPortalScraper:
                 "Warning: Timeout waiting for game-row selector in navigate_to_upcoming"
             )
 
-    def scrape_upcoming_matches(self) -> list[dict]:
+    def scrape_upcoming_matches(self) -> list[dict[str, Any]]:
         """Scrape upcoming matches from the current page.
 
         Returns:
             List of dictionaries with match data (including tournament info).
         """
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
         # Ensure content is loaded
         try:
             self._page.wait_for_selector('div[data-testid="game-row"]', timeout=30000)
@@ -313,11 +325,13 @@ class OddsPortalScraper:
             )
         except Exception:
             print(
-                "Warning: Timeout waiting for game rows or odds, attempting to scrape anyway..."
+                "Warning: Timeout waiting for game rows or odds, "
+                "attempting to scrape anyway..."
             )
 
         # Use JavaScript to extract match data with context (Date and Tournament)
-        match_data = self._page.evaluate("""
+        match_data = self._page.evaluate(
+            """
             () => {
                 const results = [];
                 let currentDate = null;
@@ -326,7 +340,7 @@ class OddsPortalScraper:
 
                 // Find all containers with events
                 const containers = Array.from(document.querySelectorAll('.eventRow'));
-                
+
                 // Fallback if no eventRow class found
                 if (containers.length === 0) {
                     const panel = document.querySelector('div[data-testid="results-panel"]');
@@ -359,30 +373,30 @@ class OddsPortalScraper:
                         // 2. Check for Tournament Header
                         // Structure: Football / Country / Tournament
                         const link = child.querySelector('a[href*="/football/"]');
-                        if (link && child.className.includes('bg-gray-light')) { 
+                        if (link && child.className.includes('bg-gray-light')) {
                             // This is likely a tournament header row
                             const text = link.innerText.trim();
                             // Try to parse Country / Tournament
-                            // Usually breadcrumbs structure isn't directly in text here, 
+                            // Usually breadcrumbs structure isn't directly in text here,
                             // but often the link title or text helps.
                             // Let's assume the text is the Tournament name
                             currentTournament = text;
-                            
+
                             // Try to find country (often in sibling or part of URL)
                             const href = link.getAttribute('href');
                             if (href) {
                                 const parts = href.split('/').filter(p => p);
                                 if (parts.length >= 3) {
-                                    currentCountry = parts[2].replace(/-/g, ' '); 
+                                    currentCountry = parts[2].replace(/-/g, ' ');
                                 }
                             }
                             continue;
                         }
-                        
+
                         // 3. Check for Match Row
-                        const gameRow = child.querySelector('div[data-testid="game-row"]') || 
+                        const gameRow = child.querySelector('div[data-testid="game-row"]') ||
                                         (child.getAttribute('data-testid') === 'game-row' ? child : null);
-                        
+
                         if (!gameRow) continue;
 
                         // Extract time
@@ -419,7 +433,8 @@ class OddsPortalScraper:
                 }
                 return results;
             }
-        """)
+        """
+        )
 
         parsed_matches = []
         for data in match_data:
@@ -476,6 +491,8 @@ class OddsPortalScraper:
         Returns:
             Total page count.
         """
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
         pagination_links = self._page.query_selector_all(self.PAGINATION_SELECTOR)
         max_page = 1
 
@@ -495,6 +512,8 @@ class OddsPortalScraper:
         Returns:
             True if navigation was successful.
         """
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
         try:
             # Find the pagination link with the page number
             link = self._page.query_selector(
@@ -504,17 +523,15 @@ class OddsPortalScraper:
                 link.click()
                 # Wait for content to update
                 self._page.wait_for_load_state("networkidle")
-                try:
+                with contextlib.suppress(Exception):
                     self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=10000)
-                except Exception:
-                    pass
                 return True
         except Exception as e:
             print(f"Error navigating to page {page_num}: {e}")
 
         return False
 
-    def scrape_all_pages(self, max_pages: Optional[int] = None) -> list[ScrapedMatch]:
+    def scrape_all_pages(self, max_pages: int | None = None) -> list[ScrapedMatch]:
         """Scrape matches from all pagination pages.
 
         Args:

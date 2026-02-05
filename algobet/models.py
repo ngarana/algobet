@@ -1,20 +1,20 @@
 """SQLAlchemy database models for football match data."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any
 
 from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
-    Float,
-    DateTime,
-    Boolean,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -59,7 +59,7 @@ class Season(Base):
     name: Mapped[str] = mapped_column(String(20), nullable=False)  # e.g., "2023/2024"
     start_year: Mapped[int] = mapped_column(Integer, nullable=False)
     end_year: Mapped[int] = mapped_column(Integer, nullable=False)
-    url_suffix: Mapped[Optional[str]] = mapped_column(
+    url_suffix: Mapped[str | None] = mapped_column(
         String(50), nullable=True
     )  # e.g., "2023-2024" or None for current
 
@@ -116,10 +116,10 @@ class Match(Base):
 
     # Match details
     match_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    home_score: Mapped[Optional[int]] = mapped_column(
+    home_score: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )  # Nullable for upcoming matches
-    away_score: Mapped[Optional[int]] = mapped_column(
+    away_score: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )  # Nullable for upcoming matches
     status: Mapped[str] = mapped_column(
@@ -127,10 +127,10 @@ class Match(Base):
     )  # e.g., 'SCHEDULED', 'FINISHED', 'LIVE'
 
     # Betting odds (decimal format)
-    odds_home: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    odds_draw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    odds_away: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    num_bookmakers: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    odds_home: Mapped[float | None] = mapped_column(Float, nullable=True)
+    odds_draw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    odds_away: Mapped[float | None] = mapped_column(Float, nullable=True)
+    num_bookmakers: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
@@ -167,8 +167,11 @@ class Match(Base):
         )
 
     @property
-    def result(self) -> Optional[str]:
-        """Return match result as 'H', 'D', or 'A'. Returns None if scores are not available."""
+    def result(self) -> str | None:
+        """Return match result as 'H', 'D', or 'A'.
+
+        Returns None if scores are not available.
+        """
         if self.home_score is None or self.away_score is None:
             return None
         if self.home_score > self.away_score:
@@ -187,16 +190,18 @@ class ModelVersion(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     version: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     algorithm: Mapped[str] = mapped_column(String(50), nullable=False)
-    accuracy: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    
+
     # Additional metadata stored as JSONB
-    metrics: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    hyperparameters: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    feature_schema_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    hyperparameters: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    feature_schema_version: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Relationships
     predictions: Mapped[list["Prediction"]] = relationship(
@@ -205,8 +210,9 @@ class ModelVersion(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<ModelVersion(id={self.id}, name='{self.name}', version='{self.version}', "
-            f"algorithm='{self.algorithm}', is_active={self.is_active})>"
+            f"<ModelVersion(id={self.id}, name='{self.name}', "
+            f"version='{self.version}', algorithm='{self.algorithm}', "
+            f"is_active={self.is_active})>"
         )
 
 
@@ -222,26 +228,28 @@ class Prediction(Base):
     model_version_id: Mapped[int] = mapped_column(
         ForeignKey("model_versions.id", ondelete="CASCADE"), nullable=False
     )
-    
+
     # Probability predictions
     prob_home: Mapped[float] = mapped_column(Float, nullable=False)
     prob_draw: Mapped[float] = mapped_column(Float, nullable=False)
     prob_away: Mapped[float] = mapped_column(Float, nullable=False)
-    
+
     # Prediction metadata
     predicted_outcome: Mapped[str] = mapped_column(String(1), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     predicted_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    
+
     # Optional actual ROI tracking
-    actual_roi: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    actual_roi: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Relationships
     match: Mapped["Match"] = relationship(back_populates="predictions")
     model_version: Mapped["ModelVersion"] = relationship(back_populates="predictions")
 
     __table_args__ = (
-        UniqueConstraint("match_id", "model_version_id", name="uq_prediction_match_model"),
+        UniqueConstraint(
+            "match_id", "model_version_id", name="uq_prediction_match_model"
+        ),
     )
 
     def __repr__(self) -> str:

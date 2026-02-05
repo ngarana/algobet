@@ -7,11 +7,12 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any
 
 import click
 import numpy as np
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 from tabulate import tabulate
 
 from algobet.database import session_scope
@@ -22,7 +23,7 @@ from algobet.predictions.models.registry import ModelRegistry
 
 
 @click.group()
-def predictions():
+def predictions() -> None:
     """AlgoBet prediction engine model management commands."""
     pass
 
@@ -30,6 +31,7 @@ def predictions():
 @dataclass
 class PredictionResult:
     """Result of a match prediction."""
+
     match_id: int
     match_date: datetime
     home_team: str
@@ -42,6 +44,7 @@ class PredictionResult:
 @dataclass
 class ValueBet:
     """Result of a value betting opportunity."""
+
     match_date: datetime
     home_team: str
     away_team: str
@@ -54,7 +57,7 @@ class ValueBet:
 
 
 def _load_model(
-    registry: ModelRegistry, model_version: Optional[str] = None
+    registry: ModelRegistry, model_version: str | None = None
 ) -> tuple[Any, str]:
     """Load model from registry.
 
@@ -74,11 +77,11 @@ def _load_model(
 
 
 def _query_matches(
-    session,
-    match_ids: Optional[list[int]] = None,
-    tournament_name: Optional[str] = None,
+    session: Session,
+    match_ids: list[int] | None = None,
+    tournament_name: str | None = None,
     days_ahead: int = 7,
-    status: str = "SCHEDULED"
+    status: str = "SCHEDULED",
 ) -> list[Match]:
     """Query matches based on filters.
 
@@ -121,34 +124,22 @@ def _generate_features(
         Dictionary of features
     """
     home_form = calc.calculate_recent_form(
-        team_id=match.home_team_id,
-        reference_date=match.match_date,
-        n_matches=5
+        team_id=match.home_team_id, reference_date=match.match_date, n_matches=5
     )
     away_form = calc.calculate_recent_form(
-        team_id=match.away_team_id,
-        reference_date=match.match_date,
-        n_matches=5
+        team_id=match.away_team_id, reference_date=match.match_date, n_matches=5
     )
     home_goals = calc.calculate_goals_scored(
-        team_id=match.home_team_id,
-        reference_date=match.match_date,
-        n_matches=5
+        team_id=match.home_team_id, reference_date=match.match_date, n_matches=5
     )
     away_goals = calc.calculate_goals_scored(
-        team_id=match.away_team_id,
-        reference_date=match.match_date,
-        n_matches=5
+        team_id=match.away_team_id, reference_date=match.match_date, n_matches=5
     )
     home_conceded = calc.calculate_goals_conceded(
-        team_id=match.home_team_id,
-        reference_date=match.match_date,
-        n_matches=5
+        team_id=match.home_team_id, reference_date=match.match_date, n_matches=5
     )
     away_conceded = calc.calculate_goals_conceded(
-        team_id=match.away_team_id,
-        reference_date=match.match_date,
-        n_matches=5
+        team_id=match.away_team_id, reference_date=match.match_date, n_matches=5
     )
 
     return {
@@ -161,9 +152,7 @@ def _generate_features(
     }
 
 
-def _get_prediction(
-    model: Any, features: dict[str, float]
-) -> tuple[str, float]:
+def _get_prediction(model: Any, features: dict[str, float]) -> tuple[str, float]:
     """Get prediction from model.
 
     Args:
@@ -188,7 +177,7 @@ def _get_prediction(
 def _output_predictions(
     predictions: list[PredictionResult],
     output_format: str = "table",
-    output_file: Optional[str] = None
+    output_file: str | None = None,
 ) -> None:
     """Output predictions in specified format.
 
@@ -233,8 +222,15 @@ def _output_predictions(
             with open(output_file, "w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(
-                    ["match_id", "match_date", "home_team", "away_team",
-                     "predicted_outcome", "confidence", "model_version"]
+                    [
+                        "match_id",
+                        "match_date",
+                        "home_team",
+                        "away_team",
+                        "predicted_outcome",
+                        "confidence",
+                        "model_version",
+                    ]
                 )
                 writer.writerows(rows)
             click.echo(f"Predictions saved to {output_file}")
@@ -268,7 +264,9 @@ def _output_predictions(
 @click.option("--tournament", type=str, help="Filter by tournament name")
 @click.option("--days", type=int, default=7, help="Days ahead to predict")
 @click.option("--model-version", type=str, help="Specific model version ID")
-@click.option("--min-confidence", type=float, default=0.0, help="Minimum confidence threshold")
+@click.option(
+    "--min-confidence", type=float, default=0.0, help="Minimum confidence threshold"
+)
 @click.option("--output", type=str, help="Output file path")
 @click.option(
     "--format",
@@ -278,11 +276,11 @@ def _output_predictions(
 )
 def predict(
     match_ids: tuple[int, ...],
-    tournament: Optional[str],
+    tournament: str | None,
     days: int,
-    model_version: Optional[str],
+    model_version: str | None,
     min_confidence: float,
-    output: Optional[str],
+    output: str | None,
     format: str,
 ) -> None:
     """Generate predictions for specific matches."""
@@ -293,14 +291,14 @@ def predict(
             model, version = _load_model(registry, model_version)
         except ValueError as e:
             click.echo(f"Error loading model: {e}", err=True)
-            raise click.Abort()
+            raise click.Abort() from e
 
         matches = _query_matches(
             session,
             match_ids=list(match_ids) if match_ids else None,
             tournament_name=tournament,
             days_ahead=days,
-            status="SCHEDULED"
+            status="SCHEDULED",
         )
 
         if not matches:
@@ -340,9 +338,9 @@ def predict(
 @click.option("--days", type=int, default=7, help="Days ahead to look")
 @click.option("--model-version", type=str, help="Specific model version ID")
 def upcoming(
-    tournament: Optional[str],
+    tournament: str | None,
     days: int,
-    model_version: Optional[str],
+    model_version: str | None,
 ) -> None:
     """List upcoming matches with predictions."""
     with session_scope() as session:
@@ -352,13 +350,10 @@ def upcoming(
             model, version = _load_model(registry, model_version)
         except ValueError as e:
             click.echo(f"Error loading model: {e}", err=True)
-            raise click.Abort()
+            raise click.Abort() from e
 
         matches = _query_matches(
-            session,
-            tournament_name=tournament,
-            days_ahead=days,
-            status="SCHEDULED"
+            session, tournament_name=tournament, days_ahead=days, status="SCHEDULED"
         )
 
         if not matches:
@@ -408,12 +403,14 @@ def upcoming(
 )
 @click.option("--limit", type=int, default=20, help="Maximum number of models to show")
 @click.option("--active-only", is_flag=True, help="Show only active models")
-def list_models(model_type: Optional[str], limit: int, active_only: bool):
+def list_models(model_type: str | None, limit: int, active_only: bool) -> None:
     """List registered models with filtering options."""
     with session_scope() as session:
         registry = ModelRegistry(storage_path=Path("data/models"), session=session)
 
-        models = list(registry.list_models(model_type=model_type, active_only=active_only))
+        models = list(
+            registry.list_models(model_type=model_type, active_only=active_only)
+        )
 
         if not models:
             click.echo("No models found matching the criteria.")
@@ -435,14 +432,18 @@ def list_models(model_type: Optional[str], limit: int, active_only: bool):
                         metric_parts.append(f"{key}={model.metrics[key]:.3f}")
                 metrics_str = ", ".join(metric_parts)
 
-            table_data.append([
-                model.version,
-                model.model_id.split("_")[0] if "_" in model.model_id else model.model_id,
-                model.model_type,
-                model.created_at.strftime("%Y-%m-%d %H:%M"),
-                "Yes" if model.is_production else "No",
-                metrics_str,
-            ])
+            table_data.append(
+                [
+                    model.version,
+                    model.model_id.split("_")[0]
+                    if "_" in model.model_id
+                    else model.model_id,
+                    model.model_type,
+                    model.created_at.strftime("%Y-%m-%d %H:%M"),
+                    "Yes" if model.is_production else "No",
+                    metrics_str,
+                ]
+            )
 
         headers = ["Version", "Name", "Algorithm", "Created", "Active", "Metrics"]
         click.echo(tabulate(table_data, headers=headers, tablefmt="grid"))
@@ -451,7 +452,7 @@ def list_models(model_type: Optional[str], limit: int, active_only: bool):
 
 @predictions.command("activate")
 @click.argument("version_id")
-def activate_model(version_id: str):
+def activate_model(version_id: str) -> None:
     """Activate a specific model version."""
     with session_scope() as session:
         registry = ModelRegistry(storage_path=Path("data/models"), session=session)
@@ -461,14 +462,16 @@ def activate_model(version_id: str):
             click.echo(f"Model version '{version_id}' activated successfully.")
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
-            raise click.Abort()
+            raise click.Abort() from e
 
 
 @predictions.command("delete-model")
 @click.argument("version_id")
-def delete_model(version_id: str):
+def delete_model(version_id: str) -> None:
     """Delete a model version from registry and disk."""
-    if not click.confirm(f"Are you sure you want to delete model version '{version_id}'?"):
+    if not click.confirm(
+        f"Are you sure you want to delete model version '{version_id}'?"
+    ):
         click.echo("Deletion cancelled.")
         return
 
@@ -480,7 +483,7 @@ def delete_model(version_id: str):
             click.echo(f"Model version '{version_id}' deleted successfully.")
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
-            raise click.Abort()
+            raise click.Abort() from e
 
 
 if __name__ == "__main__":
