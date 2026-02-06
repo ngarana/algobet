@@ -1,6 +1,6 @@
 """API router for team endpoints."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -113,7 +113,7 @@ def get_team_form(
     calc = FormCalculator(repo)
 
     if reference_date is None:
-        reference_date = datetime.utcnow()
+        reference_date = datetime.now(timezone.utc)
 
     # Calculate form metrics
     avg_points = calc.calculate_recent_form(team_id, reference_date, n_matches)
@@ -146,7 +146,7 @@ def get_team_form(
 @router.get("/{team_id}/matches")
 def get_team_matches(
     team_id: int,
-    venue: str = Query("all", regex="^(home|away|all)$", description="Venue filter"),
+    venue: str = Query("all", pattern="^(home|away|all)$", description="Venue filter"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of matches"),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:

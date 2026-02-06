@@ -356,11 +356,11 @@ T = TypeVar('T')
 
 class FeatureSchema:
     """Defines the schema for a set of features."""
-    
+
     def __init__(self, version: str, features: dict[str, type]) -> None:
         self.version = version
         self.features = features
-    
+
     def validate(self, df: pd.DataFrame) -> bool:
         """Validate that dataframe conforms to schema."""
         ...
@@ -368,19 +368,19 @@ class FeatureSchema:
 
 class FeatureGenerator(ABC):
     """Abstract base for feature generators."""
-    
+
     @abstractmethod
     def generate(self, match_data: pd.DataFrame) -> pd.DataFrame:
         """Generate features from match data.
-        
+
         Args:
             match_data: DataFrame with raw match records
-            
+
         Returns:
             DataFrame with additional feature columns
         """
         ...
-    
+
     @property
     @abstractmethod
     def feature_names(self) -> list[str]:
@@ -390,13 +390,13 @@ class FeatureGenerator(ABC):
 
 class TeamFormGenerator(FeatureGenerator):
     """Generate team form features."""
-    
+
     def __init__(self, window_sizes: list[int] = [3, 5, 10]) -> None:
         self.window_sizes = window_sizes
-    
+
     def generate(self, match_data: pd.DataFrame) -> pd.DataFrame:
         ...
-    
+
     @property
     def feature_names(self) -> list[str]:
         return [f"home_form_{w}" for w in self.window_sizes] + \
@@ -405,7 +405,7 @@ class TeamFormGenerator(FeatureGenerator):
 
 class FeaturePipeline:
     """Orchestrates feature generation and transformation."""
-    
+
     def __init__(
         self,
         generators: list[FeatureGenerator],
@@ -416,31 +416,31 @@ class FeaturePipeline:
         self.transformers = transformers
         self.schema = schema
         self._pipeline: TransformerMixin | None = None
-    
+
     def fit_transform(
         self,
         match_data: pd.DataFrame,
         fit: bool = True
     ) -> tuple[pd.DataFrame, FeatureSchema]:
         """Generate and transform features.
-        
+
         Args:
             match_data: Raw match data
             fit: Whether to fit transformers or use existing
-            
+
         Returns:
             Tuple of (transformed features, feature schema)
         """
         ...
-    
+
     def transform(self, match_data: pd.DataFrame) -> pd.DataFrame:
         """Transform new data using fitted pipeline."""
         ...
-    
+
     def save(self, path: str) -> None:
         """Save pipeline state including fitted transformers."""
         ...
-    
+
     @classmethod
     def load(cls, path: str) -> FeaturePipeline:
         """Load pipeline with fitted transformers."""
@@ -495,7 +495,7 @@ class TrainingResult:
 
 class MatchPredictor(ABC):
     """Abstract base class for match prediction models."""
-    
+
     @abstractmethod
     def fit(
         self,
@@ -504,36 +504,36 @@ class MatchPredictor(ABC):
     ) -> None:
         """Train the model on feature data."""
         ...
-    
+
     @abstractmethod
     def predict(self, X: pd.DataFrame | NDArray[np.float64]) -> list[Outcome]:
         """Predict match outcomes."""
         ...
-    
+
     @abstractmethod
     def predict_proba(
         self,
         X: pd.DataFrame | NDArray[np.float64]
     ) -> NDArray[np.float64]:
         """Predict outcome probabilities.
-        
+
         Returns:
             Array of shape (n_samples, 3) with probabilities
             for [Home Win, Draw, Away Win]
         """
         ...
-    
+
     @abstractmethod
     def save(self, path: Path) -> None:
         """Save model to disk."""
         ...
-    
+
     @classmethod
     @abstractmethod
     def load(cls, path: Path) -> MatchPredictor:
         """Load model from disk."""
         ...
-    
+
     @property
     @abstractmethod
     def feature_importance(self) -> dict[str, float] | None:
@@ -543,7 +543,7 @@ class MatchPredictor(ABC):
 
 class TrainingPipeline:
     """End-to-end training pipeline."""
-    
+
     def __init__(
         self,
         config: TrainingConfig,
@@ -553,7 +553,7 @@ class TrainingPipeline:
         self.config = config
         self.feature_pipeline = feature_pipeline
         self.model_registry = model_registry
-    
+
     def run(
         self,
         match_data: pd.DataFrame,
@@ -561,17 +561,17 @@ class TrainingPipeline:
         date_range: tuple[datetime, datetime] | None = None
     ) -> TrainingResult:
         """Execute full training pipeline.
-        
+
         Args:
             match_data: Historical match records
             tournament_filter: Optional list of tournaments to include
             date_range: Optional (start_date, end_date) filter
-            
+
         Returns:
             TrainingResult with model and metadata
         """
         ...
-    
+
     def _split_data(
         self,
         df: pd.DataFrame
@@ -600,27 +600,27 @@ class MatchPrediction:
     home_team: str
     away_team: str
     match_date: datetime
-    
+
     # Probabilities
     prob_home_win: float
     prob_draw: float
     prob_away_win: float
-    
+
     # Derived values
     predicted_outcome: str  # 'H', 'D', or 'A'
     confidence_score: float  # 0.0 to 1.0
     entropy: float  # Uncertainty measure
-    
+
     # Model info
     model_version: str
     feature_schema_version: str
     predicted_at: datetime
-    
+
     @property
     def max_probability(self) -> float:
         """Return highest probability."""
         return max(self.prob_home_win, self.prob_draw, self.prob_away_win)
-    
+
     def get_value_bet(self, odds_home: float, odds_draw: float, odds_away: float) -> ValueBet | None:
         """Identify if there's a value betting opportunity."""
         ...
@@ -639,7 +639,7 @@ class ValueBet:
 
 class PredictionService:
     """Main service for generating predictions."""
-    
+
     def __init__(
         self,
         model_registry: ModelRegistry,
@@ -650,23 +650,23 @@ class PredictionService:
         self.feature_pipeline = feature_pipeline
         self.default_model_version = default_model_version
         self._loaded_models: dict[str, MatchPredictor] = {}
-    
+
     def predict_match(
         self,
         match_id: int,
         model_version: str | None = None
     ) -> MatchPrediction:
         """Generate prediction for a single match.
-        
+
         Args:
             match_id: Database ID of the match
             model_version: Specific model version, or None for default
-            
+
         Returns:
             MatchPrediction with probabilities and metadata
         """
         ...
-    
+
     def predict_upcoming(
         self,
         tournament: str | None = None,
@@ -675,18 +675,18 @@ class PredictionService:
         min_confidence: float = 0.0
     ) -> list[MatchPrediction]:
         """Generate predictions for all upcoming matches.
-        
+
         Args:
             tournament: Filter by tournament name
             days_ahead: Number of days to look ahead
             model_version: Specific model version
             min_confidence: Minimum confidence threshold
-            
+
         Returns:
             List of MatchPrediction objects
         """
         ...
-    
+
     def predict_batch(
         self,
         match_ids: list[int],
@@ -694,7 +694,7 @@ class PredictionService:
     ) -> list[MatchPrediction]:
         """Generate predictions for multiple matches efficiently."""
         ...
-    
+
     def get_value_bets(
         self,
         min_ev: float = 0.05,
@@ -702,17 +702,17 @@ class PredictionService:
         model_version: str | None = None
     ) -> list[ValueBet]:
         """Identify value betting opportunities.
-        
+
         Args:
             min_ev: Minimum expected value threshold
             max_matches: Maximum number of matches to return
             model_version: Specific model version
-            
+
         Returns:
             List of ValueBet opportunities sorted by EV
         """
         ...
-    
+
     def _load_model(self, version: str) -> MatchPredictor:
         """Load and cache a model version."""
         ...
@@ -737,7 +737,7 @@ import numpy as np
 @dataclass
 class EvaluationMetrics:
     """Standard evaluation metrics for match prediction."""
-    
+
     # Classification metrics
     accuracy: float
     precision_macro: float
@@ -746,17 +746,17 @@ class EvaluationMetrics:
     precision_weighted: float
     recall_weighted: float
     f1_weighted: float
-    
+
     # Prediction-specific metrics
     log_loss: float
     brier_score: float
     top_1_accuracy: float
     top_2_accuracy: float
-    
+
     # Calibration metrics
     expected_calibration_error: float
     maximum_calibration_error: float
-    
+
     # Betting simulation metrics
     total_bets: int
     winning_bets: int
@@ -764,7 +764,7 @@ class EvaluationMetrics:
     profit_loss: float
     sharpe_ratio: float
     max_drawdown: float
-    
+
     # Per-outcome breakdown
     outcome_accuracy: dict[str, float]  # {'H': 0.5, 'D': 0.3, 'A': 0.6}
     outcome_precision: dict[str, float]
@@ -774,28 +774,28 @@ class EvaluationMetrics:
 @dataclass
 class EvaluationReport:
     """Complete evaluation report."""
-    
+
     model_id: str
     model_version: str
     evaluated_at: datetime
-    
+
     # Data info
     num_samples: int
     date_range: tuple[datetime, datetime]
     tournaments: list[str]
-    
+
     # Metrics
     metrics: EvaluationMetrics
-    
+
     # Additional data
     confusion_matrix: NDArray[np.float64]
     calibration_data: pd.DataFrame
     feature_importance: dict[str, float] | None
-    
+
     def to_html(self, output_path: Path) -> None:
         """Generate HTML report."""
         ...
-    
+
     def to_markdown(self) -> str:
         """Generate markdown summary."""
         ...
@@ -803,7 +803,7 @@ class EvaluationReport:
 
 class EvaluationEngine:
     """Engine for comprehensive model evaluation."""
-    
+
     def __init__(
         self,
         betting_strategy: Callable[[MatchPrediction], float] | None = None
@@ -813,7 +813,7 @@ class EvaluationEngine:
             betting_strategy: Function that returns stake amount given prediction
         """
         self.betting_strategy = betting_strategy or self._default_strategy
-    
+
     def evaluate(
         self,
         predictions: list[MatchPrediction],
@@ -821,17 +821,17 @@ class EvaluationEngine:
         odds_data: pd.DataFrame | None = None
     ) -> EvaluationMetrics:
         """Calculate evaluation metrics.
-        
+
         Args:
             predictions: List of predictions
             actual_results: Series of actual outcomes ('H', 'D', 'A')
             odds_data: Optional DataFrame with odds for betting simulation
-            
+
         Returns:
             EvaluationMetrics with all calculated metrics
         """
         ...
-    
+
     def generate_report(
         self,
         model: MatchPredictor,
@@ -840,14 +840,14 @@ class EvaluationEngine:
     ) -> EvaluationReport:
         """Generate comprehensive evaluation report."""
         ...
-    
+
     def compare_models(
         self,
         reports: list[EvaluationReport]
     ) -> pd.DataFrame:
         """Compare multiple model versions."""
         ...
-    
+
     def _default_strategy(self, prediction: MatchPrediction) -> float:
         """Default flat betting strategy."""
         return 1.0
@@ -881,45 +881,45 @@ class ModelMetadata:
 
 class ModelRegistry:
     """Registry for managing model versions."""
-    
+
     def __init__(self, storage_path: Path) -> None:
         self.storage_path = storage_path
-    
+
     def register(
         self,
         model: MatchPredictor,
         metadata: ModelMetadata
     ) -> str:
         """Register a new model version.
-        
+
         Returns:
             Model version string
         """
         ...
-    
+
     def get(self, version: str) -> tuple[MatchPredictor, ModelMetadata]:
         """Load a specific model version."""
         ...
-    
+
     def get_production(self) -> tuple[MatchPredictor, ModelMetadata]:
         """Load the current production model."""
         ...
-    
+
     def promote_to_production(self, version: str) -> None:
         """Promote a model version to production."""
         ...
-    
+
     def list_versions(
         self,
         model_type: str | None = None
     ) -> Iterator[ModelMetadata]:
         """List all registered model versions."""
         ...
-    
+
     def delete_version(self, version: str) -> None:
         """Delete a specific model version."""
         ...
-    
+
     def get_model_history(
         self,
         model_type: str
@@ -988,7 +988,7 @@ CREATE TABLE predictions (
     confidence_score DECIMAL(5,4) NOT NULL,
     predicted_at TIMESTAMP NOT NULL DEFAULT NOW(),
     actual_roi DECIMAL(10,2),
-    
+
     UNIQUE(match_id, model_version)
 );
 
@@ -1003,7 +1003,7 @@ CREATE TABLE model_features (
     feature_schema_version VARCHAR(20) NOT NULL,
     features JSONB NOT NULL,
     computed_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    
+
     UNIQUE(match_id, feature_schema_version)
 );
 
@@ -1070,7 +1070,7 @@ def predictions_cli():
 
 
 @predictions_cli.command()
-@click.option('--model-type', default='xgboost', 
+@click.option('--model-type', default='xgboost',
               type=click.Choice(['xgboost', 'lightgbm', 'random_forest', 'ensemble']))
 @click.option('--tournament', multiple=True, help='Tournaments to include')
 @click.option('--from-date', type=click.DateTime(), help='Start date for training data')
@@ -1086,7 +1086,7 @@ def train(
     name: str | None
 ):
     """Train a new prediction model.
-    
+
     Examples:
         algobet predictions train --model-type xgboost
         algobet predictions train --tournament "Premier League" --from-date 2020-01-01
@@ -1115,7 +1115,7 @@ def promote(version: str):
 @click.option('--days', default=7, help='Days ahead to predict')
 @click.option('--model-version', help='Specific model version')
 @click.option('--output', type=click.Path(), help='Output file for predictions')
-@click.option('--format', 'output_format', default='table', 
+@click.option('--format', 'output_format', default='table',
               type=click.Choice(['table', 'json', 'csv']))
 def predict(
     match_id: tuple[int, ...],
@@ -1126,7 +1126,7 @@ def predict(
     output_format: str
 ):
     """Generate predictions for matches.
-    
+
     Examples:
         algobet predictions predict --match-id 12345
         algobet predictions predict --tournament "Premier League" --days 3
@@ -1148,7 +1148,7 @@ def value_bets(
     stake: float
 ):
     """Find value betting opportunities.
-    
+
     Identifies bets where predicted probability * odds > 1 + min_ev
     """
     ...
@@ -1251,33 +1251,33 @@ from pydantic import BaseSettings, Field
 
 class PredictionConfig(BaseSettings):
     """Configuration for prediction engine."""
-    
+
     # Paths
     models_dir: Path = Field(default=Path("data/models"))
     reports_dir: Path = Field(default=Path("data/reports"))
     metrics_dir: Path = Field(default=Path("data/metrics"))
-    
+
     # Model defaults
     default_model_type: str = "xgboost"
     default_model_version: str | None = None
-    
+
     # Training defaults
     default_test_split: float = 0.1
     default_val_split: float = 0.2
     random_seed: int = 42
-    
+
     # Feature engineering
     form_window_sizes: list[int] = [3, 5, 10]
     max_h2h_matches: int = 10
-    
+
     # Prediction thresholds
     min_confidence: float = 0.0
     min_ev_threshold: float = 0.05
-    
+
     # Caching
     feature_cache_ttl: int = 86400  # 24 hours
     prediction_cache_ttl: int = 3600  # 1 hour
-    
+
     class Config:
         env_prefix = "ALGOBET_PRED_"
 ```
@@ -1304,7 +1304,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     confidence_score DECIMAL(5,4) NOT NULL,
     predicted_at TIMESTAMP NOT NULL DEFAULT NOW(),
     actual_roi DECIMAL(10,2),
-    
+
     CONSTRAINT uq_prediction_match_model UNIQUE (match_id, model_version)
 );
 
@@ -1319,7 +1319,7 @@ CREATE TABLE IF NOT EXISTS model_features (
     feature_schema_version VARCHAR(20) NOT NULL,
     features JSONB NOT NULL,
     computed_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    
+
     CONSTRAINT uq_features_match_schema UNIQUE (match_id, feature_schema_version)
 );
 

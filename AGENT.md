@@ -172,4 +172,3 @@ Database connection (loaded via `python-dotenv`):
 - Validate all user inputs before database operations
 - Use parameterized queries (SQLAlchemy handles this automatically)
 - Never log or print sensitive information (passwords, tokens)
-

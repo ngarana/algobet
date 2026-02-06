@@ -128,17 +128,17 @@ form_features = {
     # Points-based (3 for win, 1 for draw, 0 for loss)
     f'home_points_last_{N}': float,      # Average points per game
     f'away_points_last_{N}': float,
-    
+
     # Win/Draw/Loss rates
     f'home_win_rate_{N}': float,         # Wins / matches
     f'home_draw_rate_{N}': float,        # Draws / matches
     f'home_loss_rate_{N}': float,        # Losses / matches
-    
+
     # Goal metrics
     f'home_goals_scored_avg_{N}': float,
     f'home_goals_conceded_avg_{N}': float,
     f'home_goal_diff_avg_{N}': float,
-    
+
     # Same for away team...
 }
 ```
@@ -173,15 +173,15 @@ h2h_features = {
     'h2h_home_wins': int,                # Home team wins in H2H
     'h2h_draws': int,
     'h2h_away_wins': int,
-    
+
     # Goal trends in H2H
     'h2h_avg_total_goals': float,
     'h2h_home_avg_goals': float,
     'h2h_away_avg_goals': float,
-    
+
     # Recent H2H form (last 3 meetings)
     'h2h_recent_home_wins': int,
-    
+
     # Tournament-specific H2H
     'h2h_same_tournament_home_wins': int,
 }
@@ -194,17 +194,17 @@ tournament_features = {
     # Season stage
     'season_progress': float,            # Match number / total expected matches
     'season_stage': str,                 # 'early' (0-20%), 'mid' (20-75%), 'late' (>75%)
-    
+
     # League table position context
     'home_league_position': int,
     'away_league_position': int,
     'position_diff': int,                # home_pos - away_pos
-    
+
     # Points context
     'home_points_total': int,
     'away_points_total': int,
     'points_diff': int,
-    
+
     # Relegation/Promotion/Championship implications
     'home_relegation_risk': float,       # Distance from drop zone
     'home_title_race': float,            # Distance from top
@@ -234,15 +234,15 @@ odds_features = {
     'implied_prob_home': float,
     'implied_prob_draw': float,
     'implied_prob_away': float,
-    
+
     # Bookmaker margin
     'bookmaker_margin': float,
     'num_bookmakers': int,               # Confidence in odds quality
-    
+
     # Market consensus (if multiple bookmakers)
     'odds_home_std': float,              # Standard deviation of home odds
     'odds_consensus_strength': float,    # Inverse of coefficient of variation
-    
+
     # Value indicators (to be compared with model predictions)
     'favorite_outcome': str,             # Which outcome has lowest odds
     'favorite_implied_prob': float,
@@ -258,12 +258,12 @@ temporal_features = {
     'home_rest_days': int,
     'away_rest_days': int,
     'rest_days_diff': int,               # Advantage to more rested team
-    
+
     # Fixture congestion
     'home_matches_last_14_days': int,
     'away_matches_last_14_days': int,
     'home_fixture_density': float,       # Matches per week
-    
+
     # Calendar effects
     'day_of_week': int,                  # 0=Monday, 6=Sunday
     'month': int,                        # Seasonal patterns
@@ -439,7 +439,7 @@ from sklearn.linear_model import PoissonRegressor
 home_goal_model = PoissonRegressor(alpha=0.1, max_iter=1000)
 home_goal_model.fit(X, home_goals)
 
-# Away goals model  
+# Away goals model
 away_goal_model = PoissonRegressor(alpha=0.1, max_iter=1000)
 away_goal_model.fit(X, away_goals)
 
@@ -508,7 +508,7 @@ tscv = TimeSeriesSplit(n_splits=5)
 for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
     X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
     y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-    
+
     # Train and evaluate
     model.fit(X_train, y_train)
     score = model.score(X_val, y_val)
@@ -530,19 +530,19 @@ def objective(trial):
         'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
         'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
     }
-    
+
     model = XGBClassifier(**params)
-    
+
     # Time-series cross-validation
     scores = []
     for train_idx, val_idx in tscv.split(X):
         X_tr, X_val = X.iloc[train_idx], X.iloc[val_idx]
         y_tr, y_val = y.iloc[train_idx], y.iloc[val_idx]
-        
+
         model.fit(X_tr, y_tr)
         preds = model.predict_proba(X_val)
         scores.append(log_loss(y_val, preds))
-    
+
     return np.mean(scores)
 
 study = optuna.create_study(direction='minimize')
@@ -611,22 +611,22 @@ calibrated_probs = calibrated_clf.predict_proba(X_test)
 def calculate_roi(predictions, odds, actual_results, stake=1.0):
     """
     Calculate ROI from predictions.
-    
+
     Strategy: Bet when predicted probability > implied probability + margin
     """
     total_staked = 0
     total_return = 0
-    
+
     for pred, odd, actual in zip(predictions, odds, actual_results):
         implied_prob = 1 / odd
         model_prob = pred[actual]  # Predicted probability for actual outcome
-        
+
         # Value bet: Model probability exceeds implied probability
         if model_prob > implied_prob * 1.05:  # 5% edge threshold
             total_staked += stake
             if predicted_outcome == actual:
                 total_return += stake * odd
-    
+
     roi = (total_return - total_staked) / total_staked if total_staked > 0 else 0
     return roi
 ```
@@ -643,17 +643,17 @@ Target: > 5% yield over 500+ bets for statistical significance
 def kelly_stake(bankroll, prob, odds, fraction=0.25):
     """
     Calculate Kelly stake (fractional for risk management).
-    
+
     f* = (bp - q) / b
     where: b = odds - 1, p = probability, q = 1 - p
     """
     b = odds - 1
     p = prob
     q = 1 - p
-    
+
     kelly_fraction = (b * p - q) / b
     stake = bankroll * kelly_fraction * fraction  # Quarter-Kelly for safety
-    
+
     return max(0, stake)  # Don't bet if negative expected value
 ```
 
@@ -665,16 +665,16 @@ def expected_calibration_error(y_true, y_prob, n_bins=10):
     """Measure how well predicted probabilities match actual outcomes."""
     bin_boundaries = np.linspace(0, 1, n_bins + 1)
     ece = 0
-    
+
     for i in range(n_bins):
         in_bin = (y_prob > bin_boundaries[i]) & (y_prob <= bin_boundaries[i + 1])
         prop_in_bin = in_bin.mean()
-        
+
         if prop_in_bin > 0:
             accuracy_in_bin = y_true[in_bin].mean()
             avg_confidence_in_bin = y_prob[in_bin].mean()
             ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
-    
+
     return ece
 ```
 
@@ -740,10 +740,10 @@ Test: Compare model predictions vs closing odds
 
 If model_roc_auc > 0.52 vs bookmaker implied probabilities:
     → Potential edge exists
-    
+
 If model_roc_auc > 0.55:
     → Statistically significant edge
-    
+
 If model_roi > 5% over 1000+ bets:
     → Profitable in practice
 ```
@@ -762,26 +762,26 @@ If model_roi > 5% over 1000+ bets:
 ```sql
 -- Team form calculation using window functions
 WITH team_matches AS (
-    SELECT 
+    SELECT
         m.id AS match_id,
         m.match_date,
         m.home_team_id,
         m.away_team_id,
         m.home_score,
         m.away_score,
-        CASE 
+        CASE
             WHEN m.home_score > m.away_score THEN 'H'
             WHEN m.home_score < m.away_score THEN 'A'
             ELSE 'D'
         END AS result,
         -- Points for home team
-        CASE 
+        CASE
             WHEN m.home_score > m.away_score THEN 3
             WHEN m.home_score = m.away_score THEN 1
             ELSE 0
         END AS home_points,
         -- Points for away team
-        CASE 
+        CASE
             WHEN m.away_score > m.home_score THEN 3
             WHEN m.away_score = m.home_score THEN 1
             ELSE 0
@@ -791,7 +791,7 @@ WITH team_matches AS (
 ),
 -- Unpivot to get team-centric view
 team_performance AS (
-    SELECT 
+    SELECT
         match_id,
         match_date,
         home_team_id AS team_id,
@@ -801,7 +801,7 @@ team_performance AS (
         'H' AS venue
     FROM team_matches
     UNION ALL
-    SELECT 
+    SELECT
         match_id,
         match_date,
         away_team_id AS team_id,
@@ -813,23 +813,23 @@ team_performance AS (
 ),
 -- Calculate rolling averages
 rolling_form AS (
-    SELECT 
+    SELECT
         match_id,
         team_id,
         venue,
         AVG(points) OVER (
-            PARTITION BY team_id 
-            ORDER BY match_date 
+            PARTITION BY team_id
+            ORDER BY match_date
             ROWS BETWEEN 5 PRECEDING AND 1 PRECEDING
         ) AS avg_points_last_5,
         AVG(goals_for) OVER (
-            PARTITION BY team_id 
-            ORDER BY match_date 
+            PARTITION BY team_id
+            ORDER BY match_date
             ROWS BETWEEN 5 PRECEDING AND 1 PRECEDING
         ) AS avg_goals_for_last_5,
         AVG(goals_against) OVER (
-            PARTITION BY team_id 
-            ORDER BY match_date 
+            PARTITION BY team_id
+            ORDER BY match_date
             ROWS BETWEEN 5 PRECEDING AND 1 PRECEDING
         ) AS avg_goals_against_last_5
     FROM team_performance
@@ -842,7 +842,7 @@ SELECT * FROM rolling_form;
 ```sql
 -- Head-to-head statistics
 WITH h2h_stats AS (
-    SELECT 
+    SELECT
         m1.home_team_id,
         m1.away_team_id,
         m1.id AS match_id,
@@ -864,7 +864,7 @@ WITH h2h_stats AS (
             SELECT COUNT(*)
             FROM matches m2
             WHERE m2.status = 'FINISHED'
-                AND m2.home_team_id = m1.home_team_id 
+                AND m2.home_team_id = m1.home_team_id
                 AND m2.away_team_id = m1.away_team_id
                 AND m2.home_score > m2.away_score
                 AND m2.match_date < m1.match_date
@@ -893,7 +893,7 @@ SELECT * FROM h2h_stats;
 ```sql
 -- League table position calculation
 WITH season_matches AS (
-    SELECT 
+    SELECT
         m.*,
         t.name AS tournament_name,
         s.name AS season_name
@@ -903,7 +903,7 @@ WITH season_matches AS (
     WHERE m.status = 'FINISHED'
 ),
 team_records AS (
-    SELECT 
+    SELECT
         tournament_id,
         season_id,
         home_team_id AS team_id,
@@ -914,7 +914,7 @@ team_records AS (
         away_score AS ga
     FROM season_matches
     UNION ALL
-    SELECT 
+    SELECT
         tournament_id,
         season_id,
         away_team_id AS team_id,
@@ -926,7 +926,7 @@ team_records AS (
     FROM season_matches
 ),
 league_standings AS (
-    SELECT 
+    SELECT
         tournament_id,
         season_id,
         team_id,
@@ -946,7 +946,7 @@ SELECT * FROM league_standings;
 ```sql
 -- Complete training dataset query
 WITH features AS (
-    SELECT 
+    SELECT
         m.id AS match_id,
         m.match_date,
         m.tournament_id,
@@ -959,7 +959,7 @@ WITH features AS (
         m.odds_draw,
         m.odds_away,
         -- Target variable
-        CASE 
+        CASE
             WHEN m.home_score > m.away_score THEN 'H'
             WHEN m.home_score < m.away_score THEN 'A'
             ELSE 'D'
@@ -1070,15 +1070,15 @@ DATA_QUALITY_RULES = {
     # Odds validation
     'odds_range': lambda o: 1.01 <= o <= 100,
     'odds_margin': lambda h, d, a: 1.0 < (1/h + 1/d + 1/a) < 1.3,
-    
+
     # Score validation
     'score_non_negative': lambda s: s >= 0,
     'reasonable_score': lambda s: s <= 15,  # Unlikely to see more
-    
+
     # Date validation
     'date_in_past': lambda d: d <= datetime.now(),
     'date_not_too_old': lambda d: d > datetime(1990, 1, 1),
-    
+
     # Team validation
     'different_teams': lambda h, a: h != a,
     'teams_exist': lambda h, a: h in team_database and a in team_database,
@@ -1087,18 +1087,18 @@ DATA_QUALITY_RULES = {
 def validate_match_data(match_row):
     """Run all validation rules on match data."""
     errors = []
-    
+
     # Check odds
     if not DATA_QUALITY_RULES['odds_range'](match_row['odds_home']):
         errors.append("Invalid home odds")
-    
+
     # Check margin
-    margin = sum(1/o for o in [match_row['odds_home'], 
-                               match_row['odds_draw'], 
+    margin = sum(1/o for o in [match_row['odds_home'],
+                               match_row['odds_draw'],
                                match_row['odds_away']])
     if not (1.0 < margin < 1.3):
         errors.append(f"Suspicious odds margin: {margin:.3f}")
-    
+
     return errors
 ```
 
@@ -1108,7 +1108,7 @@ def validate_match_data(match_row):
 def calculate_confidence_score(probabilities, feature_completeness, edge_cases):
     """
     Calculate overall prediction confidence (0.0 to 1.0).
-    
+
     Factors:
     1. Prediction entropy (lower = more confident)
     2. Feature completeness
@@ -1120,11 +1120,11 @@ def calculate_confidence_score(probabilities, feature_completeness, edge_cases):
     entropy = -np.sum(probs * np.log2(probs + 1e-10))
     max_entropy = np.log2(3)  # Maximum for 3 classes
     entropy_confidence = 1 - (entropy / max_entropy)
-    
+
     # Feature completeness
     expected_features = 50  # Total expected features
     completeness_factor = feature_completeness / expected_features
-    
+
     # Edge case penalties
     penalty = 1.0
     if edge_cases['is_newly_promoted']:
@@ -1133,10 +1133,10 @@ def calculate_confidence_score(probabilities, feature_completeness, edge_cases):
         penalty *= 0.90
     if edge_cases['is_late_season']:
         penalty *= 0.95
-    
+
     # Combined confidence
     confidence = entropy_confidence * 0.5 + completeness_factor * 0.3 + penalty * 0.2
-    
+
     return min(1.0, max(0.0, confidence))
 ```
 
@@ -1150,7 +1150,7 @@ def generate_prediction(match_features, ml_model, fallback_rules):
     # Try ML model first
     ml_prediction = ml_model.predict_proba(match_features)
     ml_confidence = calculate_confidence_score(ml_prediction, ...)
-    
+
     # Fallback decision
     if ml_confidence < 0.4:
         # Use rules-based fallback
@@ -1169,16 +1169,16 @@ def rules_based_prediction(features, rules):
     Simple rules-based fallback when ML confidence is low.
     """
     probs = [0.33, 0.33, 0.33]  # Start uniform
-    
+
     # Home advantage
     probs[0] += 0.10  # Home win boost
     probs[2] -= 0.05  # Away win penalty
-    
+
     # Form adjustment
     if features['home_form_5'] > features['away_form_5']:
         probs[0] += 0.05
         probs[2] -= 0.05
-    
+
     # Normalize
     total = sum(probs)
     return [p/total for p in probs]
@@ -1192,25 +1192,25 @@ class ModelMonitor:
     def __init__(self, baseline_metrics, threshold=0.1):
         self.baseline = baseline_metrics
         self.threshold = threshold
-        
+
     def check_drift(self, recent_metrics):
         """Check if model performance has degraded."""
         alerts = []
-        
+
         # Log loss drift
         if recent_metrics['log_loss'] > self.baseline['log_loss'] * (1 + self.threshold):
             alerts.append("LOG_LOSS_DRIFT: Model calibration degraded")
-        
+
         # Accuracy drift
         if recent_metrics['accuracy'] < self.baseline['accuracy'] * (1 - self.threshold):
             alerts.append("ACCURACY_DRIFT: Prediction accuracy dropped")
-        
+
         # ROI drift
         if recent_metrics['roi'] < self.baseline['roi'] - 0.05:
             alerts.append("ROI_DRIFT: Betting performance declined")
-        
+
         return alerts
-    
+
     def check_feature_drift(self, recent_features, baseline_distribution):
         """Detect if input feature distributions have shifted."""
         # KS test for continuous features

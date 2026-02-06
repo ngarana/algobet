@@ -1,6 +1,6 @@
 """API router for prediction endpoints."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -166,7 +166,7 @@ def generate_predictions(
         match_query = match_query.filter(Match.tournament_id == request.tournament_id)
 
     if request.days_ahead:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         end_date = now + timedelta(days=request.days_ahead)
         match_query = match_query.filter(
             and_(
@@ -245,7 +245,7 @@ def get_upcoming_predictions(
     Returns:
         List of upcoming predictions
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     end_date = now + timedelta(days=days)
 
     predictions = (

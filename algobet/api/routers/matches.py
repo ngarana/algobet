@@ -1,6 +1,6 @@
 """API router for match endpoints."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, or_
@@ -82,7 +82,7 @@ def list_matches(
         query = query.filter(Match.match_date <= to_date)
 
     if days_ahead:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         end_date = datetime.fromtimestamp(now.timestamp() + days_ahead * 86400)
         query = query.filter(
             and_(

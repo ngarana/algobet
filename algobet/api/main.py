@@ -3,18 +3,20 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from algobet.api.routers import (
     matches_router,
     models_router,
     predictions_router,
+    scraping_router,
     seasons_router,
     teams_router,
     tournaments_router,
     value_bets_router,
 )
+from algobet.api.websockets import websocket_endpoint
 
 
 @asynccontextmanager
@@ -92,6 +94,12 @@ app.include_router(
     tags=["value-bets"],
 )
 
+app.include_router(
+    scraping_router,
+    prefix="/api/v1/scraping",
+    tags=["scraping"],
+)
+
 
 @app.get("/")
 async def root() -> dict[str, str]:
@@ -108,6 +116,14 @@ async def root() -> dict[str, str]:
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.websocket("/ws/progress/{client_id}")
+async def progress_websocket(
+    websocket: WebSocket, client_id: str, job_id: str | None = None
+) -> None:
+    """WebSocket endpoint for real-time progress updates."""
+    await websocket_endpoint(websocket, client_id, job_id)
 
 
 if __name__ == "__main__":

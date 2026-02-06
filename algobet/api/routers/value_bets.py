@@ -1,6 +1,6 @@
 """API router for value bets endpoints."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
@@ -109,7 +109,7 @@ def get_value_bets(
         return []
 
     # Get date range for upcoming matches
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     end_date = now + timedelta(days=days)
 
     # Query predictions for upcoming matches with the specified model
