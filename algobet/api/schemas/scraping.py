@@ -33,15 +33,11 @@ class ScrapingJobBase(BaseModel):
     tournament_name: str | None = Field(
         None, description="Name of tournament to scrape"
     )
-    season: str | None = Field(
-        None, description="Season to scrape (e.g., '2023-2024')"
-    )
+    season: str | None = Field(None, description="Season to scrape (e.g., '2023-2024')")
     start_date: datetime | None = Field(
         None, description="Start date for results scraping"
     )
-    end_date: datetime | None = Field(
-        None, description="End date for results scraping"
-    )
+    end_date: datetime | None = Field(None, description="End date for results scraping")
 
 
 class ScrapingJobCreate(ScrapingJobBase):
@@ -59,9 +55,7 @@ class ScrapingJobResponse(ScrapingJobBase):
     message: str | None = Field(None, description="Status message or error details")
     created_at: datetime = Field(..., description="Job creation timestamp")
     started_at: datetime | None = Field(None, description="Job start timestamp")
-    completed_at: datetime | None = Field(
-        None, description="Job completion timestamp"
-    )
+    completed_at: datetime | None = Field(None, description="Job completion timestamp")
     matches_scraped: int = Field(0, description="Number of matches scraped")
     errors: list[str] = Field(
         default_factory=list, description="List of error messages"
