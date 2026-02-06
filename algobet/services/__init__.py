@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from algobet.services.base import BaseService
 from algobet.services.prediction_service import PredictionResult, PredictionService
+from algobet.services.scheduler_service import SchedulerService, TaskDefinition
 from algobet.services.scraping_service import (
     JobStatus,
     ScrapingJob,
@@ -19,4 +20,6 @@ __all__ = [
     "ScrapingJob",
     "ScrapingProgress",
     "JobStatus",
+    "SchedulerService",
+    "TaskDefinition",
 ]

@@ -1,0 +1,33 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY pyproject.toml uv.lock ./
+RUN pip install uv && uv pip install --system -e .
+
+# Copy application code
+COPY algobet/ ./algobet/
+
+# Create data directory
+RUN mkdir -p /app/data/models
+
+# Install crontab
+RUN apt-get update && apt-get install -y cron
+
+# Copy crontab
+COPY docker/crontab /etc/cron.d/algobet-cron
+RUN chmod 0644 /etc/cron.d/algobet-cron
+
+# Apply crontab
+RUN crontab /etc/cron.d/algobet-cron
+
+# Start cron
+CMD ["cron", "-f"]

@@ -1,0 +1,14 @@
+# AlgoBet Crontab
+# Format: minute hour day month day-of-week command
+
+# Daily upcoming matches scrape at 6 AM
+0 6 * * * cd /app && python -m algobet.cli.scheduled_runner run daily_upcoming_scrape_morning >> /var/log/algobet.log 2>&1
+
+# Daily upcoming matches scrape at 6 PM
+0 18 * * * cd /app && python -m algobet.cli.scheduled_runner run daily_upcoming_scrape_evening >> /var/log/algobet.log 2>&1
+
+# Daily predictions at 7 AM
+0 7 * * * cd /app && python -m algobet.cli.scheduled_runner run daily_predictions >> /var/log/algobet.log 2>&1
+
+# Weekly results scrape on Monday at 3 AM
+0 3 * * 1 cd /app && python -m algobet.cli.scheduled_runner run weekly_results_scrape >> /var/log/algobet.log 2>&1

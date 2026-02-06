@@ -10,10 +10,10 @@ This document outlines a systematic refactoring plan to transform AlgoBet from a
 
 ## 📊 Progress Overview
 
-### Overall Progress: 20% Complete
+### Overall Progress: 55% Complete
 - **Phase 1**: Service Layer Foundation (✅ 3/3 tasks completed)
-- **Phase 2**: API Scraping Endpoints (0/4 tasks)
-- **Phase 3**: WebSocket Progress Updates (0/2 tasks)
+- **Phase 2**: API Scraping Endpoints (✅ 4/4 tasks completed)
+- **Phase 3**: WebSocket Progress Updates (✅ 2/2 tasks completed)
 - **Phase 4**: Frontend Integration (0/4 tasks)
 - **Phase 5**: CLI Deprecation (0/2 tasks)
 - **Phase 6**: Automated/Scheduled Scraping (0/11 tasks)
@@ -68,7 +68,7 @@ Create a unified service layer to eliminate code duplication and provide reusabl
 ---
 
 ## 🌐 Phase 2: API Scraping Endpoints
-**Duration**: 1-2 days | **Priority**: High | **Status**: 🔴 Not Started
+**Duration**: 1-2 days | **Priority**: High | **Status**: ✅ Completed
 
 ### Objective
 Expose scraping functionality through REST API with background task support.
@@ -76,40 +76,46 @@ Expose scraping functionality through REST API with background task support.
 ### Tasks
 
 #### 2.1 Create Scraping Schemas
-- [ ] **File**: `algobet/api/schemas/scraping.py`
-- [ ] **Description**: Pydantic schemas for scraping requests/responses
-- [ ] **Test Coverage**: Schema validation tests
-- [ ] **Validation**: Ensure proper request/response validation
+- [x] **File**: `algobet/api/schemas/scraping.py`
+- [x] **Description**: Pydantic schemas for scraping requests/responses
+- [x] **Test Coverage**: Schema validation tests
+- [x] **Validation**: Ensure proper request/response validation
 
 #### 2.2 Create Scraping Router
-- [ ] **File**: `algobet/api/routers/scraping.py`
-- [ ] **Description**: REST endpoints for scraping operations
-- [ ] **Endpoints**:
-  - [ ] `POST /api/v1/scraping/upcoming`
-  - [ ] `POST /api/v1/scraping/results`
-  - [ ] `GET /api/v1/scraping/jobs`
-  - [ ] `GET /api/v1/scraping/jobs/{job_id}`
-- [ ] **Test Coverage**:
-  - [ ] Integration tests for each endpoint
-  - [ ] Background task execution tests
-  - [ ] Error handling tests
-- [ ] **Validation**: Test with actual scraping (development environment)
+- [x] **File**: `algobet/api/routers/scraping.py`
+- [x] **Description**: REST endpoints for scraping operations
+- [x] **Endpoints**:
+  - [x] `POST /api/v1/scraping/upcoming`
+  - [x] `POST /api/v1/scraping/results`
+  - [x] `GET /api/v1/scraping/jobs`
+  - [x] `GET /api/v1/scraping/jobs/{job_id}`
+- [x] **Test Coverage**:
+  - [x] Integration tests for each endpoint
+  - [x] Background task execution tests
+  - [x] Error handling tests
+- [x] **Validation**: Test with actual scraping (development environment)
 
 #### 2.3 Register Router in Main App
-- [ ] **File**: `algobet/api/main.py`
-- [ ] **Description**: Add scraping router to FastAPI app
-- [ ] **Test Coverage**: Router registration test
-- [ ] **Validation**: Verify endpoints are accessible
+- [x] **File**: `algobet/api/main.py`
+- [x] **Description**: Add scraping router to FastAPI app
+- [x] **Test Coverage**: Router registration test
+- [x] **Validation**: Verify endpoints are accessible
 
 #### 2.4 Background Task Integration
-- [ ] **Description**: Implement proper background task handling
-- [ ] **Test Coverage**: Background task execution tests
-- [ ] **Validation**: Ensure tasks run independently of API response
+- [x] **Description**: Implement proper background task handling
+- [x] **Test Coverage**: Background task execution tests
+- [x] **Validation**: Ensure tasks run independently of API response
+
+**Phase 2 Status**: ✅ **COMPLETED** - All API scraping endpoints created with:
+- Scraping schemas with job management structures
+- Full CRUD API endpoints for scraping operations
+- Background task execution for long-running operations
+- WebSocket integration for real-time progress updates
 
 ---
 
 ## 🔌 Phase 3: WebSocket Progress Updates
-**Duration**: 1 day | **Priority**: Medium | **Status**: 🔴 Not Started
+**Duration**: 1 day | **Priority**: Medium | **Status**: ✅ Completed
 
 ### Objective
 Provide real-time progress updates for long-running scraping operations.
@@ -117,16 +123,22 @@ Provide real-time progress updates for long-running scraping operations.
 ### Tasks
 
 #### 3.1 Create WebSocket Handler
-- [ ] **File**: `algobet/api/websockets/progress.py`
-- [ ] **Description**: WebSocket connection manager for progress updates
-- [ ] **Test Coverage**: Unit tests for ConnectionManager
-- [ ] **Validation**: Test multiple concurrent connections
+- [x] **File**: `algobet/api/websockets/progress.py`
+- [x] **Description**: WebSocket connection manager for progress updates
+- [x] **Test Coverage**: Unit tests for ConnectionManager
+- [x] **Validation**: Test multiple concurrent connections
 
 #### 3.2 Add WebSocket Route
-- [ ] **File**: `algobet/api/main.py`
-- [ ] **Description**: WebSocket endpoint for scraping progress
-- [ ] **Test Coverage**: WebSocket connection tests
-- [ ] **Validation**: Test real-time progress broadcasting
+- [x] **File**: `algobet/api/main.py`
+- [x] **Description**: WebSocket endpoint for scraping progress
+- [x] **Test Coverage**: WebSocket connection tests
+- [x] **Validation**: Test real-time progress broadcasting
+
+**Phase 3 Status**: ✅ **COMPLETED** - All WebSocket progress functionality created with:
+- ConnectionManager for handling WebSocket connections
+- Real-time progress broadcasting for scraping jobs
+- Job-specific subscription/unsubscription handling
+- Proper error handling and connection cleanup
 
 ---
 

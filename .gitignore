@@ -3,3 +3,15 @@ __pycache__/
 .env
 algobet.egg-info/
 football.db
+
+# Frontend
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/.vercel
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+frontend/.env.local
+frontend/.env.production.local
+frontend/.env.development.local
+frontend/.env.test.local

@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: algobet-db
+    environment:
+      POSTGRES_USER: algobet
+      POSTGRES_PASSWORD: algobet_password
+      POSTGRES_DB: algobet
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U algobet -d algobet" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: algobet-api
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: algobet
+      POSTGRES_PASSWORD: algobet_password
+      POSTGRES_DB: algobet
+    volumes:
+      - ./algobet:/app/algobet
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn algobet.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: algobet-scheduler
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: algobet
+      POSTGRES_PASSWORD: algobet_password
+      POSTGRES_DB: algobet
+    volumes:
+      - ./algobet:/app/algobet
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python -m algobet.scheduler.worker run --interval 60
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
