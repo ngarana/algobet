@@ -1,13 +1,17 @@
 """Scheduler service for managing automated tasks."""
 
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from algobet.database import session_scope
 from algobet.models import ScheduledTask, TaskExecution
 from algobet.services.base import BaseService
 
@@ -24,10 +28,17 @@ class TaskDefinition:
 
 
 class SchedulerService(BaseService[None]):
-    """Service for managing scheduled tasks and their execution."""
+    """Service for managing scheduled tasks and their execution.
+
+    Integrates with APScheduler for automated task scheduling and execution.
+    """
 
     # Registry of available task types
     _task_registry: dict[str, TaskDefinition] = {}
+
+    # Class-level scheduler instance (shared across all service instances)
+    _scheduler: BackgroundScheduler | None = None
+    _scheduler_started: bool = False
 
     @classmethod
     def register_task(cls, task_def: TaskDefinition) -> None:
@@ -223,3 +234,132 @@ class SchedulerService(BaseService[None]):
     def get_active_schedules(self) -> list[ScheduledTask]:
         """Get all active scheduled tasks."""
         return self.list_schedules(is_active=True)
+
+    @classmethod
+    def start_scheduler(cls) -> None:
+        """Start the APScheduler instance.
+
+        Initializes and starts the background scheduler if not already running.
+        """
+        if cls._scheduler is None:
+            cls._scheduler = BackgroundScheduler()
+
+        if not cls._scheduler_started:
+            cls._scheduler.start()
+            cls._scheduler_started = True
+
+    @classmethod
+    def shutdown_scheduler(cls) -> None:
+        """Shutdown the APScheduler instance.
+
+        Stops the scheduler if it is running.
+        """
+        if cls._scheduler is not None and cls._scheduler_started:
+            cls._scheduler.shutdown()
+            cls._scheduler_started = False
+            cls._scheduler = None
+
+    @classmethod
+    def is_scheduler_running(cls) -> bool:
+        """Check if the scheduler is currently running.
+
+        Returns:
+            True if scheduler is running, False otherwise
+        """
+        return cls._scheduler_started
+
+    @classmethod
+    def load_all_active_tasks(cls) -> None:
+        """Load all active scheduled tasks from database into scheduler.
+
+        This method should be called after starting the scheduler to
+        schedule all active tasks defined in the database.
+        """
+        if cls._scheduler is None:
+            raise RuntimeError("Scheduler must be started before loading tasks")
+
+        # Clear existing jobs to avoid duplicates
+        cls._scheduler.remove_all_jobs()
+
+        # Load active tasks from database
+        with session_scope() as session:
+            scheduler = SchedulerService(session)
+            active_tasks = scheduler.get_active_schedules()
+
+            for task in active_tasks:
+                try:
+                    # Add job to scheduler
+                    cls._scheduler.add_job(
+                        func=cls._execute_scheduled_task,
+                        trigger=CronTrigger.from_crontab(task.cron_expression),
+                        id=str(task.id),
+                        name=task.name,
+                        args=[task.id],
+                        replace_existing=True,
+                    )
+                except Exception as e:
+                    print(f"Failed to schedule task '{task.name}': {e}")
+
+    @classmethod
+    def add_task_to_scheduler(cls, task: ScheduledTask) -> None:
+        """Add a single task to the scheduler.
+
+        Args:
+            task: ScheduledTask to add to scheduler
+        """
+        if cls._scheduler is None:
+            raise RuntimeError("Scheduler must be started before adding tasks")
+
+        try:
+            cls._scheduler.add_job(
+                func=cls._execute_scheduled_task,
+                trigger=CronTrigger.from_crontab(task.cron_expression),
+                id=str(task.id),
+                name=task.name,
+                args=[task.id],
+                replace_existing=True,
+            )
+        except Exception as e:
+            print(f"Failed to schedule task '{task.name}': {e}")
+
+    @classmethod
+    def remove_task_from_scheduler(cls, task_id: int) -> None:
+        """Remove a task from the scheduler.
+
+        Args:
+            task_id: ID of the task to remove
+        """
+        if cls._scheduler is None:
+            return
+
+        with suppress(Exception):
+            cls._scheduler.remove_job(str(task_id))
+
+    @classmethod
+    def update_task_in_scheduler(cls, task: ScheduledTask) -> None:
+        """Update a task in the scheduler.
+
+        Args:
+            task: ScheduledTask to update
+        """
+        cls.remove_task_from_scheduler(task.id)
+        if task.is_active:
+            cls.add_task_to_scheduler(task)
+
+    @classmethod
+    def _execute_scheduled_task(cls, task_id: int) -> None:
+        """Execute a scheduled task (called by APScheduler).
+
+        Args:
+            task_id: ID of the task to execute
+        """
+        with session_scope() as session:
+            scheduler = SchedulerService(session)
+            try:
+                execution = scheduler.execute_task(task_id)
+                print(
+                    f"Task {task_id} executed: "
+                    f"{execution.status} in {execution.duration:.2f}s"
+                )
+            except Exception as e:
+                print(f"Task {task_id} failed: {e}")

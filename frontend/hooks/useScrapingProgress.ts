@@ -46,7 +46,7 @@ export function useScrapingProgress(options: UseScrapingProgressOptions = {}) {
   const connect = useCallback(() => {
     if (!jobId || !enabled) return;
 
-    const ws = new WebSocket(`${WS_BASE_URL}/ws/progress/${jobId}`);
+    const ws = new WebSocket(`${WS_BASE_URL}/ws/scraping/${jobId}`);
     wsRef.current = ws;
 
     ws.onopen = () => {

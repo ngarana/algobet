@@ -20,39 +20,33 @@ class ConnectionManager:
         self.active_connections: dict[str, list[WebSocket]] = {}
         self.connection_metadata: dict[WebSocket, dict[str, Any]] = {}
 
-    async def connect(
-        self, websocket: WebSocket, client_id: str, job_id: str | None = None
-    ) -> None:
+    async def connect(self, websocket: WebSocket, job_id: str) -> None:
         """Accept a new WebSocket connection.
 
         Args:
             websocket: The WebSocket connection
-            client_id: Unique identifier for the client
-            job_id: Optional job ID to subscribe to specific updates
+            job_id: Job ID to subscribe to specific updates
         """
         await websocket.accept()
 
         # Store connection metadata
         self.connection_metadata[websocket] = {
-            "client_id": client_id,
             "job_id": job_id,
             "connected_at": datetime.now(timezone.utc),
         }
 
-        # Add to job-specific connection list if job_id provided
-        if job_id:
-            if job_id not in self.active_connections:
-                self.active_connections[job_id] = []
-            self.active_connections[job_id].append(websocket)
+        # Add to job-specific connection list
+        if job_id not in self.active_connections:
+            self.active_connections[job_id] = []
+        self.active_connections[job_id].append(websocket)
 
-        logger.info(f"WebSocket connected: client_id={client_id}, job_id={job_id}")
+        logger.info(f"WebSocket connected: job_id={job_id}")
 
         # Send connection confirmation
         await self.send_personal_message(
             {
                 "type": "connection",
                 "status": "connected",
-                "client_id": client_id,
                 "job_id": job_id,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
@@ -66,7 +60,6 @@ class ConnectionManager:
             websocket: The WebSocket connection to remove
         """
         metadata = self.connection_metadata.pop(websocket, {})
-        client_id = metadata.get("client_id", "unknown")
         job_id = metadata.get("job_id")
 
         # Remove from job-specific connections
@@ -78,7 +71,7 @@ class ConnectionManager:
             if not self.active_connections[job_id]:
                 del self.active_connections[job_id]
 
-        logger.info(f"WebSocket disconnected: client_id={client_id}, job_id={job_id}")
+        logger.info(f"WebSocket disconnected: job_id={job_id}")
 
     async def send_personal_message(
         self, message: dict[str, Any], websocket: WebSocket
@@ -227,9 +220,7 @@ class ConnectionManager:
                 websocket,
             )
 
-            logger.info(
-                f"Client {metadata.get('client_id')} subscribed to job {job_id}"
-            )
+        logger.info(f"WebSocket subscribed to job {job_id}")
 
     async def _handle_unsubscription(self, websocket: WebSocket, job_id: str) -> None:
         """Handle job unsubscription request.
@@ -260,9 +251,7 @@ class ConnectionManager:
                 websocket,
             )
 
-            logger.info(
-                f"Client {metadata.get('client_id')} unsubscribed from job {job_id}"
-            )
+        logger.info(f"WebSocket unsubscribed from job {job_id}")
 
     def get_connection_stats(self) -> dict[str, int]:
         """Get connection statistics.
@@ -294,17 +283,14 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-async def websocket_endpoint(
-    websocket: WebSocket, client_id: str, job_id: str | None = None
-) -> None:
+async def websocket_endpoint(websocket: WebSocket, job_id: str) -> None:
     """WebSocket endpoint for progress updates.
 
     Args:
         websocket: WebSocket connection
-        client_id: Unique client identifier
-        job_id: Optional job ID to subscribe to immediately
+        job_id: Job ID to subscribe to
     """
-    await manager.connect(websocket, client_id, job_id)
+    await manager.connect(websocket, job_id)
 
     try:
         while True:
@@ -315,5 +301,5 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
-        logger.error(f"WebSocket error for client {client_id}: {e}")
+        logger.error(f"WebSocket error for job {job_id}: {e}")
         manager.disconnect(websocket)

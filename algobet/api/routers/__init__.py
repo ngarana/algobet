@@ -3,6 +3,7 @@
 from .matches import router as matches_router
 from .models import router as models_router
 from .predictions import router as predictions_router
+from .schedules import router as schedules_router
 from .scraping import router as scraping_router
 from .seasons import router as seasons_router
 from .teams import router as teams_router
@@ -18,4 +19,5 @@ __all__ = [
     "models_router",
     "value_bets_router",
     "scraping_router",
+    "schedules_router",
 ]

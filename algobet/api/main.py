@@ -1,5 +1,6 @@
 """FastAPI application entry point for AlgoBet API."""
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -10,6 +11,7 @@ from algobet.api.routers import (
     matches_router,
     models_router,
     predictions_router,
+    schedules_router,
     scraping_router,
     seasons_router,
     teams_router,
@@ -17,16 +19,45 @@ from algobet.api.routers import (
     value_bets_router,
 )
 from algobet.api.websockets import websocket_endpoint
+from algobet.services.scheduler_service import SchedulerService
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Lifespan context manager for startup and shutdown events."""
-    # Startup: Initialize connections, caches, etc.
+    """Lifespan context manager for startup and shutdown events.
+
+    Manages scheduler initialization and cleanup along with other resources.
+    """
+    # Startup: Initialize connections, caches, and scheduler
     print("Starting AlgoBet API...")
+
+    # Start scheduler if enabled (default: enabled)
+    enable_scheduler = os.getenv("ENABLE_SCHEDULER", "true").lower() == "true"
+    if enable_scheduler:
+        try:
+            print("Initializing APScheduler...")
+            SchedulerService.start_scheduler()
+            SchedulerService.load_all_active_tasks()
+            print("Scheduler started successfully")
+        except Exception as e:
+            print(f"Warning: Failed to start scheduler: {e}")
+            print("Continuing without scheduler...")
+    else:
+        print("Scheduler disabled via ENABLE_SCHEDULER=false")
+
     yield
-    # Shutdown: Clean up connections, etc.
+
+    # Shutdown: Clean up connections and scheduler
     print("Shutting down AlgoBet API...")
+
+    if enable_scheduler:
+        try:
+            SchedulerService.shutdown_scheduler()
+            print("Scheduler stopped successfully")
+        except Exception as e:
+            print(f"Warning: Error stopping scheduler: {e}")
+
+    print("Shutdown complete")
 
 
 # Create FastAPI application
@@ -100,6 +131,12 @@ app.include_router(
     tags=["scraping"],
 )
 
+app.include_router(
+    schedules_router,
+    prefix="/api/v1/schedules",
+    tags=["schedules"],
+)
+
 
 @app.get("/")
 async def root() -> dict[str, str]:
@@ -118,12 +155,10 @@ async def health_check() -> dict[str, str]:
     return {"status": "healthy"}
 
 
-@app.websocket("/ws/progress/{client_id}")
-async def progress_websocket(
-    websocket: WebSocket, client_id: str, job_id: str | None = None
-) -> None:
+@app.websocket("/ws/scraping/{job_id}")
+async def progress_websocket(websocket: WebSocket, job_id: str) -> None:
     """WebSocket endpoint for real-time progress updates."""
-    await websocket_endpoint(websocket, client_id, job_id)
+    await websocket_endpoint(websocket, job_id)
 
 
 if __name__ == "__main__":

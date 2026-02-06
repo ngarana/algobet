@@ -117,6 +117,7 @@ warn_redundant_casts = true
 warn_unused_configs = true
 show_error_codes = true
 ignore_missing_imports = false
+mypy_path = "stubs"
 
 # Ignore missing imports for libraries without stubs
 [[tool.mypy.overrides]]

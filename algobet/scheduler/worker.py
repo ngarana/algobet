@@ -2,7 +2,6 @@
 
 import signal
 import sys
-import time
 from datetime import datetime
 from typing import Any
 
@@ -13,68 +12,110 @@ from algobet.services.scheduler_service import SchedulerService
 
 
 class SchedulerWorker:
-    """Worker process that executes scheduled tasks based on cron expressions."""
+    """Worker process that executes scheduled tasks using APScheduler.
 
-    def __init__(self, check_interval: int = 60):
-        self.check_interval = check_interval
+    This worker starts the APScheduler instance and loads all active tasks
+    from the database for automated execution.
+    """
+
+    def __init__(self) -> None:
         self.running = False
-        self.last_check: dict[int, float] = {}
 
-    def should_run_task(self, task: Any, scheduler: SchedulerService) -> bool:
-        """Check if a task should be run based on its cron expression."""
-        from croniter import croniter
+    def start_scheduler(self) -> None:
+        """Start the APScheduler and load all active tasks."""
+        try:
+            click.echo("Starting APScheduler...")
+            SchedulerService.start_scheduler()
 
-        last_execution = scheduler.get_last_execution(task.id)
-        if not last_execution:
-            # Never run before, should run
-            return True
+            click.echo("Loading active tasks from database...")
+            SchedulerService.load_all_active_tasks()
 
-        cron = croniter(task.cron_expression, last_execution.started_at)
-        next_run = cron.get_next(datetime)
+            # Display loaded tasks
+            with session_scope() as session:
+                scheduler = SchedulerService(session)
+                active_tasks = scheduler.get_active_schedules()
+                click.echo(f"Loaded {len(active_tasks)} active tasks:")
+                for task in active_tasks:
+                    last_run = "Never"
+                    last_execution = scheduler.get_last_execution(task.id)
+                    if last_execution:
+                        last_run = last_execution.started_at.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                    click.echo(
+                        f"  - {task.name} (cron: {task.cron_expression}, "
+                        f"last: {last_run})"
+                    )
 
-        # Run if next run time has passed
-        return datetime.now() >= next_run  # type: ignore
+            click.echo("\nScheduler is running. Press Ctrl+C to stop.\n")
+
+        except Exception as e:
+            click.echo(f"Failed to start scheduler: {e}", err=True)
+            raise
+
+    def shutdown_scheduler(self) -> None:
+        """Shutdown the APScheduler gracefully."""
+        try:
+            click.echo("\nShutting down scheduler...")
+            SchedulerService.shutdown_scheduler()
+            click.echo("Scheduler stopped.")
+        except Exception as e:
+            click.echo(f"Error shutting down scheduler: {e}", err=True)
+
+    def run_forever(self) -> None:
+        """Run the worker continuously with APScheduler."""
+        self.running = True
+
+        # Start scheduler
+        self.start_scheduler()
+
+        # Setup signal handlers for graceful shutdown
+        def signal_handler(signum: int, frame: Any) -> None:
+            self.running = False
+            self.shutdown_scheduler()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        # Keep the process alive - APScheduler runs in background threads
+        try:
+            while self.running:
+                import time
+
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self.running = False
+            self.shutdown_scheduler()
 
     def run_once(self) -> None:
-        """Check and execute all active scheduled tasks once."""
+        """Run a single check of all active tasks (for testing/one-shot execution)."""
         with session_scope() as session:
             scheduler = SchedulerService(session)
             active_tasks = scheduler.get_active_schedules()
 
+            click.echo(f"\nChecking {len(active_tasks)} active tasks...\n")
+
             for task in active_tasks:
                 try:
-                    if self.should_run_task(task, scheduler):
-                        click.echo(f"\n[{datetime.now()}] Executing task: {task.name}")
-                        execution = scheduler.execute_task(task.id)
-
-                        if execution.status == "completed":
-                            click.echo(f"✓ Completed in {execution.duration:.2f}s")
-                            if execution.result:
-                                click.echo(f"  Result: {execution.result}")
-                        else:
-                            click.echo(f"✗ Failed: {execution.error_message}", err=True)
+                    last_execution = scheduler.get_last_execution(task.id)
+                    if last_execution:
+                        click.echo(f"Task: {task.name}")
+                        click.echo(f"  Last run: {last_execution.started_at}")
+                        click.echo(f"  Status: {last_execution.status}")
+                        if last_execution.duration:
+                            click.echo(f"  Duration: {last_execution.duration:.2f}s")
+                    else:
+                        click.echo(f"Task: {task.name} (never executed)")
+                    click.echo()
 
                 except Exception as e:
-                    click.echo(f"✗ Error executing task '{task.name}': {e}", err=True)
-
-    def run_forever(self) -> None:
-        """Run the worker continuously."""
-        self.running = True
-        click.echo(f"Scheduler worker started (check interval: {self.check_interval}s)")
-        click.echo("Press Ctrl+C to stop\n")
-
-        try:
-            while self.running:
-                self.run_once()
-                time.sleep(self.check_interval)
-
-        except KeyboardInterrupt:
-            click.echo("\n\nShutting down scheduler worker...")
-            self.running = False
+                    click.echo(f"Error checking task '{task.name}': {e}", err=True)
 
     def stop(self) -> None:
         """Stop the worker."""
         self.running = False
+        self.shutdown_scheduler()
 
 
 @click.group()
@@ -97,7 +138,7 @@ def cli() -> None:
 )
 def run(interval: int, once: bool) -> None:
     """Run the scheduler worker."""
-    worker = SchedulerWorker(check_interval=interval)
+    worker = SchedulerWorker()
 
     if once:
         worker.run_once()
