@@ -1,8 +1,82 @@
+# Python
 .venv
+venv
+env/
+ENV/
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+*.manifest
+*.spec
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.psql
+data/*.db
+
+# Environment variables
 .env
-algobet.egg-info/
-football.db
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+logs/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.coverage.*
+.cache/
+nosetests.xml
+coverage.xml
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Data files
+data/raw/
+data/processed/
+data/models/*.joblib
+data/models/*.pkl
+data/scraped/
+*.csv
+*.xlsx
 
 # Frontend
 frontend/node_modules
@@ -15,3 +89,16 @@ frontend/.env.local
 frontend/.env.production.local
 frontend/.env.development.local
 frontend/.env.test.local
+frontend/coverage
+frontend/.pnp
+frontend/.pnp.js
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Docker
+docker-compose.override.yml
+*.dockerignore
+
+# Misc
+*.pem
