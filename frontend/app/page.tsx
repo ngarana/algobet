@@ -1,62 +1,155 @@
-export default function Home() {
+'use client'
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Calendar, Trophy, TrendingUp, Activity } from 'lucide-react'
+import { useUpcomingPredictions } from '@/lib/queries/use-predictions'
+import { useActiveModel } from '@/lib/queries/use-models'
+import { useValueBets } from '@/lib/queries/use-value-bets'
+
+function UpcomingMatchesCard() {
+  const { data, isLoading } = useUpcomingPredictions(7)
+  const count = data?.items?.length ?? 0
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Welcome to <code className="font-mono font-bold">AlgoBet</code> - Football Match Predictions
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">Upcoming Matches</CardTitle>
+        <Calendar className="h-4 w-4 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-8 w-20" />
+        ) : (
+          <div className="text-2xl font-bold">{count}</div>
+        )}
+        <p className="text-xs text-muted-foreground">Next 7 days</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ActiveModelCard() {
+  const { data, isLoading } = useActiveModel()
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">Active Model</CardTitle>
+        <Trophy className="h-4 w-4 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-8 w-32" />
+        ) : data ? (
+          <>
+            <div className="text-2xl font-bold">{data.name}</div>
+            <p className="text-xs text-muted-foreground">
+              {data.algorithm} • {data.accuracy ? `${(data.accuracy * 100).toFixed(1)}%` : 'N/A'} accuracy
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="text-2xl font-bold">No Active Model</div>
+            <p className="text-xs text-muted-foreground">Activate a model to start predictions</p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ValueBetsCard() {
+  const { data, isLoading } = useValueBets({ limit: 10 })
+  const count = data?.items?.length ?? 0
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">Value Bets</CardTitle>
+        <TrendingUp className="h-4 w-4 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-8 w-20" />
+        ) : (
+          <div className="text-2xl font-bold">{count}</div>
+        )}
+        <p className="text-xs text-muted-foreground">Opportunities available</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function PredictionAccuracyCard() {
+  const { data, isLoading } = useUpcomingPredictions()
+  
+  // Calculate average confidence
+  const avgConfidence = data?.items?.length
+    ? data.items.reduce((sum, p) => sum + p.confidence, 0) / data.items.length
+    : 0
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">Avg Confidence</CardTitle>
+        <Activity className="h-4 w-4 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-8 w-20" />
+        ) : (
+          <div className="text-2xl font-bold">
+            {avgConfidence ? `${(avgConfidence * 100).toFixed(1)}%` : 'N/A'}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">Across predictions</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+        <p className="text-muted-foreground">
+          Overview of your football predictions and analysis
         </p>
       </div>
 
-      <div className="relative flex place-items-center before:absolute before:h-[300px] before:w-full sm:before:w-[480px] before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full sm:after:w-[240px] after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 before:lg:h-[360px]">
-        <h1 className="text-4xl font-bold">AlgoBet</h1>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <UpcomingMatchesCard />
+        <ActiveModelCard />
+        <ValueBetsCard />
+        <PredictionAccuracyCard />
       </div>
 
-      <div className="mb-32 grid text-center lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-3 lg:text-left">
-        <a
-          href="/scraping"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Scraping{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Manage data scraping operations with real-time progress updates.
-          </p>
-        </a>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+        <Card className="col-span-4">
+          <CardHeader>
+            <CardTitle>Recent Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Dashboard components will be populated with data from the API.
+              Ensure the backend is running and has data.
+            </p>
+          </CardContent>
+        </Card>
 
-        <a
-          href="/predictions"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Predictions{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            View and analyze AI-powered match predictions.
-          </p>
-        </a>
-
-        <a
-          href="/models"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Models{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Manage ML models and view performance metrics.
-          </p>
-        </a>
+        <Card className="col-span-3">
+          <CardHeader>
+            <CardTitle>Quick Stats</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Quick statistics and insights will appear here once data is available.
+            </p>
+          </CardContent>
+        </Card>
       </div>
-    </main>
+    </div>
   )
 }

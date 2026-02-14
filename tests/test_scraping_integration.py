@@ -61,7 +61,7 @@ class TestScrapingWebSocketIntegration:
         mock_ws.client_state.DISCONNECTED = False
 
         # Add to manager - this will send a connection confirmation message
-        await manager.connect(mock_ws, "test-client", "job-123")
+        await manager.connect(mock_ws, "job-123")
 
         # Verify connection
         assert "job-123" in manager.active_connections
@@ -73,7 +73,6 @@ class TestScrapingWebSocketIntegration:
         connection_data = json.loads(connection_call)
         assert connection_data["type"] == "connection"
         assert connection_data["status"] == "connected"
-        assert connection_data["client_id"] == "test-client"
         assert connection_data["job_id"] == "job-123"
 
         # Test broadcasting progress
@@ -111,7 +110,7 @@ class TestScrapingWebSocketIntegration:
         mock_ws.client_state.DISCONNECTED = False
 
         # Connect - sends connection confirmation
-        await manager.connect(mock_ws, "test-client", "job-456")
+        await manager.connect(mock_ws, "job-456")
 
         # Verify connection confirmation was sent
         assert mock_ws.send_text.call_count == 1
@@ -153,8 +152,8 @@ class TestScrapingWebSocketIntegration:
         mock_ws2.client_state.DISCONNECTED = False
 
         # Connect both to the same job - each will get a connection confirmation
-        await manager.connect(mock_ws1, "client-1", "shared-job")
-        await manager.connect(mock_ws2, "client-2", "shared-job")
+        await manager.connect(mock_ws1, "shared-job")
+        await manager.connect(mock_ws2, "shared-job")
 
         # Verify both connections are registered
         assert "shared-job" in manager.active_connections

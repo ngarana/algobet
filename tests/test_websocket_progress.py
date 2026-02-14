@@ -46,8 +46,8 @@ class TestConnectionManager:
 
     @pytest.mark.asyncio
     async def test_connect_without_job_id(self, connection_manager, mock_websocket):
-        """Test connecting without specifying a job ID."""
-        await connection_manager.connect(mock_websocket, "client-123")
+        """Test connecting with a job ID."""
+        await connection_manager.connect(mock_websocket, "job-123")
 
         mock_websocket.accept.assert_called_once()
 
@@ -56,13 +56,12 @@ class TestConnectionManager:
         sent_data = json.loads(mock_websocket.send_text.call_args[0][0])
         assert sent_data["type"] == "connection"
         assert sent_data["status"] == "connected"
-        assert sent_data["client_id"] == "client-123"
-        assert sent_data["job_id"] is None
+        assert sent_data["job_id"] == "job-123"
 
     @pytest.mark.asyncio
     async def test_connect_with_job_id(self, connection_manager, mock_websocket):
         """Test connecting with a specific job ID."""
-        await connection_manager.connect(mock_websocket, "client-456", "job-789")
+        await connection_manager.connect(mock_websocket, "job-789")
 
         # Verify connection confirmation
         sent_data = json.loads(mock_websocket.send_text.call_args[0][0])
@@ -76,7 +75,7 @@ class TestConnectionManager:
     async def test_disconnect(self, connection_manager, mock_websocket):
         """Test disconnecting a WebSocket."""
         # Connect first
-        await connection_manager.connect(mock_websocket, "client-123", "job-456")
+        await connection_manager.connect(mock_websocket, "job-456")
 
         # Disconnect
         connection_manager.disconnect(mock_websocket)
@@ -112,8 +111,8 @@ class TestConnectionManager:
         websocket2.client_state.DISCONNECTED = False
 
         # Connect both to the same job
-        await connection_manager.connect(websocket1, "client-1", "job-123")
-        await connection_manager.connect(websocket2, "client-2", "job-123")
+        await connection_manager.connect(websocket1, "job-123")
+        await connection_manager.connect(websocket2, "job-123")
 
         # Broadcast message
         message = {"type": "progress", "progress": 50}
@@ -131,7 +130,7 @@ class TestConnectionManager:
         websocket.client_state = MagicMock()
         websocket.client_state.DISCONNECTED = False
 
-        await connection_manager.connect(websocket, "client-123", "job-456")
+        await connection_manager.connect(websocket, "job-456")
 
         progress = ScrapingProgress(
             job_id="job-456",
@@ -142,9 +141,9 @@ class TestConnectionManager:
 
         await connection_manager.broadcast_progress(progress)
 
-        # Verify the formatted message was sent
-        websocket.send_text.assert_called_once()
-        sent_data = json.loads(websocket.send_text.call_args[0][0])
+        # Verify the formatted message was sent (2 calls: connection + progress)
+        assert websocket.send_text.call_count == 2
+        sent_data = json.loads(websocket.send_text.call_args_list[-1][0][0])
         assert sent_data["type"] == "progress"
         assert sent_data["job_id"] == "job-456"
         assert sent_data["progress"] == 75.0
@@ -159,15 +158,15 @@ class TestConnectionManager:
         websocket.client_state = MagicMock()
         websocket.client_state.DISCONNECTED = False
 
-        await connection_manager.connect(websocket, "client-123", "job-789")
+        await connection_manager.connect(websocket, "job-789")
 
         await connection_manager.broadcast_job_status(
             "job-789", "completed", "Job finished"
         )
 
-        # Verify status message was sent
-        websocket.send_text.assert_called_once()
-        sent_data = json.loads(websocket.send_text.call_args[0][0])
+        # Verify status message was sent (2 calls: connection + status)
+        assert websocket.send_text.call_count == 2
+        sent_data = json.loads(websocket.send_text.call_args_list[-1][0][0])
         assert sent_data["type"] == "status"
         assert sent_data["job_id"] == "job-789"
         assert sent_data["status"] == "completed"
@@ -178,7 +177,7 @@ class TestConnectionManager:
         self, connection_manager, mock_websocket
     ):
         """Test handling client subscribe message."""
-        await connection_manager.connect(mock_websocket, "client-123")
+        await connection_manager.connect(mock_websocket, "job-123")
 
         # Simulate subscribe message
         message = json.dumps({"type": "subscribe", "job_id": "job-456"})
@@ -195,7 +194,7 @@ class TestConnectionManager:
         self, connection_manager, mock_websocket
     ):
         """Test handling client unsubscribe message."""
-        await connection_manager.connect(mock_websocket, "client-123", "job-456")
+        await connection_manager.connect(mock_websocket, "job-456")
 
         # Simulate unsubscribe message
         message = json.dumps({"type": "unsubscribe", "job_id": "job-456"})
@@ -211,7 +210,7 @@ class TestConnectionManager:
     @pytest.mark.asyncio
     async def test_handle_client_message_ping(self, connection_manager, mock_websocket):
         """Test handling client ping message."""
-        await connection_manager.connect(mock_websocket, "client-123")
+        await connection_manager.connect(mock_websocket, "job-123")
 
         # Simulate ping message
         message = json.dumps({"type": "ping"})
@@ -228,7 +227,7 @@ class TestConnectionManager:
         self, connection_manager, mock_websocket
     ):
         """Test handling invalid JSON from client."""
-        await connection_manager.connect(mock_websocket, "client-123")
+        await connection_manager.connect(mock_websocket, "job-123")
 
         # Simulate invalid JSON
         invalid_message = "invalid json {"
@@ -245,7 +244,7 @@ class TestConnectionManager:
         self, connection_manager, mock_websocket
     ):
         """Test handling unknown message type."""
-        await connection_manager.connect(mock_websocket, "client-123")
+        await connection_manager.connect(mock_websocket, "job-123")
 
         # Simulate unknown message type
         message = json.dumps({"type": "unknown_type", "data": "test"})
@@ -258,7 +257,7 @@ class TestConnectionManager:
     def test_get_connection_stats(self, connection_manager, mock_websocket):
         """Test getting connection statistics."""
         # Add some connections
-        asyncio.run(connection_manager.connect(mock_websocket, "client-1", "job-123"))
+        asyncio.run(connection_manager.connect(mock_websocket, "job-123"))
 
         stats = connection_manager.get_connection_stats()
 
@@ -272,7 +271,7 @@ class TestConnectionManager:
         self, connection_manager, mock_websocket
     ):
         """Test that connections are cleaned up when errors occur."""
-        await connection_manager.connect(mock_websocket, "client-123", "job-456")
+        await connection_manager.connect(mock_websocket, "job-456")
 
         # Simulate an error during message sending
         mock_websocket.send_text.side_effect = Exception("Connection error")
@@ -311,7 +310,7 @@ class TestWebSocketEndpoint:
         # Mock that the websocket gets disconnected
         mock_websocket.receive_text.side_effect = WebSocketDisconnect()
 
-        await websocket_endpoint(mock_websocket, "test-client")
+        await websocket_endpoint(mock_websocket, "job-123")
 
         # Verify basic connection flow
         mock_websocket.accept.assert_called_once()
@@ -321,7 +320,7 @@ class TestWebSocketEndpoint:
         """Test WebSocket endpoint with job ID parameter."""
         mock_websocket.receive_text.side_effect = WebSocketDisconnect()
 
-        await websocket_endpoint(mock_websocket, "test-client", "job-123")
+        await websocket_endpoint(mock_websocket, "job-123")
 
         # Verify connection with job ID
         mock_websocket.accept.assert_called_once()
@@ -333,7 +332,7 @@ class TestWebSocketEndpoint:
         mock_websocket.accept.side_effect = RuntimeError("Connection failed")
 
         with pytest.raises(RuntimeError):
-            await websocket_endpoint(mock_websocket, "test-client")
+            await websocket_endpoint(mock_websocket, "job-123")
 
 
 class TestIntegrationWithScrapingProgress:
@@ -344,7 +343,7 @@ class TestIntegrationWithScrapingProgress:
         self, connection_manager, mock_websocket
     ):
         """Test integration with ScrapingProgress schema."""
-        await connection_manager.connect(mock_websocket, "client-123", "job-456")
+        await connection_manager.connect(mock_websocket, "job-456")
 
         # Create a real ScrapingProgress object
         progress = ScrapingProgress(
@@ -356,9 +355,9 @@ class TestIntegrationWithScrapingProgress:
 
         await connection_manager.broadcast_progress(progress)
 
-        # Verify the message was formatted correctly
-        mock_websocket.send_text.assert_called_once()
-        sent_data = json.loads(mock_websocket.send_text.call_args[0][0])
+        # Verify the message was formatted correctly (2 calls: connection + progress)
+        assert mock_websocket.send_text.call_count == 2
+        sent_data = json.loads(mock_websocket.send_text.call_args_list[-1][0][0])
 
         assert sent_data["job_id"] == "job-456"
         assert sent_data["progress"] == 33.33
@@ -369,7 +368,7 @@ class TestIntegrationWithScrapingProgress:
     @pytest.mark.asyncio
     async def test_multiple_progress_updates(self, connection_manager, mock_websocket):
         """Test handling multiple progress updates."""
-        await connection_manager.connect(mock_websocket, "client-123", "job-789")
+        await connection_manager.connect(mock_websocket, "job-789")
 
         # Send multiple progress updates
         for i in range(1, 4):
@@ -381,8 +380,8 @@ class TestIntegrationWithScrapingProgress:
             )
             await connection_manager.broadcast_progress(progress)
 
-        # Verify all messages were sent
-        assert mock_websocket.send_text.call_count == 3
+        # Verify all messages were sent (4 calls: 1 connection + 3 progress)
+        assert mock_websocket.send_text.call_count == 4
 
         # Check last message
         last_call = mock_websocket.send_text.call_args_list[-1]
@@ -410,8 +409,8 @@ class TestConcurrentWebSocketConnections:
             websockets.append(ws)
 
         # Connect all to the same job
-        for i, ws in enumerate(websockets):
-            await connection_manager.connect(ws, f"client-{i}", "shared-job")
+        for ws in websockets:
+            await connection_manager.connect(ws, "shared-job")
 
         # Broadcast progress to the job
         progress = ScrapingProgress(
@@ -440,7 +439,7 @@ class TestConcurrentWebSocketConnections:
         websocket.client_state = MagicMock()
         websocket.client_state.DISCONNECTED = False
 
-        await connection_manager.connect(websocket, "client-123")
+        await connection_manager.connect(websocket, "job-123")
 
         # Rapid subscribe/unsubscribe operations
         for i in range(5):

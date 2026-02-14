@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -316,7 +316,7 @@ async def run_schedule_now(
 @router.get("/{schedule_id}/history", response_model=ExecutionHistoryResponse)
 async def get_execution_history(
     schedule_id: int,
-    limit: int = Field(
+    limit: int = Query(
         100, ge=1, le=1000, description="Maximum number of executions to return"
     ),
     db: Session = Depends(get_db),

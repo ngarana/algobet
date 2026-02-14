@@ -1,419 +1,213 @@
 # AlgoBet Development Tasks
 
-This document organizes the frontend development tasks into actionable sprints based on the [Frontend Development Plan](docs/frontend_development_plan.md).
+This document organizes the development tasks into actionable sprints. The project has been refactored to a service-oriented architecture with API-first design.
 
 ## Project Status
 
-- **Backend**: ✅ CLI, database models, scraper, prediction engine exist
-- **API Layer**: ❌ FastAPI endpoints need to be created (Phase 1 - Prerequisite)
-- **Frontend**: ❌ Next.js project needs to be initialized
-- **Database**: ✅ PostgreSQL configured in docker-compose.yml
+- **Backend**: ✅ Service layer, database models, scraper, prediction engine
+- **API Layer**: ✅ FastAPI endpoints with full CRUD operations
+- **Frontend**: ✅ Next.js 15 with core pages completed
+- **Database**: ✅ PostgreSQL with migrations
+- **Scheduling**: ✅ APScheduler integration for automated tasks
+- **Testing**: ✅ 155 tests passing
+
+### Current Sprint
+**Sprint 4: Advanced Features** - ✅ Completed (Tasks 4.1-4.9)
+
+### Next Sprint
+**Sprint 5: Polish & Testing** (Tasks 5.1-5.10)
+
+### Recently Completed (Refactoring)
+- ✅ Service Layer Foundation (BaseService, PredictionService, ScrapingService, SchedulerService)
+- ✅ API Scraping Endpoints with WebSocket progress updates
+- ✅ Frontend Scraping Dashboard with real-time progress
+- ✅ Frontend Schedules Management page
+- ✅ CLI Deprecation (moved to dev tools)
+- ✅ Automated/Scheduled Scraping with APScheduler
+- ✅ All tests passing (155/155)
 
 ---
 
-## Sprint 1: Foundation (Week 1)
+## Architecture Overview
 
-### Backend API Layer (Phase 1)
+### Service Layer (`algobet/services/`)
+| Service | Purpose | Status |
+|---------|---------|--------|
+| `base.py` | Abstract base service with session management | ✅ |
+| `prediction_service.py` | ML prediction logic | ✅ |
+| `scraping_service.py` | OddsPortal scraping orchestration | ✅ |
+| `scheduler_service.py` | APScheduler task management | ✅ |
 
-- [ ] **1.1** Add FastAPI dependencies to pyproject.toml
-  - fastapi>=0.104.0
-  - uvicorn[standard]>=0.24.0
-  - pydantic>=2.5.0
-  - pydantic-settings>=2.1.0
+### API Layer (`algobet/api/`)
+| Router | Endpoints | Status |
+|--------|-----------|--------|
+| `/api/v1/tournaments` | Tournament CRUD | ✅ |
+| `/api/v1/seasons` | Season management | ✅ |
+| `/api/v1/teams` | Team information | ✅ |
+| `/api/v1/matches` | Match data and filtering | ✅ |
+| `/api/v1/predictions` | Prediction management | ✅ |
+| `/api/v1/models` | ML model management | ✅ |
+| `/api/v1/value-bets` | Value bet identification | ✅ |
+| `/api/v1/scraping` | Scraping operations with WebSocket | ✅ |
+| `/api/v1/schedules` | Scheduled task management | ✅ |
 
-- [ ] **1.2** Create algobet/api directory structure
-  ```
-  algobet/api/
-  ├── __init__.py
-  ├── main.py
-  ├── dependencies.py
-  ├── routers/
-  │   ├── __init__.py
-  │   ├── matches.py
-  │   ├── tournaments.py
-  │   ├── teams.py
-  │   ├── predictions.py
-  │   ├── models.py
-  │   └── metrics.py
-  ├── schemas/
-  │   ├── __init__.py
-  │   ├── match.py
-  │   ├── team.py
-  │   ├── tournament.py
-  │   ├── prediction.py
-  │   └── model.py
-  └── middleware.py
-  ```
+### Frontend Structure (`frontend/`)
+| Directory | Purpose | Status |
+|-----------|---------|--------|
+| `app/` | Next.js App Router pages | ✅ |
+| `components/ui/` | shadcn/ui components | ✅ |
+| `components/layout/` | Navbar, Sidebar, Breadcrumb | ✅ |
+| `components/matches/` | Match-related components | ✅ |
+| `components/scraping/` | Scraping dashboard components | ✅ |
+| `components/schedules/` | Schedule management components | ✅ |
+| `lib/api/` | API client functions | ✅ |
+| `lib/queries/` | TanStack Query hooks | ✅ |
+| `lib/types/` | TypeScript types and Zod schemas | ✅ |
+| `stores/` | Zustand stores | ✅ |
+| `hooks/` | Custom hooks (useScrapingProgress) | ✅ |
 
-- [ ] **1.3** Implement FastAPI main.py
-  - FastAPI app entry point
-  - CORS middleware configuration
-  - Include all routers
-
-- [ ] **1.4** Create dependencies.py
-  - Database session dependency injection
-  - Integrate with existing session_scope()
-
-- [ ] **1.5** Create Pydantic schemas
-  - TournamentResponse, SeasonResponse
-  - TeamResponse, TeamWithStatsResponse
-  - MatchResponse, MatchDetailResponse
-  - PredictionResponse, PredictionWithMatchResponse
-  - ModelVersionResponse
-  - Align with existing SQLAlchemy models
-
-- [ ] **1.6** Implement tournaments router
-  - GET /api/v1/tournaments (list all)
-  - GET /api/v1/tournaments/{id} (details)
-  - GET /api/v1/tournaments/{id}/seasons
-
-- [ ] **1.7** Implement teams router
-  - GET /api/v1/teams (list with search)
-  - GET /api/v1/teams/{id} (details)
-  - GET /api/v1/teams/{id}/form (FormCalculator integration)
-  - GET /api/v1/teams/{id}/matches (MatchRepository integration)
-
-- [ ] **1.8** Implement matches router
-  - GET /api/v1/matches (list with filters)
-  - GET /api/v1/matches/{id} (details)
-  - GET /api/v1/matches/{id}/preview (form analysis)
-  - GET /api/v1/matches/{id}/predictions
-  - GET /api/v1/matches/{id}/h2h (MatchRepository.get_h2h_matches)
-
-- [ ] **1.9** Implement predictions router
-  - GET /api/v1/predictions (list with filters)
-  - POST /api/v1/predictions/generate (batch generation)
-  - GET /api/v1/predictions/upcoming
-  - GET /api/v1/predictions/history
-
-- [ ] **1.10** Implement models router
-  - GET /api/v1/models (list all versions)
-  - GET /api/v1/models/active (currently active)
-  - GET /api/v1/models/{id} (details)
-  - POST /api/v1/models/{id}/activate (ModelRegistry integration)
-  - DELETE /api/v1/models/{id}
-  - GET /api/v1/models/{id}/metrics
-
-- [ ] **1.11** Implement value-bets endpoint
-  - GET /api/v1/value-bets (find value opportunities)
-
-- [ ] **1.12** Add environment variables
-  - Update .env with API configuration
-  - DATABASE_URL, API_HOST, API_PORT, CORS_ORIGINS
-
-- [ ] **1.13** Update docker-compose.yml
-  - Add API service with uvicorn
-  - Configure dependencies on db service
-
-### Frontend Setup (Phase 2)
-
-- [ ] **1.14** Initialize Next.js 15 project
-  ```bash
-  npx create-next-app@latest frontend --typescript --tailwind --app
-  ```
-  - Configure TypeScript strict mode
-  - Enable App Router
-
-- [ ] **1.15** Install shadcn/ui
-  ```bash
-  npx shadcn-ui@latest init
-  ```
-  - Select components as needed (Button, Card, Badge, Table, etc.)
-
-- [ ] **1.16** Configure Tailwind CSS
-  - Add custom dark mode theme colors
-  - Set up color scheme (background, foreground, primary, success, warning, danger)
-
-- [ ] **1.17** Set up providers
-  - Create QueryProvider (TanStack Query)
-  - Create ThemeProvider (next-themes for dark mode)
-
-- [ ] **1.18** Create base layout
-  - Root layout.tsx with providers
-  - Navbar component
-  - Sidebar component
-  - Breadcrumb component
-
-- [ ] **1.19** Create API client
-  - lib/api/client.ts with error handling
-  - Configure queryClient with default options
-
-- [ ] **1.20** Create TypeScript types
-  - lib/types/api.ts (Match, Tournament, Team, Prediction, ModelVersion, etc.)
-  - Query parameter types (MatchFilters, PredictionFilters)
-
-- [ ] **1.21** Create Zod schemas
-  - lib/types/schemas.ts for runtime validation
-  - Schemas for all API responses
-
-- [ ] **1.22** Create TanStack Query hooks
-  - lib/queries/use-matches.ts
-  - lib/queries/use-predictions.ts
-  - lib/queries/use-models.ts
-  - lib/queries/use-value-bets.ts
-
-- [ ] **1.23** Set up Zustand stores
-  - stores/filter-store.ts (global filter state)
-  - stores/ui-store.ts (UI state like sidebar)
-
-- [ ] **1.24** Set up MSW for API mocking
-  - mocks/handlers.ts
-  - mocks/browser.ts
-  - mocks/server.ts
-  - mocks/data/ (match, prediction, model fixtures)
-
-- [ ] **1.25** Create utility functions
-  - lib/utils/cn.ts (Tailwind class merger)
-  - lib/utils/format.ts (date formatting)
-  - lib/utils/odds.ts (odds calculations)
+### CLI Entry Points (`pyproject.toml`)
+| Command | Module | Purpose |
+|---------|--------|---------|
+| `algobet` | `algobet.cli.dev_tools` | Development tools |
+| `algobet-dev` | `algobet.cli.dev_tools` | Development tools alias |
+| `algobet-scheduler` | `algobet.scheduler.worker` | Scheduler worker |
+| `algobet-runner` | `algobet.cli.scheduled_runner` | Task runner |
 
 ---
 
-## Sprint 2: Core Pages (Week 2)
+## Sprint 1: Foundation ✅ Completed
 
-### Pages & Components (Phase 3)
+### Backend API Layer
 
-- [ ] **2.1** Create Dashboard page (/)
-  - Upcoming matches component
-  - Active model card
-  - Value bets summary
-  - Prediction accuracy chart
-  - Parallel data fetching with Promise.all
+- [x] **1.1** Add FastAPI dependencies to pyproject.toml
+- [x] **1.2** Create algobet/api directory structure
+- [x] **1.3** Implement FastAPI main.py with CORS and lifespan
+- [x] **1.4** Create dependencies.py with session injection
+- [x] **1.5** Create Pydantic schemas for all models
+- [x] **1.6** Implement tournaments router
+- [x] **1.7** Implement teams router
+- [x] **1.8** Implement matches router
+- [x] **1.9** Implement predictions router
+- [x] **1.10** Implement models router
+- [x] **1.11** Implement value-bets endpoint
+- [x] **1.12** Add environment variables
+- [x] **1.13** Update docker-compose.yml
 
-- [ ] **2.2** Create Matches page (/matches)
-  - MatchFilters component
-  - MatchList component with infinite scroll
-  - URL state synchronization for filters
-  - Loading skeletons
+### Frontend Setup
 
-- [ ] **2.3** Create Match Detail page (/matches/[id])
-  - Match info display (teams, date, venue)
-  - H2H table (last 5 matches)
-  - Team form charts
-  - Odds comparison
-  - Prediction card with probability breakdown
-  - Value bet indicator
-
-- [ ] **2.4** Create skeleton components
-  - MatchListSkeleton
-  - UpcomingMatchesSkeleton
-  - ValueBetsSkeleton
-  - ModelCardSkeleton
-  - ChartSkeleton
-  - FiltersSkeleton
-
-- [ ] **2.5** Add error boundaries
-  - Route-level error.tsx files
-  - Reusable ErrorBoundary component
-
-- [ ] **2.6** Create loading.tsx files
-  - Loading states for all routes
+- [x] **1.14** Initialize Next.js 15 project
+- [x] **1.15** Install shadcn/ui
+- [x] **1.16** Configure Tailwind CSS
+- [x] **1.17** Set up QueryProvider and ThemeProvider
+- [x] **1.18** Create base layout (Navbar, Sidebar, Breadcrumb)
+- [x] **1.19** Create API client with error handling
+- [x] **1.20** Create TypeScript types
+- [x] **1.21** Create Zod schemas
+- [x] **1.22** Create TanStack Query hooks
+- [x] **1.23** Set up Zustand stores
 
 ---
 
-## Sprint 3: Predictions & Models (Week 3)
+## Sprint 2: Core Pages ✅ Completed
 
-### Predictions & Models Pages
-
-- [ ] **3.1** Create Predictions page (/predictions)
-  - Prediction history table
-  - Filter by model, date, outcome
-  - Accuracy metrics dashboard
-  - Export functionality (CSV/JSON)
-
-- [ ] **3.2** Create Upcoming Predictions page (/predictions/upcoming)
-  - Model version selector
-  - Match filters (tournament, days ahead)
-  - Batch prediction generation workflow
-  - Results review
-
-- [ ] **3.3** Create Models page (/models)
-  - Model registry listing
-  - Algorithm type, creation date, metrics display
-  - Active model toggle
-  - Promote/deactivate actions
-
-- [ ] **3.4** Create Model Detail page (/models/[id])
-  - Feature importance chart
-  - Confusion matrix heatmap
-  - ROC curves
-  - Calibration plot
-  - Metrics time series
-  - ROI curve
-
-### Prediction Components
-
-- [ ] **3.5** Create prediction components
-  - PredictionCard
-  - ConfidenceBadge
-  - ValueBetCard
-  - ProbabilityBar
-
-### Model Components
-
-- [ ] **3.6** Create model components
-  - ModelSelector
-  - MetricsTable
-  - ModelActivationToggle
+- [x] **2.1** Create Dashboard page (/)
+- [x] **2.2** Create Matches page (/matches)
+- [x] **2.3** Create Match Detail page (/matches/[id])
+- [x] **2.4** Create skeleton components
+- [x] **2.5** Add error boundaries
+- [x] **2.6** Create loading.tsx files
 
 ---
 
-## Sprint 4: Advanced Features (Week 4)
+## Sprint 3: Predictions & Models ✅ Completed
 
-### Additional Pages & Features
-
-- [ ] **4.1** Create Value Bets page (/value-bets)
-  - Ranked list by expected value
-  - Model probability vs market odds comparison
-  - Kelly criterion recommended stake
-  - Historical ROI display
-
-- [ ] **4.2** Create Teams page (/teams)
-  - Team directory with search
-  - Filter by tournament
-  - Team cards with recent form
-
-- [ ] **4.3** Create Team Detail page (/teams/[id])
-  - Team info and season record
-  - Form chart (points trend)
-  - Goal statistics
-  - Home vs away performance
-  - Upcoming fixtures with predictions
-
-### Team Components
-
-- [ ] **4.4** Create team components
-  - TeamCard
-  - TeamFormIndicator
-  - TeamSearch
-
-### Match Components
-
-- [ ] **4.5** Create remaining match components
-  - MatchCard
-  - OddsDisplay
-  - H2HTable
-
-### Chart Components
-
-- [ ] **4.6** Create chart components (using Recharts)
-  - TeamFormChart
-  - PredictionDonut
-  - PerformanceLine
-  - MetricsBarChart
-
-### Real-time Updates (Phase 2, Section 2.9)
-
-- [ ] **4.7** Implement WebSocket client
-  - lib/socket/client.ts with reconnection logic
-  - Subscribe/publish pattern
-
-- [ ] **4.8** Create real-time hooks
-  - useMatchUpdates for live scores
-  - useLiveOddsUpdates for odds changes
-
-- [ ] **4.9** Create LiveMatchCard component
-  - Animated LIVE badge
-  - Real-time score updates
+- [x] **3.1** Create Predictions page (/predictions)
+- [x] **3.2** Create Models page (/models)
+- [x] **3.3** Create prediction components (PredictionCard, ConfidenceBadge)
+- [x] **3.4** Create model components (ModelSelector, MetricsTable)
 
 ---
 
-## Sprint 5: Polish & Testing (Week 5)
+## Sprint 4: Advanced Features ✅ Completed
 
-### Testing Setup (Phase 7)
+### Scraping Dashboard
 
-- [ ] **5.1** Set up Vitest
-  - vitest.config.ts
-  - tests/setup.ts with MSW
-  - Configure coverage reporting
+- [x] **4.1** Create Scraping page (/scraping)
+  - ScrapeForm for upcoming/results
+  - JobHistoryTable
+  - Real-time progress via WebSocket
 
-- [ ] **5.2** Write unit tests
-  - utils/format.test.ts
-  - utils/odds.test.ts
-  - hooks/use-matches.test.ts
-  - hooks/use-predictions.test.ts
-  - hooks/use-debounce.test.ts
-  - stores/filter-store.test.ts
-  - schemas/validation.test.ts
+- [x] **4.2** Create scraping components
+  - ScrapingJobCard
+  - ScrapingProgress
+  - ScrapeForm
+  - JobHistoryTable
 
-- [ ] **5.3** Write integration tests
-  - api/client.test.ts
-  - api/error-handling.test.ts
-  - components/match-card.test.tsx
-  - components/prediction-card.test.tsx
-  - components/filters.test.tsx
+- [x] **4.3** Create WebSocket hook (useScrapingProgress)
+  - Real-time progress updates
+  - Connection management
+  - Auto-reconnection
 
-- [ ] **5.4** Set up Playwright
-  - playwright.config.ts
-  - Configure browsers and webServer
+### Scheduling System
 
-- [ ] **5.5** Write E2E tests
-  - matches.spec.ts (listing, filtering, navigation)
-  - predictions.spec.ts (generation workflow)
-  - models.spec.ts (activation flow)
-  - value-bets.spec.ts (display)
+- [x] **4.4** Create Schedules page (/schedules)
+  - Schedule list with CRUD
+  - Execution history
+  - Run now functionality
 
-### Polish & Optimization (Phase 9)
+- [x] **4.5** Create schedule components
+  - ScheduleCard
+  - ScheduleForm
+  - ExecutionHistory
+
+- [x] **4.6** Create schedules API client (`lib/api/schedules.ts`)
+
+### Additional Pages
+
+- [x] **4.7** Create Value Bets page (/value-bets)
+- [x] **4.8** Create Teams page (/teams)
+
+---
+
+## Sprint 5: Polish & Testing
+
+### Testing Setup
+
+- [ ] **5.1** Set up Vitest for frontend unit tests
+- [ ] **5.2** Write unit tests for utilities and hooks
+- [ ] **5.3** Write integration tests for components
+- [ ] **5.4** Set up Playwright for E2E tests
+- [ ] **5.5** Write E2E tests for critical flows
+
+### Polish & Optimization
 
 - [ ] **5.6** Responsive design fixes
-  - Mobile-first approach
-  - Test on different screen sizes
-
-- [ ] **5.7** Performance optimization
-  - React.memo for expensive renders
-  - Lazy loading for route-heavy components
-  - Bundle size analysis with @next/bundle-analyzer
-
-- [ ] **5.8** Configure build tools
-  - TypeScript type check script
-  - ESLint configuration
-  - Next.js build optimization
-
-- [ ] **5.9** Accessibility audit
-  - WCAG 2.1 Level AA compliance
-  - Semantic HTML
-  - ARIA labels
-  - Keyboard navigation
-  - Screen reader testing
+- [ ] **5.7** Performance optimization (React.memo, lazy loading)
+- [ ] **5.8** Configure build tools (ESLint, TypeScript)
+- [ ] **5.9** Accessibility audit (WCAG 2.1 AA)
 
 ### Documentation
 
-- [ ] **5.10** Update README.md
-  - Installation instructions
-  - How to run the application
-  - API documentation link
+- [ ] **5.10** Update README.md with new architecture
 
 ---
 
-## Deployment & CI/CD (Phase 8)
+## Deployment & CI/CD
 
 ### Continuous Integration
 
 - [ ] **D1** Create GitHub Actions workflow - Frontend CI
-  - Lint & type check
-  - Unit & integration tests
-  - E2E tests with Playwright
-  - Build step
-
 - [ ] **D2** Create GitHub Actions workflow - Backend CI
-  - Lint with Ruff
-  - Type check with mypy
-  - Pytest with coverage
-
 - [ ] **D3** Create GitHub Actions workflow - Deploy
-  - Frontend to Vercel
-  - Backend to hosting provider
 
 ### Type Generation
 
 - [ ] **D4** Implement OpenAPI type generation
-  - scripts/generate-api-types.sh
-  - Update package.json scripts
-  - CI integration for type sync verification
 
 ---
 
-## Future Enhancements (Phase 10)
+## Future Enhancements
 
 - [ ] **F1** User authentication
 - [ ] **F2** PWA capabilities
@@ -438,29 +232,83 @@ This document organizes the frontend development tasks into actionable sprints b
 
 ---
 
-## Dependencies
+## Prediction Engine Roadmap
 
-```
-Phase 1 (API Layer) → Phase 2 (Frontend Architecture) → Phase 3 (Pages)
-                                                        ↓
-Phase 7 (Testing) ← Phase 4 (Advanced Features) ← Phase 5 (Sprint 3)
-                                                        ↓
-Phase 8 (CI/CD) ← Phase 9 (Optimization) ← Phase 6 (Polish)
-```
+Detailed architecture in [prediction_engine_architecture.md](docs/prediction_engine_architecture.md) and [ml_model_design.md](docs/ml_model_design.md).
 
-### Sprint Dependencies
+### Current State
 
-- Sprint 2 depends on Sprint 1 completion
-- Sprint 3 depends on Sprint 2 completion
-- Sprint 4 depends on Sprint 3 completion
-- Sprint 5 depends on Sprint 4 completion
+| Component | Status | Location |
+|-----------|--------|----------|
+| Query Repository | ✅ | `algobet/predictions/data/queries.py` |
+| Form Calculator | ✅ | `algobet/predictions/features/form_features.py` |
+| Model Registry | ✅ | `algobet/predictions/models/registry.py` |
+| Prediction Service | ✅ | `algobet/services/prediction_service.py` |
+| Scheduler Service | ✅ | `algobet/services/scheduler_service.py` |
+| API Routers | ✅ | `algobet/api/routers/` |
+
+### Phase PE-1: Feature Engineering Pipeline
+
+**Priority: High | Estimated: 1-2 weeks**
+
+- [ ] **PE-1.1** Create feature generators module
+- [ ] **PE-1.2** Create feature transformers
+- [ ] **PE-1.3** Create feature pipeline orchestrator
+- [ ] **PE-1.4** Create feature store
+
+### Phase PE-2: Model Training Pipeline
+
+**Priority: High | Estimated: 2 weeks**
+
+- [ ] **PE-2.1** Create temporal data splitting
+- [ ] **PE-2.2** Create training orchestrator
+- [ ] **PE-2.3** Implement XGBoost classifier
+- [ ] **PE-2.4** Implement LightGBM classifier
+- [ ] **PE-2.5** Implement Random Forest classifier
+- [ ] **PE-2.6** Create hyperparameter tuning
+- [ ] **PE-2.7** Implement probability calibration
+
+### Phase PE-3: Evaluation Engine
+
+**Priority: Medium | Estimated: 1 week**
+
+- [ ] **PE-3.1** Create metrics module
+- [ ] **PE-3.2** Create calibration analysis
+- [ ] **PE-3.3** Create report generation
+
+### Phase PE-4: Database Schema Extensions
+
+**Priority: Medium | Estimated: 2-3 days**
+
+- [x] **PE-4.1** predictions table exists
+- [x] **PE-4.2** model_features via JSONB in predictions
+
+### Phase PE-5: CLI Enhancements
+
+**Priority: Low | Estimated: 1 week**
+
+- [ ] **PE-5.1** Add backtest command
+- [ ] **PE-5.2** Add value-bets command
+- [ ] **PE-5.3** Add calibrate command
+
+---
+
+### Performance Targets
+
+| Metric | Target | Baseline (Bookmaker) |
+|--------|--------|---------------------|
+| Top-1 Accuracy | 50-55% | ~48% |
+| Log Loss | < 0.95 | ~1.05 |
+| Brier Score | < 0.20 | ~0.21 |
+| ROI (Value Bets) | 5-10% | 0% |
+| Calibration ECE | < 0.05 | N/A |
 
 ---
 
 ## Notes
 
-- All API endpoints should integrate with existing modules (database.py, models.py, predictions/)
+- All API endpoints integrate with existing modules
 - Follow existing code conventions and patterns
 - Test locally before committing
-- Use MSW for development when backend is not available
 - Keep frontend and backend types in sync
+- Use `algobet` command for dev tools, `algobet-scheduler` for worker

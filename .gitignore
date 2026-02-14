@@ -102,3 +102,4 @@ docker-compose.override.yml
 
 # Misc
 *.pem
+node_modules/

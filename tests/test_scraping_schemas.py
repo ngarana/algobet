@@ -288,10 +288,13 @@ class TestScrapingStats:
             total_matches_scraped=5000,
             success_rate=80.0,
         )
-        # Verify the success rate calculation would be correct
-        # (completed_jobs / (completed_jobs + failed_jobs)) * 100
-        expected_rate = (80 / (80 + 15)) * 100
-        assert abs(stats.success_rate - expected_rate) < 0.01
+        # Verify the stats are stored correctly
+        assert stats.total_jobs == 100
+        assert stats.completed_jobs == 80
+        assert stats.failed_jobs == 15
+        assert stats.running_jobs == 5
+        # success_rate is provided directly, not calculated
+        assert stats.success_rate == 80.0
 
 
 class TestSchemaValidation:
