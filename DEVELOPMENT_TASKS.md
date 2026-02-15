@@ -189,7 +189,7 @@ This document organizes the development tasks into actionable sprints. The proje
 
 ### Documentation
 
-- [ ] **5.10** Update README.md with new architecture
+- [x] **5.10** Update README.md with new architecture
 
 ---
 
@@ -247,41 +247,41 @@ Detailed architecture in [prediction_engine_architecture.md](docs/prediction_eng
 | Scheduler Service | ✅ | `algobet/services/scheduler_service.py` |
 | API Routers | ✅ | `algobet/api/routers/` |
 
-### Phase PE-1: Feature Engineering Pipeline
+### Phase PE-1: Feature Engineering Pipeline ✅ Completed
 
 **Priority: High | Estimated: 1-2 weeks**
 
-- [ ] **PE-1.1** Create feature generators module
-- [ ] **PE-1.2** Create feature transformers
-- [ ] **PE-1.3** Create feature pipeline orchestrator
-- [ ] **PE-1.4** Create feature store
+- [x] **PE-1.1** Create feature generators module (`algobet/predictions/features/generators.py`)
+- [x] **PE-1.2** Create feature transformers (`algobet/predictions/features/transformers.py`)
+- [x] **PE-1.3** Create feature pipeline orchestrator (`algobet/predictions/features/pipeline.py`)
+- [x] **PE-1.4** Create feature store (`algobet/predictions/features/store.py`)
 
-### Phase PE-2: Model Training Pipeline
+### Phase PE-2: Model Training Pipeline ✅ Completed
 
 **Priority: High | Estimated: 2 weeks**
 
-- [ ] **PE-2.1** Create temporal data splitting
-- [ ] **PE-2.2** Create training orchestrator
-- [ ] **PE-2.3** Implement XGBoost classifier
-- [ ] **PE-2.4** Implement LightGBM classifier
-- [ ] **PE-2.5** Implement Random Forest classifier
-- [ ] **PE-2.6** Create hyperparameter tuning
-- [ ] **PE-2.7** Implement probability calibration
+- [x] **PE-2.1** Create temporal data splitting (`algobet/predictions/training/split.py`)
+- [x] **PE-2.2** Create training orchestrator (`algobet/predictions/training/pipeline.py`)
+- [x] **PE-2.3** Implement XGBoost classifier (`algobet/predictions/training/classifiers.py`)
+- [x] **PE-2.4** Implement LightGBM classifier (`algobet/predictions/training/classifiers.py`)
+- [x] **PE-2.5** Implement Random Forest classifier (`algobet/predictions/training/classifiers.py`)
+- [x] **PE-2.6** Create hyperparameter tuning (`algobet/predictions/training/tuner.py`)
+- [x] **PE-2.7** Implement probability calibration (`algobet/predictions/training/calibration.py`)
 
 ### Phase PE-3: Evaluation Engine
 
-**Priority: Medium | Estimated: 1 week**
+**Priority: Medium | Estimated: 1 week** - ✅ Completed
 
-- [ ] **PE-3.1** Create metrics module
-- [ ] **PE-3.2** Create calibration analysis
-- [ ] **PE-3.3** Create report generation
+- [x] **PE-3.1** Create metrics module
+- [x] **PE-3.2** Create calibration analysis
+- [x] **PE-3.3** Create report generation
 
-### Phase PE-4: Database Schema Extensions
+### Phase PE-4: Database Schema Extensions ✅ Completed
 
 **Priority: Medium | Estimated: 2-3 days**
 
 - [x] **PE-4.1** predictions table exists
-- [x] **PE-4.2** model_features via JSONB in predictions
+- [x] **PE-4.2** model_features table with JSONB storage (`algobet/models.py`)
 
 ### Phase PE-5: CLI Enhancements
 

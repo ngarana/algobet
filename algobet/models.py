@@ -268,6 +268,72 @@ class Prediction(Base):
 Match.predictions = relationship("Prediction", back_populates="match")
 
 
+class ModelFeature(Base):
+    """Stores computed features for matches.
+
+    Features are cached to avoid redundant computation and to support
+    feature versioning for reproducibility.
+    """
+
+    __tablename__ = "model_features"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(
+        ForeignKey("matches.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Feature schema version for tracking
+    feature_schema_version: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="v1.0"
+    )
+
+    # Features stored as JSONB for flexibility
+    features: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+    # Metadata
+    computed_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    # Relationships
+    match: Mapped["Match"] = relationship(back_populates="model_features")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "match_id", "feature_schema_version", name="uq_match_features_schema"
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ModelFeature(id={self.id}, match_id={self.match_id}, "
+            f"schema='{self.feature_schema_version}')>"
+        )
+
+    def get_feature(self, name: str) -> float | None:
+        """Get a specific feature value by name.
+
+        Args:
+            name: Feature name
+
+        Returns:
+            Feature value or None if not present
+        """
+        return self.features.get(name)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary including match_id."""
+        return {
+            "match_id": self.match_id,
+            "schema_version": self.feature_schema_version,
+            **self.features,
+        }
+
+
+# Add relationship back-reference to Match for features
+Match.model_features = relationship(
+    "ModelFeature", back_populates="match", cascade="all, delete-orphan"
+)
+
+
 class ScheduledTask(Base):
     """Represents a scheduled task for automated scraping or predictions."""
 

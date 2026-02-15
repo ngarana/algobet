@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
@@ -49,6 +49,8 @@ class ScheduleUpdateRequest(BaseModel):
 class ScheduleResponse(BaseModel):
     """Response schema for a scheduled task."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: int = Field(..., description="Unique identifier")
     name: str = Field(..., description="Task name")
     task_type: str = Field(..., description="Task type")
@@ -59,12 +61,11 @@ class ScheduleResponse(BaseModel):
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 
-    class Config:
-        from_attributes = True
-
 
 class TaskExecutionResponse(BaseModel):
     """Response schema for a task execution."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: int = Field(..., description="Execution ID")
     task_id: int = Field(..., description="Parent task ID")
@@ -73,9 +74,6 @@ class TaskExecutionResponse(BaseModel):
     completed_at: datetime | None = Field(None, description="Completion timestamp")
     result: dict[str, Any] | None = Field(None, description="Execution result")
     error_message: str | None = Field(None, description="Error message if failed")
-
-    class Config:
-        from_attributes = True
 
 
 class ScheduleListResponse(BaseModel):

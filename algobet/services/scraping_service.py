@@ -190,7 +190,6 @@ class ScrapingService(BaseService[Any]):
 
         try:
             with OddsPortalScraper(headless=headless) as scraper:
-                scraper.start()
                 scraper.navigate_to_upcoming(url)
 
                 progress.message = "Scraping upcoming matches..."
@@ -249,7 +248,6 @@ class ScrapingService(BaseService[Any]):
 
         try:
             with OddsPortalScraper(headless=headless) as scraper:
-                scraper.start()
                 scraper.navigate_to_results(url)
 
                 # Get total pages
