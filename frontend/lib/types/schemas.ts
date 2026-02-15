@@ -2,7 +2,7 @@
  * Zod schemas for runtime validation of API responses
  */
 
-import { z } from 'zod'
+import { z } from "zod";
 
 // Common schemas
 export const FormBreakdownSchema = z.object({
@@ -12,7 +12,7 @@ export const FormBreakdownSchema = z.object({
   loss_rate: z.number(),
   avg_goals_for: z.number(),
   avg_goals_against: z.number(),
-})
+});
 
 // Tournament schemas
 export const TournamentSchema = z.object({
@@ -20,7 +20,7 @@ export const TournamentSchema = z.object({
   name: z.string(),
   country: z.string(),
   url_slug: z.string(),
-})
+});
 
 export const SeasonSchema = z.object({
   id: z.number(),
@@ -29,13 +29,13 @@ export const SeasonSchema = z.object({
   start_year: z.number(),
   end_year: z.number(),
   url_suffix: z.string().nullable(),
-})
+});
 
 // Team schemas
 export const TeamSchema = z.object({
   id: z.number(),
   name: z.string(),
-})
+});
 
 export const TeamWithStatsSchema = TeamSchema.extend({
   total_matches: z.number(),
@@ -45,11 +45,11 @@ export const TeamWithStatsSchema = TeamSchema.extend({
   goals_for: z.number(),
   goals_against: z.number(),
   current_form: FormBreakdownSchema,
-})
+});
 
 // Match schemas
-export const MatchStatusSchema = z.enum(['SCHEDULED', 'FINISHED', 'LIVE'])
-export const PredictedOutcomeSchema = z.enum(['H', 'D', 'A'])
+export const MatchStatusSchema = z.enum(["SCHEDULED", "FINISHED", "LIVE"]);
+export const PredictedOutcomeSchema = z.enum(["H", "D", "A"]);
 
 export const MatchSchema = z.object({
   id: z.number(),
@@ -68,7 +68,7 @@ export const MatchSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   result: PredictedOutcomeSchema.nullable(),
-})
+});
 
 export const MatchDetailSchema = MatchSchema.extend({
   tournament: TournamentSchema,
@@ -77,7 +77,7 @@ export const MatchDetailSchema = MatchSchema.extend({
   away_team: TeamSchema,
   predictions: z.array(z.any()), // Will be defined after PredictionSchema
   h2h_matches: z.array(MatchSchema),
-})
+});
 
 export const MatchFiltersSchema = z.object({
   status: MatchStatusSchema.optional(),
@@ -90,7 +90,7 @@ export const MatchFiltersSchema = z.object({
   has_odds: z.boolean().optional(),
   limit: z.number().min(1).max(100).default(50),
   offset: z.number().default(0),
-})
+});
 
 // Prediction schemas
 export const PredictionSchema = z.object({
@@ -105,7 +105,7 @@ export const PredictionSchema = z.object({
   predicted_at: z.string(),
   actual_roi: z.number().nullable(),
   max_probability: z.number(),
-})
+});
 
 // Update MatchDetailSchema predictions field now that PredictionSchema is defined
 export const MatchDetailSchemaComplete = MatchSchema.extend({
@@ -115,12 +115,12 @@ export const MatchDetailSchemaComplete = MatchSchema.extend({
   away_team: TeamSchema,
   predictions: z.array(PredictionSchema),
   h2h_matches: z.array(MatchSchema),
-})
+});
 
 export const PredictionWithMatchSchema = PredictionSchema.extend({
   match: MatchDetailSchemaComplete,
   model_version: z.any(), // Will be defined after ModelVersionSchema
-})
+});
 
 export const PredictionFiltersSchema = z.object({
   match_id: z.number().optional(),
@@ -129,7 +129,7 @@ export const PredictionFiltersSchema = z.object({
   from_date: z.string().optional(),
   to_date: z.string().optional(),
   min_confidence: z.number().min(0).max(1).optional(),
-})
+});
 
 // Value Bet schemas
 export const ValueBetSchema = z.object({
@@ -141,7 +141,7 @@ export const ValueBetSchema = z.object({
   expected_value: z.number(),
   kelly_fraction: z.number(),
   confidence: z.number().min(0).max(1),
-})
+});
 
 // Model schemas
 export const ModelVersionSchema = z.object({
@@ -157,20 +157,20 @@ export const ModelVersionSchema = z.object({
   hyperparameters: z.record(z.unknown()).nullable(),
   feature_schema_version: z.string().nullable(),
   description: z.string().nullable(),
-})
+});
 
 // Update PredictionWithMatchSchema with complete ModelVersionSchema
 export const PredictionWithMatchSchemaComplete = PredictionSchema.extend({
   match: MatchDetailSchemaComplete,
   model_version: ModelVersionSchema,
-})
+});
 
 // API Response schemas
 export function createApiResponseSchema<T extends z.ZodTypeAny>(dataSchema: T) {
   return z.object({
     data: dataSchema,
     message: z.string().optional(),
-  })
+  });
 }
 
 export function createPaginatedResponseSchema<T extends z.ZodTypeAny>(itemSchema: T) {
@@ -179,24 +179,24 @@ export function createPaginatedResponseSchema<T extends z.ZodTypeAny>(itemSchema
     total: z.number(),
     limit: z.number(),
     offset: z.number(),
-  })
+  });
 }
 
 // Scraping schemas (from existing implementation)
 export const ScrapingProgressSchema = z.object({
   job_id: z.string(),
-  status: z.enum(['pending', 'running', 'completed', 'failed']),
+  status: z.enum(["pending", "running", "completed", "failed"]),
   progress: z.number(),
   current_page: z.number(),
   total_pages: z.number(),
   matches_found: z.number(),
   message: z.string().optional(),
   error: z.string().optional(),
-})
+});
 
 export const ScrapingConfigSchema = z.object({
   tournament_id: z.number(),
   season_id: z.number(),
   start_page: z.number().optional(),
   max_pages: z.number().optional(),
-})
+});

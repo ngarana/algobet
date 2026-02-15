@@ -53,7 +53,9 @@ class AsyncQueryService(AsyncBaseService[AsyncSession]):
         super().__init__(session)
         self.logger = get_logger("services.async_query")
 
-    async def list_tournaments(self, filter: TournamentFilter) -> TournamentListResponse:
+    async def list_tournaments(
+        self, filter: TournamentFilter
+    ) -> TournamentListResponse:
         """List tournaments with optional filtering.
 
         Args:
@@ -89,9 +91,8 @@ class AsyncQueryService(AsyncBaseService[AsyncSession]):
             # Build response with seasons count
             tournament_infos = []
             for t in tournaments:
-                seasons_count_query = (
-                    select(func.count(Season.id))
-                    .where(Season.tournament_id == t.id)
+                seasons_count_query = select(func.count(Season.id)).where(
+                    Season.tournament_id == t.id
                 )
                 seasons_result = await self.session.execute(seasons_count_query)
                 seasons_count = seasons_result.scalar() or 0
@@ -154,9 +155,8 @@ class AsyncQueryService(AsyncBaseService[AsyncSession]):
 
             # Apply tournament name filter if provided
             if filter.tournament_name:
-                tournament_query = (
-                    select(Tournament)
-                    .where(Tournament.name.ilike(f"%{filter.tournament_name}%"))
+                tournament_query = select(Tournament).where(
+                    Tournament.name.ilike(f"%{filter.tournament_name}%")
                 )
                 t_result = await self.session.execute(tournament_query)
                 tournament = t_result.scalar_one_or_none()
@@ -181,9 +181,8 @@ class AsyncQueryService(AsyncBaseService[AsyncSession]):
             # Build response with tournament name and matches count
             season_infos = []
             for s in seasons:
-                matches_count_query = (
-                    select(func.count(Match.id))
-                    .where(Match.season_id == s.id)
+                matches_count_query = select(func.count(Match.id)).where(
+                    Match.season_id == s.id
                 )
                 m_result = await self.session.execute(matches_count_query)
                 matches_count = m_result.scalar() or 0
@@ -253,16 +252,14 @@ class AsyncQueryService(AsyncBaseService[AsyncSession]):
             # Build response with matches played count
             team_infos = []
             for t in teams:
-                home_matches_query = (
-                    select(func.count(Match.id))
-                    .where(Match.home_team_id == t.id)
+                home_matches_query = select(func.count(Match.id)).where(
+                    Match.home_team_id == t.id
                 )
                 hm_result = await self.session.execute(home_matches_query)
                 home_matches = hm_result.scalar() or 0
 
-                away_matches_query = (
-                    select(func.count(Match.id))
-                    .where(Match.away_team_id == t.id)
+                away_matches_query = select(func.count(Match.id)).where(
+                    Match.away_team_id == t.id
                 )
                 am_result = await self.session.execute(away_matches_query)
                 away_matches = am_result.scalar() or 0
@@ -317,14 +314,11 @@ class AsyncQueryService(AsyncBaseService[AsyncSession]):
         )
 
         try:
-            query = (
-                select(Match)
-                .options(
-                    joinedload(Match.tournament),
-                    joinedload(Match.season),
-                    joinedload(Match.home_team),
-                    joinedload(Match.away_team),
-                )
+            query = select(Match).options(
+                joinedload(Match.tournament),
+                joinedload(Match.season),
+                joinedload(Match.home_team),
+                joinedload(Match.away_team),
             )
 
             # Apply tournament name filter if provided

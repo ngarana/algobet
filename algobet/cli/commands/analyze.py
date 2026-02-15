@@ -140,25 +140,27 @@ def value_bets(
                 "DRAW": "Draw",
                 "AWAY_WIN": "Away Win",
             }
-            value_bets_list.append({
-                "match_id": vb.match_id,
-                "date": (
-                    vb.match_date.strftime("%Y-%m-%d %H:%M")
-                    if vb.match_date
-                    else "TBD"
-                ),
-                "home_team": vb.home_team,
-                "away_team": vb.away_team,
-                "outcome": vb.bet_type,
-                "outcome_name": outcome_name_map.get(vb.bet_type, vb.bet_type),
-                "predicted_prob": vb.model_probability,
-                "market_odds": vb.market_odds or 0.0,
-                "expected_value": vb.expected_value,
-                "edge": vb.edge,
-                "kelly_fraction": _calculate_kelly(
-                    vb.model_probability, vb.market_odds
-                ),
-            })
+            value_bets_list.append(
+                {
+                    "match_id": vb.match_id,
+                    "date": (
+                        vb.match_date.strftime("%Y-%m-%d %H:%M")
+                        if vb.match_date
+                        else "TBD"
+                    ),
+                    "home_team": vb.home_team,
+                    "away_team": vb.away_team,
+                    "outcome": vb.bet_type,
+                    "outcome_name": outcome_name_map.get(vb.bet_type, vb.bet_type),
+                    "predicted_prob": vb.model_probability,
+                    "market_odds": vb.market_odds or 0.0,
+                    "expected_value": vb.expected_value,
+                    "edge": vb.edge,
+                    "kelly_fraction": _calculate_kelly(
+                        vb.model_probability, vb.market_odds
+                    ),
+                }
+            )
 
         # Output results
         if output_format == "json":

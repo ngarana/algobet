@@ -1,76 +1,82 @@
-'use client'
+"use client";
 
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Progress, ProgressValue } from '@/components/ui/progress'
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Progress, ProgressValue } from "@/components/ui/progress";
 import {
   CheckCircleIcon,
   XCircleIcon,
   ClockIcon,
   Loader2Icon,
   PauseIcon,
-} from 'lucide-react'
+} from "lucide-react";
 
 export interface ScrapingJob {
-  id: string
-  job_type: string
-  url: string
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  created_at: string
-  progress: ScrapingProgress | null
+  id: string;
+  job_type: string;
+  url: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  created_at: string;
+  progress: ScrapingProgress | null;
 }
 
 export interface ScrapingProgress {
-  job_id: string
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  current_page: number
-  total_pages: number
-  matches_scraped: number
-  matches_saved: number
-  message: string
-  error: string | null
-  started_at: string | null
-  completed_at: string | null
+  job_id: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  current_page: number;
+  total_pages: number;
+  matches_scraped: number;
+  matches_saved: number;
+  message: string;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
 }
 
 interface ScrapingJobCardProps {
-  job: ScrapingJob
+  job: ScrapingJob;
 }
 
 function getStatusBadge(status: string) {
   switch (status) {
-    case 'pending':
+    case "pending":
       return (
         <Badge variant="secondary">
-          <ClockIcon className="w-3 h-3 mr-1" /> Pending
+          <ClockIcon className="mr-1 h-3 w-3" /> Pending
         </Badge>
-      )
-    case 'running':
+      );
+    case "running":
       return (
         <Badge variant="default">
-          <Loader2Icon className="w-3 h-3 mr-1 animate-spin" /> Running
+          <Loader2Icon className="mr-1 h-3 w-3 animate-spin" /> Running
         </Badge>
-      )
-    case 'completed':
+      );
+    case "completed":
       return (
         <Badge variant="success">
-          <CheckCircleIcon className="w-3 h-3 mr-1" /> Completed
+          <CheckCircleIcon className="mr-1 h-3 w-3" /> Completed
         </Badge>
-      )
-    case 'failed':
+      );
+    case "failed":
       return (
         <Badge variant="destructive">
-          <XCircleIcon className="w-3 h-3 mr-1" /> Failed
+          <XCircleIcon className="mr-1 h-3 w-3" /> Failed
         </Badge>
-      )
-    case 'cancelled':
+      );
+    case "cancelled":
       return (
         <Badge variant="outline">
-          <PauseIcon className="w-3 h-3 mr-1" /> Cancelled
+          <PauseIcon className="mr-1 h-3 w-3" /> Cancelled
         </Badge>
-      )
+      );
     default:
-      return <Badge variant="outline">{status}</Badge>
+      return <Badge variant="outline">{status}</Badge>;
   }
 }
 
@@ -78,16 +84,18 @@ export function ScrapingJobCard({ job }: ScrapingJobCardProps) {
   const progressPercent =
     job.progress && job.progress.total_pages > 0
       ? (job.progress.current_page / job.progress.total_pages) * 100
-      : 0
+      : 0;
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">{job.job_type === 'upcoming' ? 'Upcoming Matches' : 'Historical Results'}</CardTitle>
+          <CardTitle className="text-lg">
+            {job.job_type === "upcoming" ? "Upcoming Matches" : "Historical Results"}
+          </CardTitle>
           {getStatusBadge(job.status)}
         </div>
-        <CardDescription className="truncate max-w-md">{job.url}</CardDescription>
+        <CardDescription className="max-w-md truncate">{job.url}</CardDescription>
       </CardHeader>
       <CardContent>
         {job.progress ? (
@@ -95,7 +103,7 @@ export function ScrapingJobCard({ job }: ScrapingJobCardProps) {
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Progress</span>
               <span className="font-medium">
-                {job.progress.current_page} / {job.progress.total_pages || '?'} pages
+                {job.progress.current_page} / {job.progress.total_pages || "?"} pages
               </span>
             </div>
             <Progress>
@@ -104,20 +112,20 @@ export function ScrapingJobCard({ job }: ScrapingJobCardProps) {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Matches Scraped</p>
-                <p className="font-semibold text-lg">{job.progress.matches_scraped}</p>
+                <p className="text-lg font-semibold">{job.progress.matches_scraped}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Matches Saved</p>
-                <p className="font-semibold text-lg">{job.progress.matches_saved}</p>
+                <p className="text-lg font-semibold">{job.progress.matches_saved}</p>
               </div>
             </div>
             {job.progress.message && (
-              <p className="text-sm text-muted-foreground border-t pt-2">
+              <p className="border-t pt-2 text-sm text-muted-foreground">
                 {job.progress.message}
               </p>
             )}
             {job.progress.error && (
-              <p className="text-sm text-destructive border-t pt-2">
+              <p className="border-t pt-2 text-sm text-destructive">
                 Error: {job.progress.error}
               </p>
             )}
@@ -125,10 +133,10 @@ export function ScrapingJobCard({ job }: ScrapingJobCardProps) {
         ) : (
           <p className="text-sm text-muted-foreground">No progress data available</p>
         )}
-        <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
+        <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
           Created: {new Date(job.created_at).toLocaleString()}
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

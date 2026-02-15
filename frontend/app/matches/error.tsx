@@ -1,13 +1,13 @@
-'use client'
+"use client";
 
-import ErrorBoundary from '@/components/error-boundary'
+import ErrorBoundary from "@/components/error-boundary";
 
 export default function MatchesError({
   error,
   reset,
 }: {
-  error: Error & { digest?: string }
-  reset: () => void
+  error: Error & { digest?: string };
+  reset: () => void;
 }) {
-  return <ErrorBoundary error={error} reset={reset} />
+  return <ErrorBoundary error={error} reset={reset} />;
 }

@@ -7,7 +7,6 @@ including visualizations and detailed analysis.
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -17,15 +16,12 @@ from algobet.predictions.evaluation.calibration import (
     analyze_calibration,
     calibration_summary,
     detect_calibration_issues,
-    reliability_diagram_data,
 )
 from algobet.predictions.evaluation.metrics import (
+    OUTCOME_NAMES,
     BettingMetrics,
     ClassificationMetrics,
     EvaluationResult,
-    OUTCOME_NAMES,
-    calculate_classification_metrics,
-    compare_models,
     evaluate_predictions,
 )
 
@@ -79,7 +75,9 @@ class ReportGenerator:
         lines.append(f"**Samples:** {result.num_samples:,}")
 
         if result.date_range:
-            lines.append(f"**Date Range:** {result.date_range[0]} to {result.date_range[1]}")
+            lines.append(
+                f"**Date Range:** {result.date_range[0]} to {result.date_range[1]}"
+            )
 
         lines.append("")
         lines.append("---")
@@ -100,7 +98,9 @@ class ReportGenerator:
         # Confusion Matrix
         lines.append("### Confusion Matrix")
         lines.append("")
-        lines.append(self._confusion_matrix_table(result.classification.confusion_matrix))
+        lines.append(
+            self._confusion_matrix_table(result.classification.confusion_matrix)
+        )
         lines.append("")
 
         # Betting Metrics
@@ -131,7 +131,11 @@ class ReportGenerator:
                 lines.append("### Detected Issues")
                 lines.append("")
                 for issue in issues:
-                    lines.append(f"- **{issue['type'].replace('_', ' ').title()}** ({issue['outcome']}): {issue['description']}")
+                    issue_type = issue["type"].replace("_", " ").title()
+                    lines.append(
+                        f"- **{issue_type}** ({issue['outcome']}): "
+                        f"{issue['description']}"
+                    )
                     lines.append(f"  - Recommendation: {issue['recommendation']}")
                 lines.append("")
 
@@ -179,7 +183,8 @@ class ReportGenerator:
     <title>{self.config.title}</title>
     <style>
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
             max-width: 1200px;
             margin: 0 auto;
@@ -387,7 +392,9 @@ class ReportGenerator:
 
     def _feature_importance_table(self, importance: dict[str, float]) -> str:
         """Generate feature importance table."""
-        sorted_features = sorted(importance.items(), key=lambda x: x[1], reverse=True)[:20]
+        sorted_features = sorted(importance.items(), key=lambda x: x[1], reverse=True)[
+            :20
+        ]
 
         lines = [
             "| Rank | Feature | Importance |",
@@ -410,18 +417,21 @@ class ReportGenerator:
         # Classification recommendations
         if result.classification.accuracy < 0.50:
             recommendations.append(
-                "- Consider adding more features or using ensemble methods to improve accuracy"
+                "- Consider adding more features or using ensemble methods "
+                "to improve accuracy"
             )
 
         if result.classification.f1_macro < 0.40:
             recommendations.append(
-                "- Per-class F1 is low. Consider class weighting or resampling techniques"
+                "- Per-class F1 is low. Consider class weighting "
+                "or resampling techniques"
             )
 
         # Draw prediction is typically hardest
         if result.classification.per_class_f1.get("D", 0) < 0.25:
             recommendations.append(
-                "- Draw prediction is weak. Consider specialized draw detection features"
+                "- Draw prediction is weak. Consider specialized "
+                "draw detection features"
             )
 
         # Calibration recommendations
@@ -439,11 +449,15 @@ class ReportGenerator:
                 )
             if result.betting.max_drawdown > 0.3:
                 recommendations.append(
-                    "- High drawdown detected. Consider reducing stake sizes using Kelly criterion"
+                    "- High drawdown detected. Consider reducing stake sizes "
+                    "using Kelly criterion"
                 )
 
         if not recommendations:
-            recommendations.append("- Model performance is satisfactory. Continue monitoring in production.")
+            recommendations.append(
+                "- Model performance is satisfactory. Continue "
+                "monitoring in production."
+            )
 
         return recommendations
 
@@ -470,9 +484,8 @@ class ReportGenerator:
             elif line.startswith("<h2>"):
                 if not line.endswith("</h2>"):
                     line = line + "</h2>"
-            elif line.startswith("<h3>"):
-                if not line.endswith("</h3>"):
-                    line = line + "</h3>"
+            elif line.startswith("<h3>") and not line.endswith("</h3>"):
+                line = line + "</h3>"
             new_lines.append(line)
         html = "\n".join(new_lines)
 

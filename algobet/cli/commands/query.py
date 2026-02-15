@@ -98,9 +98,7 @@ def list_upcoming_matches(days: int) -> None:
         click.echo(f"\nUpcoming matches (next {days} days):\n")
         for m in upcoming_matches:
             date_str = (
-                m.match_date.strftime("%Y-%m-%d %H:%M")
-                if m.match_date
-                else "TBD"
+                m.match_date.strftime("%Y-%m-%d %H:%M") if m.match_date else "TBD"
             )
             click.echo(f"  {date_str}")
             click.echo(f"    {m.home_team} vs {m.away_team}")

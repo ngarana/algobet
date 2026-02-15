@@ -1,20 +1,20 @@
-'use client'
+"use client";
 
-import { useEffect } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
-import { AlertCircle, RefreshCw } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useEffect } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { AlertCircle, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function Error({
   error,
   reset,
 }: {
-  error: Error & { digest?: string }
-  reset: () => void
+  error: Error & { digest?: string };
+  reset: () => void;
 }) {
   useEffect(() => {
-    console.error('Backtest page error:', error)
-  }, [error])
+    console.error("Backtest page error:", error);
+  }, [error]);
 
   return (
     <div className="space-y-6">
@@ -27,17 +27,17 @@ export default function Error({
 
       <Card className="border-destructive">
         <CardContent className="flex flex-col items-center justify-center py-12">
-          <AlertCircle className="h-12 w-12 text-destructive mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Something went wrong</h2>
-          <p className="text-muted-foreground mb-4">
-            {error.message || 'An error occurred while loading this page'}
+          <AlertCircle className="mb-4 h-12 w-12 text-destructive" />
+          <h2 className="mb-2 text-xl font-semibold">Something went wrong</h2>
+          <p className="mb-4 text-muted-foreground">
+            {error.message || "An error occurred while loading this page"}
           </p>
           <Button onClick={reset} variant="outline">
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw className="mr-2 h-4 w-4" />
             Try again
           </Button>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

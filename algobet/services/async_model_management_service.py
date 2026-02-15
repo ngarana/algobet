@@ -139,7 +139,9 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
                 details={"error_type": type(e).__name__},
             ) from e
 
-    async def activate_model(self, request: ModelActivateRequest) -> ModelActivateResponse:
+    async def activate_model(
+        self, request: ModelActivateRequest
+    ) -> ModelActivateResponse:
         """Activate a specific model version asynchronously.
 
         Sets the specified model version as the active model by:
@@ -170,7 +172,9 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
             previous_version = current_active.version if current_active else None
 
             # Find the target model
-            target_query = select(ModelVersion).where(ModelVersion.version == request.version)
+            target_query = select(ModelVersion).where(
+                ModelVersion.version == request.version
+            )
             target_result = await self.session.execute(target_query)
             target_model = target_result.scalar_one_or_none()
 
@@ -185,10 +189,7 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
                 )
 
             # Deactivate all models
-            deactivate_stmt = (
-                update(ModelVersion)
-                .values(is_active=False)
-            )
+            deactivate_stmt = update(ModelVersion).values(is_active=False)
             await self.session.execute(deactivate_stmt)
 
             # Activate the target model

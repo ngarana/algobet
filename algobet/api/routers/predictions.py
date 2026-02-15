@@ -15,7 +15,6 @@ from algobet.api.schemas import (
     ModelVersionResponse,
     PaginatedResponse,
     PredictionResponse,
-    PredictionWithMatchResponse,
 )
 from algobet.api.schemas.match import MatchResponse as MR
 from algobet.models import Match, ModelVersion, Prediction
@@ -52,7 +51,7 @@ def list_predictions(
         None, ge=0, le=1, description="Minimum confidence score"
     ),
     db: Session = Depends(get_db),
-) -> list[PredictionResponse]:
+) -> PaginatedResponse[PredictionResponse]:
     """List predictions with filtering.
 
     Returns predictions matching the specified filters.
@@ -237,11 +236,11 @@ def generate_predictions(
     }
 
 
-@router.get("/upcoming", response_model=PaginatedResponse[PredictionWithMatchResponse])
+@router.get("/upcoming", response_model=PaginatedResponse[dict[str, Any]])
 def get_upcoming_predictions(
     days: int = Query(7, ge=1, le=30, description="Days ahead for predictions"),
     db: Session = Depends(get_db),
-) -> list[dict[str, Any]]:
+) -> PaginatedResponse[dict[str, Any]]:
     """Get predictions for upcoming matches.
 
     Returns predictions for matches in the next N days.

@@ -5,9 +5,10 @@ in football match prediction models. Critical rule: never use future
 data to predict past matches.
 """
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -332,7 +333,10 @@ class SeasonAwareSplitter:
 
         # Get unique seasons in chronological order
         seasons = df[self.season_column].unique()
-        seasons = sorted(seasons, key=lambda s: int(str(s).split("/")[0]) if "/" in str(s) else int(s))
+        seasons = sorted(
+            seasons,
+            key=lambda s: int(str(s).split("/")[0]) if "/" in str(s) else int(s),
+        )
 
         if len(seasons) < self.train_seasons + self.val_seasons + self.test_seasons:
             raise ValueError(
@@ -362,12 +366,24 @@ class SeasonAwareSplitter:
             train_indices=train_indices,
             val_indices=val_indices,
             test_indices=test_indices,
-            train_start=dates.iloc[train_indices[0]] if len(train_indices) > 0 else dates.iloc[0],
-            train_end=dates.iloc[train_indices[-1]] if len(train_indices) > 0 else dates.iloc[0],
-            val_start=dates.iloc[val_indices[0]] if len(val_indices) > 0 else dates.iloc[0],
-            val_end=dates.iloc[val_indices[-1]] if len(val_indices) > 0 else dates.iloc[0],
-            test_start=dates.iloc[test_indices[0]] if len(test_indices) > 0 else dates.iloc[0],
-            test_end=dates.iloc[test_indices[-1]] if len(test_indices) > 0 else dates.iloc[0],
+            train_start=dates.iloc[train_indices[0]]
+            if len(train_indices) > 0
+            else dates.iloc[0],
+            train_end=dates.iloc[train_indices[-1]]
+            if len(train_indices) > 0
+            else dates.iloc[0],
+            val_start=dates.iloc[val_indices[0]]
+            if len(val_indices) > 0
+            else dates.iloc[0],
+            val_end=dates.iloc[val_indices[-1]]
+            if len(val_indices) > 0
+            else dates.iloc[0],
+            test_start=dates.iloc[test_indices[0]]
+            if len(test_indices) > 0
+            else dates.iloc[0],
+            test_end=dates.iloc[test_indices[-1]]
+            if len(test_indices) > 0
+            else dates.iloc[0],
         )
 
 
@@ -414,7 +430,7 @@ def get_class_weights(y: NDArray[np.int64]) -> dict[int, float]:
     total = len(y)
 
     weights = {}
-    for cls, count in zip(unique, counts):
+    for cls, count in zip(unique, counts, strict=False):
         # Inverse frequency weighting
         weights[int(cls)] = total / (len(unique) * count)
 

@@ -99,16 +99,14 @@ class AsyncDatabaseService(AsyncBaseService[AsyncSession]):
             m_result = await self.session.execute(matches_query)
             matches_count = m_result.scalar() or 0
 
-            finished_query = (
-                select(func.count(Match.id))
-                .where(Match.status == "FINISHED")
+            finished_query = select(func.count(Match.id)).where(
+                Match.status == "FINISHED"
             )
             f_result = await self.session.execute(finished_query)
             finished_matches_count = f_result.scalar() or 0
 
-            scheduled_query = (
-                select(func.count(Match.id))
-                .where(Match.status == "SCHEDULED")
+            scheduled_query = select(func.count(Match.id)).where(
+                Match.status == "SCHEDULED"
             )
             sc_result = await self.session.execute(scheduled_query)
             scheduled_matches_count = sc_result.scalar() or 0

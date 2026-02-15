@@ -7,7 +7,7 @@ following the scikit-learn transformer pattern.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -34,7 +34,7 @@ class FeatureSchema:
             List of missing feature names
         """
         missing = []
-        for name, dtype in self.features.items():
+        for name, _dtype in self.features.items():
             if name not in df.columns:
                 missing.append(name)
         return missing
@@ -226,10 +226,9 @@ class TeamFormGenerator(FeatureGenerator):
             match_features["away_form_trend"] = self._calculate_trend(
                 repository, away_team_id, match_date
             )
-            match_features["form_diff"] = (
-                match_features.get("home_points_last_5", 0)
-                - match_features.get("away_points_last_5", 0)
-            )
+            match_features["form_diff"] = match_features.get(
+                "home_points_last_5", 0
+            ) - match_features.get("away_points_last_5", 0)
 
             features.append(match_features)
 
@@ -598,9 +597,7 @@ class OddsFeatureGenerator(FeatureGenerator):
                 )
 
             match_features["match_id"] = match_id
-            match_features["odds_quality_score"] = min(
-                1.0, (num_bookmakers or 1) / 5.0
-            )
+            match_features["odds_quality_score"] = min(1.0, (num_bookmakers or 1) / 5.0)
 
             features.append(match_features)
 
@@ -630,7 +627,6 @@ class OddsFeatureGenerator(FeatureGenerator):
 
         # Identify favorite
         probs = [prob_home, prob_draw, prob_away]
-        outcomes = [0, 1, 2]  # 0=home, 1=draw, 2=away
         favorite_idx = np.argmax(probs)
 
         return {
@@ -737,30 +733,32 @@ class TemporalFeatureGenerator(FeatureGenerator):
             match_features["is_weekend"] = float(match_date.dayofweek >= 5)
 
             # Approximate season start (August 1)
-            season_start = datetime(match_date.year - 1 if match_date.month < 8 else match_date.year, 8, 1)
+            season_start = datetime(
+                match_date.year - 1 if match_date.month < 8 else match_date.year, 8, 1
+            )
             if match_date.month < 8:
                 season_start = datetime(match_date.year - 1, 8, 1)
             match_features["days_from_season_start"] = (match_date - season_start).days
 
             # Rest days
             if self.include_rest_days:
-                home_rest = self._get_rest_days(
-                    repository, home_team_id, match_date
-                )
-                away_rest = self._get_rest_days(
-                    repository, away_team_id, match_date
-                )
+                home_rest = self._get_rest_days(repository, home_team_id, match_date)
+                away_rest = self._get_rest_days(repository, away_team_id, match_date)
                 match_features["home_rest_days"] = home_rest
                 match_features["away_rest_days"] = away_rest
                 match_features["rest_days_diff"] = home_rest - away_rest
 
             # Fixture density
             if self.include_fixture_density:
-                match_features["home_matches_last_14_days"] = self._count_recent_matches(
-                    repository, home_team_id, match_date, days=14
+                match_features["home_matches_last_14_days"] = (
+                    self._count_recent_matches(
+                        repository, home_team_id, match_date, days=14
+                    )
                 )
-                match_features["away_matches_last_14_days"] = self._count_recent_matches(
-                    repository, away_team_id, match_date, days=14
+                match_features["away_matches_last_14_days"] = (
+                    self._count_recent_matches(
+                        repository, away_team_id, match_date, days=14
+                    )
                 )
 
             features.append(match_features)
@@ -796,8 +794,6 @@ class TemporalFeatureGenerator(FeatureGenerator):
         days: int = 14,
     ) -> int:
         """Count matches in recent period."""
-        cutoff = match_date - timedelta(days=days)
-
         # Get count from repository
         count = repo.get_match_count(team_id=team_id, before_date=match_date)
 

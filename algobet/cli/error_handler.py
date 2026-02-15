@@ -186,7 +186,7 @@ def format_error_message(e: AlgoBetError, include_details: bool = True) -> str:
 
 
 def exit_with_error(
-    message: str, *, exit_code: int = 1, details: dict | None = None
+    message: str, *, exit_code: int = 1, details: dict[str, Any] | None = None
 ) -> None:
     """Exit the application with an error.
 

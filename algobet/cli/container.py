@@ -5,10 +5,10 @@ for managing service dependencies and lifecycle.
 
 Usage:
     from algobet.cli.container import Container
-    
+
     container = Container()
     container.init_resources()
-    
+
     # Get services
     db_service = container.database_service()
     query_service = container.query_service()
@@ -17,7 +17,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 from dependency_injector import containers, providers
 from sqlalchemy.orm import Session, sessionmaker
@@ -35,7 +35,7 @@ from algobet.services.scraping_service import ScrapingService
 logger = logging.getLogger(__name__)
 
 
-class Container(containers.DeclarativeContainer):
+class Container(containers.DeclarativeContainer):  # type: ignore[misc]
     """Main DI container for AlgoBet services.
 
     This container manages all service dependencies and provides

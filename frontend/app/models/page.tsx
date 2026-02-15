@@ -1,10 +1,16 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
+import { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -12,20 +18,34 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import { Box, RefreshCw, Check, Trash2, BarChart3 } from 'lucide-react'
-import { useModels, useActiveModel, useActivateModel, useDeleteModel, useModelMetrics } from '@/lib/queries/use-models'
-import type { ModelVersion } from '@/lib/types/api'
+} from "@/components/ui/table";
+import { Box, RefreshCw, Check, Trash2, BarChart3 } from "lucide-react";
+import {
+  useModels,
+  useActiveModel,
+  useActivateModel,
+  useDeleteModel,
+  useModelMetrics,
+} from "@/lib/queries/use-models";
+import type { ModelVersion } from "@/lib/types/api";
 
-function ModelMetricsPanel({ model, onClose }: { model: ModelVersion; onClose: () => void }) {
-  const { data: metrics, isLoading } = useModelMetrics(model.id)
-  
+function ModelMetricsPanel({
+  model,
+  onClose,
+}: {
+  model: ModelVersion;
+  onClose: () => void;
+}) {
+  const { data: metrics, isLoading } = useModelMetrics(model.id);
+
   return (
     <Card className="mt-4">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">Model Metrics - {model.version}</CardTitle>
-          <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
         </div>
       </CardHeader>
       <CardContent>
@@ -48,32 +68,35 @@ function ModelMetricsPanel({ model, onClose }: { model: ModelVersion; onClose: (
                 <CardContent className="p-4">
                   <div className="text-sm text-muted-foreground">Accuracy</div>
                   <div className="text-lg font-semibold">
-                    {model.accuracy ? `${(model.accuracy * 100).toFixed(1)}%` : 'N/A'}
+                    {model.accuracy ? `${(model.accuracy * 100).toFixed(1)}%` : "N/A"}
                   </div>
                 </CardContent>
               </Card>
             </div>
-            
+
             {metrics && Object.keys(metrics).length > 0 && (
               <div className="space-y-2">
                 <h4 className="font-semibold">Detailed Metrics</h4>
                 <div className="grid grid-cols-2 gap-2">
                   {Object.entries(metrics).map(([key, value]) => (
-                    <div key={key} className="flex justify-between p-2 bg-muted rounded">
+                    <div
+                      key={key}
+                      className="flex justify-between rounded bg-muted p-2"
+                    >
                       <span className="text-sm">{key}</span>
-                      <span className="text-sm font-mono">
-                        {typeof value === 'number' ? value.toFixed(4) : String(value)}
+                      <span className="font-mono text-sm">
+                        {typeof value === "number" ? value.toFixed(4) : String(value)}
                       </span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            
+
             {model.hyperparameters && Object.keys(model.hyperparameters).length > 0 && (
               <div className="space-y-2">
                 <h4 className="font-semibold">Hyperparameters</h4>
-                <pre className="p-4 bg-muted rounded text-sm overflow-auto max-h-48">
+                <pre className="max-h-48 overflow-auto rounded bg-muted p-4 text-sm">
                   {JSON.stringify(model.hyperparameters, null, 2)}
                 </pre>
               </div>
@@ -82,35 +105,33 @@ function ModelMetricsPanel({ model, onClose }: { model: ModelVersion; onClose: (
         )}
       </CardContent>
     </Card>
-  )
+  );
 }
 
-function ModelRow({ 
-  model, 
+function ModelRow({
+  model,
   isActive,
   onActivate,
   onDelete,
   onShowMetrics,
-  isExpanded
-}: { 
-  model: ModelVersion
-  isActive: boolean
-  onActivate: (id: number) => void
-  onDelete: (id: number) => void
-  onShowMetrics: (model: ModelVersion) => void
-  isExpanded: boolean
+  isExpanded,
+}: {
+  model: ModelVersion;
+  isActive: boolean;
+  onActivate: (id: number) => void;
+  onDelete: (id: number) => void;
+  onShowMetrics: (model: ModelVersion) => void;
+  isExpanded: boolean;
 }) {
   return (
     <>
-      <TableRow className={isActive ? 'bg-green-50 dark:bg-green-950/20' : ''}>
-        <TableCell className="font-mono text-sm">
-          {model.version}
-        </TableCell>
+      <TableRow className={isActive ? "bg-green-50 dark:bg-green-950/20" : ""}>
+        <TableCell className="font-mono text-sm">{model.version}</TableCell>
         <TableCell>
           <Badge variant="outline">{model.algorithm}</Badge>
         </TableCell>
         <TableCell className="font-mono">
-          {model.accuracy ? `${(model.accuracy * 100).toFixed(1)}%` : '-'}
+          {model.accuracy ? `${(model.accuracy * 100).toFixed(1)}%` : "-"}
         </TableCell>
         <TableCell>
           {isActive ? (
@@ -119,38 +140,34 @@ function ModelRow({
             <Badge variant="secondary">Inactive</Badge>
           )}
         </TableCell>
-        <TableCell className="text-muted-foreground text-sm">
+        <TableCell className="text-sm text-muted-foreground">
           {new Date(model.created_at).toLocaleDateString()}
         </TableCell>
         <TableCell className="text-sm text-muted-foreground">
-          {model.description || '-'}
+          {model.description || "-"}
         </TableCell>
         <TableCell>
           <div className="flex items-center gap-2">
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => onShowMetrics(model)}
-            >
-              <BarChart3 className="h-4 w-4 mr-1" />
+            <Button variant="outline" size="sm" onClick={() => onShowMetrics(model)}>
+              <BarChart3 className="mr-1 h-4 w-4" />
               Metrics
             </Button>
             {!isActive && (
               <>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => onActivate(model.id)}
                 >
-                  <Check className="h-4 w-4 mr-1" />
+                  <Check className="mr-1 h-4 w-4" />
                   Activate
                 </Button>
-                <Button 
-                  variant="destructive" 
+                <Button
+                  variant="destructive"
                   size="sm"
                   onClick={() => {
                     if (confirm(`Delete model ${model.version}?`)) {
-                      onDelete(model.id)
+                      onDelete(model.id);
                     }
                   }}
                 >
@@ -164,29 +181,32 @@ function ModelRow({
       {isExpanded && (
         <TableRow>
           <TableCell colSpan={7} className="p-0">
-            <ModelMetricsPanel model={model} onClose={() => onShowMetrics(null as unknown as ModelVersion)} />
+            <ModelMetricsPanel
+              model={model}
+              onClose={() => onShowMetrics(null as unknown as ModelVersion)}
+            />
           </TableCell>
         </TableRow>
       )}
     </>
-  )
+  );
 }
 
 export default function ModelsPage() {
-  const { data: modelsData, isLoading, refetch } = useModels()
-  const { data: activeModel } = useActiveModel()
-  const activateMutation = useActivateModel()
-  const deleteMutation = useDeleteModel()
-  const [expandedModel, setExpandedModel] = useState<ModelVersion | null>(null)
+  const { data: modelsData, isLoading, refetch } = useModels();
+  const { data: activeModel } = useActiveModel();
+  const activateMutation = useActivateModel();
+  const deleteMutation = useDeleteModel();
+  const [expandedModel, setExpandedModel] = useState<ModelVersion | null>(null);
 
-  const models = modelsData?.items ?? []
-  const activeVersion = activeModel?.version
+  const models = modelsData?.items ?? [];
+  const activeVersion = activeModel?.version;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <Box className="h-8 w-8" />
             Models
           </h1>
@@ -202,7 +222,7 @@ export default function ModelsPage() {
             </Badge>
           )}
           <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
         </div>
@@ -219,7 +239,7 @@ export default function ModelsPage() {
         <Card>
           <CardContent className="p-4 text-center">
             <div className="text-2xl font-bold text-green-600">
-              {models.filter(m => m.is_active).length}
+              {models.filter((m) => m.is_active).length}
             </div>
             <div className="text-xs text-muted-foreground">Active Models</div>
           </CardContent>
@@ -227,9 +247,9 @@ export default function ModelsPage() {
         <Card>
           <CardContent className="p-4 text-center">
             <div className="text-2xl font-bold">
-              {models.length > 0 
-                ? `${(models.reduce((sum, m) => sum + (m.accuracy || 0), 0) / models.length * 100).toFixed(1)}%`
-                : '-'}
+              {models.length > 0
+                ? `${((models.reduce((sum, m) => sum + (m.accuracy || 0), 0) / models.length) * 100).toFixed(1)}%`
+                : "-"}
             </div>
             <div className="text-xs text-muted-foreground">Avg Accuracy</div>
           </CardContent>
@@ -244,9 +264,7 @@ export default function ModelsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Model Versions</CardTitle>
-            <CardDescription>
-              All registered prediction models
-            </CardDescription>
+            <CardDescription>All registered prediction models</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
@@ -280,14 +298,12 @@ export default function ModelsPage() {
       ) : (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-            <Box className="h-12 w-12 mb-4" />
+            <Box className="mb-4 h-12 w-12" />
             <p className="text-lg font-medium">No models found</p>
-            <p className="text-sm">
-              Train a model using the CLI to get started
-            </p>
+            <p className="text-sm">Train a model using the CLI to get started</p>
           </CardContent>
         </Card>
       )}
     </div>
-  )
+  );
 }

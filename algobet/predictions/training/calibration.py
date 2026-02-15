@@ -12,8 +12,7 @@ from typing import Any
 import joblib
 import numpy as np
 from numpy.typing import NDArray
-from sklearn.calibration import CalibratedClassifierCV, IsotonicRegression
-from sklearn.isotonic import IsotonicRegression as SKIsotonicRegression
+from sklearn.calibration import IsotonicRegression
 
 
 class ProbabilityCalibrator:
@@ -63,9 +62,7 @@ class ProbabilityCalibrator:
         n_samples, n_classes = probas.shape
 
         if n_classes != self.n_classes:
-            raise ValueError(
-                f"Expected {self.n_classes} classes, got {n_classes}"
-            )
+            raise ValueError(f"Expected {self.n_classes} classes, got {n_classes}")
 
         self._calibrators = []
 
@@ -107,9 +104,7 @@ class ProbabilityCalibrator:
         n_samples, n_classes = probas.shape
 
         if n_classes != self.n_classes:
-            raise ValueError(
-                f"Expected {self.n_classes} classes, got {n_classes}"
-            )
+            raise ValueError(f"Expected {self.n_classes} classes, got {n_classes}")
 
         calibrated = np.zeros_like(probas)
 

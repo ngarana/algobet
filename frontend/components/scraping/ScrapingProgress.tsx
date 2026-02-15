@@ -1,43 +1,44 @@
-'use client'
+"use client";
 
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Progress, ProgressValue } from '@/components/ui/progress'
+import { Badge } from "@/components/ui/badge";
 import {
-  CheckCircleIcon,
-  XCircleIcon,
-  ClockIcon,
-  Loader2Icon,
-} from 'lucide-react'
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Progress, ProgressValue } from "@/components/ui/progress";
+import { CheckCircleIcon, XCircleIcon, ClockIcon, Loader2Icon } from "lucide-react";
 
 export interface ScrapingProgressData {
-  job_id: string
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  progress: number
-  matches_scraped: number
-  message: string
-  error?: string | null
-  started_at?: string | null
-  completed_at?: string | null
+  job_id: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  progress: number;
+  matches_scraped: number;
+  message: string;
+  error?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 interface ScrapingProgressProps {
-  progress: ScrapingProgressData | null
-  url?: string
+  progress: ScrapingProgressData | null;
+  url?: string;
 }
 
 function getStatusIcon(status: string) {
   switch (status) {
-    case 'pending':
-      return <ClockIcon className="w-5 h-5 text-muted-foreground" />
-    case 'running':
-      return <Loader2Icon className="w-5 h-5 text-primary animate-spin" />
-    case 'completed':
-      return <CheckCircleIcon className="w-5 h-5 text-green-500" />
-    case 'failed':
-      return <XCircleIcon className="w-5 h-5 text-destructive" />
+    case "pending":
+      return <ClockIcon className="h-5 w-5 text-muted-foreground" />;
+    case "running":
+      return <Loader2Icon className="h-5 w-5 animate-spin text-primary" />;
+    case "completed":
+      return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
+    case "failed":
+      return <XCircleIcon className="h-5 w-5 text-destructive" />;
     default:
-      return <ClockIcon className="w-5 h-5 text-muted-foreground" />
+      return <ClockIcon className="h-5 w-5 text-muted-foreground" />;
   }
 }
 
@@ -50,9 +51,8 @@ export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
           <CardDescription>Waiting for scraping to start...</CardDescription>
         </CardHeader>
       </Card>
-    )
+    );
   }
-
 
   return (
     <Card>
@@ -61,13 +61,15 @@ export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
           {getStatusIcon(progress.status)}
           <div>
             <CardTitle>Scraping Progress</CardTitle>
-            {url && <CardDescription className="truncate max-w-md">{url}</CardDescription>}
+            {url && (
+              <CardDescription className="max-w-md truncate">{url}</CardDescription>
+            )}
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between">
-          <Badge variant={progress.status === 'running' ? 'default' : 'secondary'}>
+          <Badge variant={progress.status === "running" ? "default" : "secondary"}>
             {progress.status.toUpperCase()}
           </Badge>
           <span className="text-sm text-muted-foreground">
@@ -86,26 +88,26 @@ export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
         </div>
 
         <div className="grid grid-cols-1 gap-4">
-          <div className="bg-muted/50 rounded-lg p-3">
+          <div className="rounded-lg bg-muted/50 p-3">
             <p className="text-sm text-muted-foreground">Matches Scraped</p>
             <p className="text-2xl font-bold">{progress.matches_scraped}</p>
           </div>
         </div>
 
         {progress.message && (
-          <div className="bg-muted/30 rounded-lg p-3">
+          <div className="rounded-lg bg-muted/30 p-3">
             <p className="text-sm">{progress.message}</p>
           </div>
         )}
 
         {progress.error && (
-          <div className="bg-destructive/10 text-destructive rounded-lg p-3">
+          <div className="rounded-lg bg-destructive/10 p-3 text-destructive">
             <p className="text-sm font-medium">Error</p>
             <p className="text-sm">{progress.error}</p>
           </div>
         )}
 
-        <div className="text-xs text-muted-foreground space-y-1">
+        <div className="space-y-1 text-xs text-muted-foreground">
           {progress.started_at && (
             <p>Started: {new Date(progress.started_at).toLocaleString()}</p>
           )}
@@ -115,5 +117,5 @@ export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

@@ -31,8 +31,8 @@ from algobet.predictions.training.split import (
     get_class_weights,
 )
 from algobet.predictions.training.tuner import (
-    GridSearchTuner,
     HAS_OPTUNA,
+    GridSearchTuner,
     HyperparameterTuner,
     TuningConfig,
     TuningResult,

@@ -107,10 +107,12 @@ class Match(Base):
     __tablename__ = "matches"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    tournament_id: Mapped[int] = mapped_column(
-        ForeignKey("tournaments.id"), nullable=False
+    tournament_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tournaments.id"), nullable=True
     )
-    season_id: Mapped[int] = mapped_column(ForeignKey("seasons.id"), nullable=False)
+    season_id: Mapped[int | None] = mapped_column(
+        ForeignKey("seasons.id"), nullable=True
+    )
     home_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
     away_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
 

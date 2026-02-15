@@ -19,7 +19,7 @@ def list_models(
     algorithm: str | None = Query(None, description="Filter by algorithm type"),
     active_only: bool = Query(False, description="Return only active models"),
     db: Session = Depends(get_db),
-) -> list[ModelVersionResponse]:
+) -> PaginatedResponse[ModelVersionResponse]:
     """List all model versions.
 
     Returns all model versions in the registry, optionally filtered.

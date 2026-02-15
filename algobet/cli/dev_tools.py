@@ -20,8 +20,10 @@ from algobet.cli.commands.async_query import async_list_cli
 from algobet.cli.commands.db import db_cli
 from algobet.cli.commands.models import model_cli
 from algobet.cli.commands.query import list_cli
+from algobet.cli.commands.train import train_cli
 from algobet.cli.container import get_container
 from algobet.cli.logger import init_logging
+from algobet.scheduler.worker import cli as scheduler_cli
 
 # Initialize logging on module import
 init_logging()
@@ -74,10 +76,14 @@ cli.add_command(db_cli)
 cli.add_command(list_cli)
 cli.add_command(model_cli)
 cli.add_command(analyze_cli)
+cli.add_command(train_cli)
 
 # Register async command groups
 cli.add_command(async_db_cli)
 cli.add_command(async_list_cli)
+
+# Register scheduler worker
+cli.add_command(scheduler_cli, name="scheduler")
 
 
 if __name__ == "__main__":

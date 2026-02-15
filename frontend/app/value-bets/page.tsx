@@ -1,19 +1,25 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Badge } from '@/components/ui/badge'
+import { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -21,27 +27,27 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import { TrendingUp, Filter, RefreshCw, Trophy, Calendar, Target } from 'lucide-react'
-import { useValueBets } from '@/lib/queries/use-value-bets'
-import { useActiveModel } from '@/lib/queries/use-models'
-import type { ValueBet } from '@/lib/types/api'
+} from "@/components/ui/table";
+import { TrendingUp, Filter, RefreshCw, Trophy, Calendar, Target } from "lucide-react";
+import { useValueBets } from "@/lib/queries/use-value-bets";
+import { useActiveModel } from "@/lib/queries/use-models";
+import type { ValueBet } from "@/lib/types/api";
 
 function ValueBetsFilters({
   filters,
   onFilterChange,
 }: {
   filters: {
-    minEv: number
-    maxOdds: number
-    days: number
-  }
-  onFilterChange: (filters: { minEv: number; maxOdds: number; days: number }) => void
+    minEv: number;
+    maxOdds: number;
+    days: number;
+  };
+  onFilterChange: (filters: { minEv: number; maxOdds: number; days: number }) => void;
 }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-lg">
           <Filter className="h-5 w-5" />
           Filters
         </CardTitle>
@@ -56,7 +62,10 @@ function ValueBetsFilters({
               step="0.01"
               value={filters.minEv * 100}
               onChange={(e) =>
-                onFilterChange({ ...filters, minEv: parseFloat(e.target.value) / 100 || 0 })
+                onFilterChange({
+                  ...filters,
+                  minEv: parseFloat(e.target.value) / 100 || 0,
+                })
               }
             />
           </div>
@@ -68,7 +77,10 @@ function ValueBetsFilters({
               step="0.1"
               value={filters.maxOdds}
               onChange={(e) =>
-                onFilterChange({ ...filters, maxOdds: parseFloat(e.target.value) || 10 })
+                onFilterChange({
+                  ...filters,
+                  maxOdds: parseFloat(e.target.value) || 10,
+                })
               }
             />
           </div>
@@ -93,36 +105,38 @@ function ValueBetsFilters({
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function ValueBetCard({ valueBet }: { valueBet: ValueBet }) {
   const outcomeLabels: Record<string, string> = {
-    H: 'Home Win',
-    D: 'Draw',
-    A: 'Away Win',
-  }
+    H: "Home Win",
+    D: "Draw",
+    A: "Away Win",
+  };
 
   const outcomeColors: Record<string, string> = {
-    H: 'bg-blue-500',
-    D: 'bg-yellow-500',
-    A: 'bg-red-500',
-  }
+    H: "bg-blue-500",
+    D: "bg-yellow-500",
+    A: "bg-red-500",
+  };
 
-  const matchDate = new Date(valueBet.match.match_date)
-  const ev = valueBet.expected_value
+  const matchDate = new Date(valueBet.match.match_date);
+  const ev = valueBet.expected_value;
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card className="transition-shadow hover:shadow-md">
       <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
+        <div className="mb-3 flex items-start justify-between">
           <div className="flex items-center gap-2">
             <Badge className={outcomeColors[valueBet.predicted_outcome]}>
               {outcomeLabels[valueBet.predicted_outcome]}
             </Badge>
-            <span className="text-lg font-bold">@ {valueBet.market_odds.toFixed(2)}</span>
+            <span className="text-lg font-bold">
+              @ {valueBet.market_odds.toFixed(2)}
+            </span>
           </div>
-          <Badge variant={ev >= 0.1 ? 'default' : 'secondary'}>
+          <Badge variant={ev >= 0.1 ? "default" : "secondary"}>
             EV: {(ev * 100).toFixed(1)}%
           </Badge>
         </div>
@@ -143,28 +157,32 @@ function ValueBetCard({ valueBet }: { valueBet: ValueBet }) {
             </span>
           </div>
 
-          <div className="flex items-center justify-between pt-2 border-t">
+          <div className="flex items-center justify-between border-t pt-2">
             <div className="text-sm">
-              <span className="text-muted-foreground">Kelly:</span>{' '}
-              <span className="font-mono">{(valueBet.kelly_fraction * 100).toFixed(1)}%</span>
+              <span className="text-muted-foreground">Kelly:</span>{" "}
+              <span className="font-mono">
+                {(valueBet.kelly_fraction * 100).toFixed(1)}%
+              </span>
             </div>
             <div className="text-sm">
-              <span className="text-muted-foreground">Confidence:</span>{' '}
-              <span className="font-mono">{(valueBet.confidence * 100).toFixed(1)}%</span>
+              <span className="text-muted-foreground">Confidence:</span>{" "}
+              <span className="font-mono">
+                {(valueBet.confidence * 100).toFixed(1)}%
+              </span>
             </div>
           </div>
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function ValueBetsTable({ valueBets }: { valueBets: ValueBet[] }) {
   const outcomeLabels: Record<string, string> = {
-    H: 'Home Win',
-    D: 'Draw',
-    A: 'Away Win',
-  }
+    H: "Home Win",
+    D: "Draw",
+    A: "Away Win",
+  };
 
   return (
     <Table>
@@ -185,9 +203,7 @@ function ValueBetsTable({ valueBets }: { valueBets: ValueBet[] }) {
             <TableCell className="font-medium">
               Team {vb.match.home_team_id} vs Team {vb.match.away_team_id}
             </TableCell>
-            <TableCell>
-              {new Date(vb.match.match_date).toLocaleDateString()}
-            </TableCell>
+            <TableCell>{new Date(vb.match.match_date).toLocaleDateString()}</TableCell>
             <TableCell>
               <Badge variant="outline">{outcomeLabels[vb.predicted_outcome]}</Badge>
             </TableCell>
@@ -207,21 +223,24 @@ function ValueBetsTable({ valueBets }: { valueBets: ValueBet[] }) {
         ))}
       </TableBody>
     </Table>
-  )
+  );
 }
 
 function ValueBetsSummary({ valueBets }: { valueBets: ValueBet[] }) {
-  const avgEv = valueBets.length > 0
-    ? valueBets.reduce((sum, vb) => sum + vb.expected_value, 0) / valueBets.length
-    : 0
+  const avgEv =
+    valueBets.length > 0
+      ? valueBets.reduce((sum, vb) => sum + vb.expected_value, 0) / valueBets.length
+      : 0;
 
-  const avgOdds = valueBets.length > 0
-    ? valueBets.reduce((sum, vb) => sum + vb.market_odds, 0) / valueBets.length
-    : 0
+  const avgOdds =
+    valueBets.length > 0
+      ? valueBets.reduce((sum, vb) => sum + vb.market_odds, 0) / valueBets.length
+      : 0;
 
-  const avgKelly = valueBets.length > 0
-    ? valueBets.reduce((sum, vb) => sum + vb.kelly_fraction, 0) / valueBets.length
-    : 0
+  const avgKelly =
+    valueBets.length > 0
+      ? valueBets.reduce((sum, vb) => sum + vb.kelly_fraction, 0) / valueBets.length
+      : 0;
 
   return (
     <div className="grid grid-cols-4 gap-4">
@@ -252,31 +271,31 @@ function ValueBetsSummary({ valueBets }: { valueBets: ValueBet[] }) {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
 
 export default function ValueBetsPage() {
-  const { data: activeModel } = useActiveModel()
+  const { data: activeModel } = useActiveModel();
   const [filters, setFilters] = useState({
     minEv: 0.05,
     maxOdds: 10,
     days: 7,
-  })
+  });
 
   const { data, isLoading, refetch } = useValueBets({
     min_ev: filters.minEv,
     max_odds: filters.maxOdds,
     days: filters.days,
     max_matches: 50,
-  })
+  });
 
-  const valueBets = data ?? []
+  const valueBets = data ?? [];
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <TrendingUp className="h-8 w-8" />
             Value Bets
           </h1>
@@ -292,7 +311,7 @@ export default function ValueBetsPage() {
             </Badge>
           )}
           <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
         </div>
@@ -328,7 +347,7 @@ export default function ValueBetsPage() {
           ) : (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <TrendingUp className="h-12 w-12 mb-4" />
+                <TrendingUp className="mb-4 h-12 w-12" />
                 <p className="text-lg font-medium">No value bets found</p>
                 <p className="text-sm">
                   Try adjusting your filters or wait for new matches
@@ -339,5 +358,5 @@ export default function ValueBetsPage() {
         </>
       )}
     </div>
-  )
+  );
 }

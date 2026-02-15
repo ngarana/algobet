@@ -50,7 +50,7 @@ A flexible logging system supporting multiple output formats:
 
 **Log Levels**:
 - DEBUG (10) - Detailed diagnostic info
-- INFO (20) - General operational info  
+- INFO (20) - General operational info
 - SUCCESS (25) - Successful operations ✓
 - WARNING (30) - Potential issues
 - ERROR (40) - Failed operations

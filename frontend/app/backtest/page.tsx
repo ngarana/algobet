@@ -1,39 +1,45 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
-import { AlertCircle, Play, TrendingUp, Target, BarChart3 } from 'lucide-react'
-import { useBacktest } from '@/lib/queries/use-ml-operations'
-import { useActiveModel, useModels } from '@/lib/queries/use-models'
-import type { BacktestResult } from '@/lib/types/ml-operations'
+import { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AlertCircle, Play, TrendingUp, Target, BarChart3 } from "lucide-react";
+import { useBacktest } from "@/lib/queries/use-ml-operations";
+import { useActiveModel, useModels } from "@/lib/queries/use-models";
+import type { BacktestResult } from "@/lib/types/ml-operations";
 
 function BacktestForm({
   onSubmit,
   isLoading,
 }: {
-  onSubmit: (data: { startDate: string; endDate: string; minMatches: number }) => void
-  isLoading: boolean
+  onSubmit: (data: { startDate: string; endDate: string; minMatches: number }) => void;
+  isLoading: boolean;
 }) {
-  const { data: activeModel } = useActiveModel()
-  const { data: modelsData } = useModels()
+  const { data: activeModel } = useActiveModel();
+  const { data: modelsData } = useModels();
 
   // Default dates
-  const today = new Date()
-  const oneYearAgo = new Date(today)
-  oneYearAgo.setFullYear(today.getFullYear() - 1)
+  const today = new Date();
+  const oneYearAgo = new Date(today);
+  oneYearAgo.setFullYear(today.getFullYear() - 1);
 
-  const [startDate, setStartDate] = useState(oneYearAgo.toISOString().split('T')[0])
-  const [endDate, setEndDate] = useState(today.toISOString().split('T')[0])
-  const [minMatches, setMinMatches] = useState(100)
+  const [startDate, setStartDate] = useState(oneYearAgo.toISOString().split("T")[0]);
+  const [endDate, setEndDate] = useState(today.toISOString().split("T")[0]);
+  const [minMatches, setMinMatches] = useState(100);
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    onSubmit({ startDate, endDate, minMatches })
-  }
+    e.preventDefault();
+    onSubmit({ startDate, endDate, minMatches });
+  };
 
   return (
     <Card>
@@ -48,12 +54,14 @@ function BacktestForm({
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+          <div className="flex items-center gap-2 rounded-lg bg-muted p-3">
             <Target className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm">
-              Active Model:{' '}
+              Active Model:{" "}
               {activeModel ? (
-                <span className="font-medium">{activeModel.name} ({activeModel.algorithm})</span>
+                <span className="font-medium">
+                  {activeModel.name} ({activeModel.algorithm})
+                </span>
               ) : (
                 <span className="text-destructive">No active model</span>
               )}
@@ -98,12 +106,12 @@ function BacktestForm({
           <Button type="submit" className="w-full" disabled={isLoading || !activeModel}>
             {isLoading ? (
               <>
-                <span className="animate-spin mr-2">⏳</span>
+                <span className="mr-2 animate-spin">⏳</span>
                 Running Backtest...
               </>
             ) : (
               <>
-                <Play className="h-4 w-4 mr-2" />
+                <Play className="mr-2 h-4 w-4" />
                 Run Backtest
               </>
             )}
@@ -111,23 +119,35 @@ function BacktestForm({
         </form>
       </CardContent>
     </Card>
-  )
+  );
 }
 
-function ClassificationMetricsCard({ metrics }: { metrics: BacktestResult['classification'] }) {
+function ClassificationMetricsCard({
+  metrics,
+}: {
+  metrics: BacktestResult["classification"];
+}) {
   const metricRows = [
-    { label: 'Accuracy', value: `${(metrics.accuracy * 100).toFixed(1)}%`, target: '≥50%' },
-    { label: 'Log Loss', value: metrics.log_loss.toFixed(3), target: '≤0.95' },
-    { label: 'Brier Score', value: metrics.brier_score.toFixed(3), target: '≤0.20' },
-    { label: 'F1 (Macro)', value: metrics.f1_macro.toFixed(3), target: '≥0.45' },
-    { label: 'Top-2 Accuracy', value: `${(metrics.top_2_accuracy * 100).toFixed(1)}%`, target: '≥75%' },
-    { label: "Cohen's Kappa", value: metrics.cohen_kappa.toFixed(3), target: '≥0.30' },
-  ]
+    {
+      label: "Accuracy",
+      value: `${(metrics.accuracy * 100).toFixed(1)}%`,
+      target: "≥50%",
+    },
+    { label: "Log Loss", value: metrics.log_loss.toFixed(3), target: "≤0.95" },
+    { label: "Brier Score", value: metrics.brier_score.toFixed(3), target: "≤0.20" },
+    { label: "F1 (Macro)", value: metrics.f1_macro.toFixed(3), target: "≥0.45" },
+    {
+      label: "Top-2 Accuracy",
+      value: `${(metrics.top_2_accuracy * 100).toFixed(1)}%`,
+      target: "≥75%",
+    },
+    { label: "Cohen's Kappa", value: metrics.cohen_kappa.toFixed(3), target: "≥0.30" },
+  ];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-lg">
           <BarChart3 className="h-5 w-5" />
           Classification Metrics
         </CardTitle>
@@ -136,9 +156,9 @@ function ClassificationMetricsCard({ metrics }: { metrics: BacktestResult['class
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b">
-              <th className="text-left py-2">Metric</th>
-              <th className="text-right py-2">Value</th>
-              <th className="text-right py-2 text-muted-foreground">Target</th>
+              <th className="py-2 text-left">Metric</th>
+              <th className="py-2 text-right">Value</th>
+              <th className="py-2 text-right text-muted-foreground">Target</th>
             </tr>
           </thead>
           <tbody>
@@ -153,54 +173,69 @@ function ClassificationMetricsCard({ metrics }: { metrics: BacktestResult['class
         </table>
 
         <div className="mt-4">
-          <h4 className="font-medium mb-2">Per-Class F1 Scores</h4>
+          <h4 className="mb-2 font-medium">Per-Class F1 Scores</h4>
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="p-2 bg-muted rounded">
-              <div className="text-lg font-bold">{(metrics.per_class_f1.H * 100).toFixed(1)}%</div>
+            <div className="rounded bg-muted p-2">
+              <div className="text-lg font-bold">
+                {(metrics.per_class_f1.H * 100).toFixed(1)}%
+              </div>
               <div className="text-xs text-muted-foreground">Home</div>
             </div>
-            <div className="p-2 bg-muted rounded">
-              <div className="text-lg font-bold">{(metrics.per_class_f1.D * 100).toFixed(1)}%</div>
+            <div className="rounded bg-muted p-2">
+              <div className="text-lg font-bold">
+                {(metrics.per_class_f1.D * 100).toFixed(1)}%
+              </div>
               <div className="text-xs text-muted-foreground">Draw</div>
             </div>
-            <div className="p-2 bg-muted rounded">
-              <div className="text-lg font-bold">{(metrics.per_class_f1.A * 100).toFixed(1)}%</div>
+            <div className="rounded bg-muted p-2">
+              <div className="text-lg font-bold">
+                {(metrics.per_class_f1.A * 100).toFixed(1)}%
+              </div>
               <div className="text-xs text-muted-foreground">Away</div>
             </div>
           </div>
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
-function BettingMetricsCard({ metrics }: { metrics: NonNullable<BacktestResult['betting']> }) {
-  const isPositiveROI = metrics.roi_percent >= 0
+function BettingMetricsCard({
+  metrics,
+}: {
+  metrics: NonNullable<BacktestResult["betting"]>;
+}) {
+  const isPositiveROI = metrics.roi_percent >= 0;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-lg">
           <TrendingUp className="h-5 w-5" />
           Betting Simulation
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="p-3 bg-muted rounded-lg text-center">
+        <div className="mb-4 grid grid-cols-2 gap-4">
+          <div className="rounded-lg bg-muted p-3 text-center">
             <div className="text-2xl font-bold">{metrics.total_bets}</div>
             <div className="text-xs text-muted-foreground">Total Bets</div>
           </div>
-          <div className="p-3 bg-muted rounded-lg text-center">
-            <div className="text-2xl font-bold">{(metrics.win_rate * 100).toFixed(1)}%</div>
+          <div className="rounded-lg bg-muted p-3 text-center">
+            <div className="text-2xl font-bold">
+              {(metrics.win_rate * 100).toFixed(1)}%
+            </div>
             <div className="text-xs text-muted-foreground">Win Rate</div>
           </div>
         </div>
 
-        <div className="p-4 bg-muted rounded-lg mb-4">
+        <div className="mb-4 rounded-lg bg-muted p-4">
           <div className="text-center">
-            <div className={`text-3xl font-bold ${isPositiveROI ? 'text-green-600' : 'text-red-600'}`}>
-              {metrics.roi_percent >= 0 ? '+' : ''}{metrics.roi_percent.toFixed(1)}%
+            <div
+              className={`text-3xl font-bold ${isPositiveROI ? "text-green-600" : "text-red-600"}`}
+            >
+              {metrics.roi_percent >= 0 ? "+" : ""}
+              {metrics.roi_percent.toFixed(1)}%
             </div>
             <div className="text-sm text-muted-foreground">Return on Investment</div>
           </div>
@@ -209,13 +244,17 @@ function BettingMetricsCard({ metrics }: { metrics: NonNullable<BacktestResult['
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Profit/Loss</span>
-            <span className={`font-mono ${isPositiveROI ? 'text-green-600' : 'text-red-600'}`}>
+            <span
+              className={`font-mono ${isPositiveROI ? "text-green-600" : "text-red-600"}`}
+            >
               ${metrics.profit_loss.toFixed(2)}
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Max Drawdown</span>
-            <span className="font-mono">{(metrics.max_drawdown * 100).toFixed(1)}%</span>
+            <span className="font-mono">
+              {(metrics.max_drawdown * 100).toFixed(1)}%
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Sharpe Ratio</span>
@@ -228,7 +267,7 @@ function BettingMetricsCard({ metrics }: { metrics: NonNullable<BacktestResult['
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function CalibrationCard({ result }: { result: BacktestResult }) {
@@ -239,18 +278,26 @@ function CalibrationCard({ result }: { result: BacktestResult }) {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 gap-4">
-          <div className="p-3 bg-muted rounded-lg text-center">
-            <div className="text-xl font-bold">{result.expected_calibration_error.toFixed(4)}</div>
-            <div className="text-xs text-muted-foreground">Expected Calibration Error</div>
+          <div className="rounded-lg bg-muted p-3 text-center">
+            <div className="text-xl font-bold">
+              {result.expected_calibration_error.toFixed(4)}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Expected Calibration Error
+            </div>
           </div>
-          <div className="p-3 bg-muted rounded-lg text-center">
-            <div className="text-xl font-bold">{result.maximum_calibration_error.toFixed(4)}</div>
-            <div className="text-xs text-muted-foreground">Maximum Calibration Error</div>
+          <div className="rounded-lg bg-muted p-3 text-center">
+            <div className="text-xl font-bold">
+              {result.maximum_calibration_error.toFixed(4)}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Maximum Calibration Error
+            </div>
           </div>
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function BacktestResults({ result }: { result: BacktestResult }) {
@@ -261,7 +308,8 @@ function BacktestResults({ result }: { result: BacktestResult }) {
           <h2 className="text-xl font-bold">Backtest Results</h2>
           <p className="text-sm text-muted-foreground">
             {result.num_samples.toLocaleString()} samples
-            {result.date_range && ` • ${result.date_range[0]} to ${result.date_range[1]}`}
+            {result.date_range &&
+              ` • ${result.date_range[0]} to ${result.date_range[1]}`}
           </p>
         </div>
         <div className="text-right">
@@ -276,38 +324,36 @@ function BacktestResults({ result }: { result: BacktestResult }) {
         <CalibrationCard result={result} />
       </div>
     </div>
-  )
+  );
 }
 
 export default function BacktestPage() {
-  const backtestMutation = useBacktest()
-  const [result, setResult] = useState<BacktestResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const backtestMutation = useBacktest();
+  const [result, setResult] = useState<BacktestResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (data: {
-    startDate: string
-    endDate: string
-    minMatches: number
+    startDate: string;
+    endDate: string;
+    minMatches: number;
   }) => {
-    setError(null)
-    setResult(null)
+    setError(null);
+    setResult(null);
 
     try {
       const result = await backtestMutation.mutateAsync({
         start_date: data.startDate,
         end_date: data.endDate,
         min_matches: data.minMatches,
-      })
-      setResult(result)
+      });
+      setResult(result);
     } catch (err) {
-      console.error('Backtest error:', err)
+      console.error("Backtest error:", err);
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to run backtest. Please try again.'
-      )
+        err instanceof Error ? err.message : "Failed to run backtest. Please try again."
+      );
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
@@ -346,7 +392,7 @@ export default function BacktestPage() {
           ) : (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <BarChart3 className="h-12 w-12 mb-4" />
+                <BarChart3 className="mb-4 h-12 w-12" />
                 <p className="text-lg font-medium">No results yet</p>
                 <p className="text-sm">Run a backtest to see performance metrics</p>
               </CardContent>
@@ -355,5 +401,5 @@ export default function BacktestPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

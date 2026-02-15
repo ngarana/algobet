@@ -1,6 +1,5 @@
 """Pydantic schemas for tournament-related API responses."""
 
-
 from pydantic import BaseModel, ConfigDict
 
 

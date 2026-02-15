@@ -81,7 +81,7 @@ class ModelManagementService(BaseService[Session]):
 
             # Filter to active only if requested
             if not request.include_inactive:
-                query = query.filter(ModelVersion.is_active is True)
+                query = query.filter(ModelVersion.is_active == True)  # noqa: E712
 
             # Order by created_at descending
             query = query.order_by(desc(ModelVersion.created_at))
@@ -92,7 +92,7 @@ class ModelManagementService(BaseService[Session]):
             # Get the currently active model version
             active_model = (
                 self.session.query(ModelVersion)
-                .filter(ModelVersion.is_active is True)
+                .filter(ModelVersion.is_active == True)  # noqa: E712
                 .first()
             )
             active_version = active_model.version if active_model else None
@@ -167,7 +167,7 @@ class ModelManagementService(BaseService[Session]):
             # Get the currently active model
             current_active = (
                 self.session.query(ModelVersion)
-                .filter(ModelVersion.is_active is True)
+                .filter(ModelVersion.is_active == True)  # noqa: E712
                 .first()
             )
             previous_version = current_active.version if current_active else None
@@ -338,7 +338,7 @@ class ModelManagementService(BaseService[Session]):
         try:
             active_model = (
                 self.session.query(ModelVersion)
-                .filter(ModelVersion.is_active is True)
+                .filter(ModelVersion.is_active == True)  # noqa: E712
                 .first()
             )
 

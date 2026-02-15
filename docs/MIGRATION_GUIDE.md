@@ -67,7 +67,7 @@ def get_db_stats():
     team_count = session.query(Team).count()
     match_count = session.query(Match).count()
     session.close()
-    
+
     click.echo(f"Tournaments: {tournament_count}")
     click.echo(f"Teams: {team_count}")
     click.echo(f"Matches: {match_count}")
@@ -82,9 +82,9 @@ from algobet.cli.container import ServiceLocator
 def get_db_stats():
     logger = get_logger(__name__)
     db_service = ServiceLocator.get_database_service()
-    
+
     stats = db_service.get_stats()
-    
+
     logger.info("Database statistics retrieved", extra=stats)
     click.echo(f"Tournaments: {stats['tournaments']}")
     click.echo(f"Teams: {stats['teams']}")
@@ -126,7 +126,7 @@ def process_data():
 def process_data():
     logger = get_logger(__name__)
     logger.info("Starting data processing")
-    
+
     # Process data
     logger.info("Data processing completed")
 ```
@@ -206,9 +206,9 @@ class TestMyService:
     def test_my_method(self):
         mock_session = MagicMock()
         service = MyService(mock_session)
-        
+
         result = service.my_method()
-        
+
         assert result is not None
 ```
 
@@ -221,7 +221,7 @@ from algobet.cli.dev_tools import my_command
 def test_my_command():
     runner = CliRunner()
     result = runner.invoke(my_command)
-    
+
     assert result.exit_code == 0
 ```
 
@@ -235,7 +235,7 @@ def list_tournaments():
     session = get_session()
     tournaments = session.query(Tournament).all()
     session.close()
-    
+
     for t in tournaments:
         click.echo(t.name)
 ```
@@ -247,7 +247,7 @@ def list_tournaments():
 def list_tournaments():
     query_service = ServiceLocator.get_query_service()
     tournaments = query_service.list_tournaments()
-    
+
     for t in tournaments:
         click.echo(t.name)
 ```
@@ -268,7 +268,7 @@ def scrape_data():
 async def scrape_data():
     async_query_service = ServiceLocator.get_async_query_service()
     async_db_service = ServiceLocator.get_async_database_service()
-    
+
     data = await scraper.async_scrape_tournament(url)
     # Save using async service
     await async_db_service.save_tournament(data)

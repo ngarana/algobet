@@ -27,6 +27,7 @@ PredictionWithMatchResponse.model_rebuild()
 
 __all__ = [
     "FormBreakdown",
+    "PaginatedResponse",
     "TeamResponse",
     "TeamWithStatsResponse",
     "TournamentResponse",

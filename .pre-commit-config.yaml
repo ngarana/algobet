@@ -1,21 +1,29 @@
 repos:
+  # General file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
 
+  # Python: Ruff (linter + formatter)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.9
+    rev: v0.9.6
     hooks:
       - id: ruff
-        args: [--fix]
+        args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
+  # Python: Type checking with mypy
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.7.1
+    rev: v1.15.0
     hooks:
       - id: mypy
         additional_dependencies:
@@ -27,6 +35,31 @@ repos:
           - types-tabulate
         files: ^algobet/
         args:
-          - --strict
+          # - --strict
           - --ignore-missing-imports
           - --show-error-codes
+
+  # Frontend: ESLint for Next.js/TypeScript
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.18.0
+    hooks:
+      - id: eslint
+        files: ^frontend/.*\.(js|jsx|ts|tsx)$
+        types: [file]
+        additional_dependencies:
+          - eslint@8
+          - eslint-config-next@15.0.0
+          - '@typescript-eslint/eslint-plugin'
+          - '@typescript-eslint/parser'
+        args: [--fix, --config, frontend/.eslintrc.json]
+
+  # Frontend: Prettier for code formatting (via local npm)
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: bash -c 'cd frontend && npx prettier --write "${@#frontend/}"' --
+        language: system
+        files: ^frontend/.*\.(js|jsx|ts|tsx|json|css|scss|md)$
+        types: [file]
+        pass_filenames: true

@@ -10,20 +10,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 
 from algobet.predictions.data.queries import MatchRepository
 from algobet.predictions.features.generators import (
-    CompositeFeatureGenerator,
     FeatureGenerator,
     FeatureSchema,
     create_default_generators,
 )
 from algobet.predictions.features.transformers import (
-    FeatureScaler,
     TransformerPipeline,
     create_default_transformer_pipeline,
 )
@@ -249,7 +246,7 @@ class FeaturePipeline:
                 break
 
         if importance is not None:
-            return dict(zip(self.feature_names, importance.tolist()))
+            return dict(zip(self.feature_names, importance.tolist(), strict=False))
 
         return None
 
@@ -305,9 +302,9 @@ class FeaturePipeline:
         with open(path / "config.json") as f:
             config_data = json.load(f)
 
-        # Load generator config
+        # Load generator config (stored for future use)
         with open(path / "generators.json") as f:
-            generator_config = json.load(f)
+            json.load(f)  # noqa: F841
 
         # Create default generators (would need more sophisticated loading for custom)
         generators = create_default_generators()
@@ -331,7 +328,9 @@ class FeaturePipeline:
             pipeline.transformers = TransformerPipeline.load(transformers_path)
             pipeline._fitted = True
 
-        pipeline._feature_names = config_data.get("feature_names", generators.feature_names)
+        pipeline._feature_names = config_data.get(
+            "feature_names", generators.feature_names
+        )
 
         return pipeline
 
@@ -357,7 +356,8 @@ class FeaturePipeline:
             "schema_version": self.config.schema_version,
             "is_fitted": self._fitted,
             "num_features": len(self.feature_names),
-            "feature_names": self.feature_names[:10] + (["..."] if len(self.feature_names) > 10 else []),
+            "feature_names": self.feature_names[:10]
+            + (["..."] if len(self.feature_names) > 10 else []),
             "generator_type": type(self.generators).__name__,
         }
 

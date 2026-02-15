@@ -178,6 +178,9 @@ algobet db-stats
 
 # Run scheduled task manually
 algobet-runner --task daily-upcoming-scrape
+
+# Train ML model
+algobet train run --model-type xgboost --tune
 ```
 
 ### API Endpoints
@@ -279,7 +282,10 @@ algobet/
 │   ├── models/              # Model registry
 │   └── training/            # Training pipeline
 ├── cli/                      # Development CLI tools
-│   └── dev_tools.py
+│   ├── dev_tools.py
+│   └── commands/
+│       ├── train.py          # ML training commands
+│       └── ...
 ├── scheduler/                # APScheduler worker
 │   └── worker.py
 ├── models.py                 # SQLAlchemy ORM models
@@ -385,6 +391,7 @@ MODELS_PATH=data/models
 | `algobet-dev` | `algobet.cli.dev_tools` | Development tools alias |
 | `algobet-scheduler` | `algobet.scheduler.worker` | APScheduler worker process |
 | `algobet-runner` | `algobet.cli.scheduled_runner` | Run scheduled tasks manually |
+| `algobet train` | `algobet.cli.commands.train` | ML model training commands |
 
 ## Contributing
 

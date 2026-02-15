@@ -9,6 +9,7 @@ from pydantic import HttpUrl
 from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
+from algobet.api.schemas import PaginatedResponse
 from algobet.api.schemas.scraping import (
     ScrapingJobCreate,
     ScrapingJobResponse,
@@ -18,7 +19,6 @@ from algobet.api.schemas.scraping import (
     ScrapingStats,
     ScrapingType,
 )
-from algobet.api.schemas import PaginatedResponse
 from algobet.api.websockets import manager
 from algobet.services.scraping_service import ScrapingService
 

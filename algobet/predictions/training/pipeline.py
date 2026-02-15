@@ -203,8 +203,12 @@ class TrainingPipeline:
 
         # Step 4: Train model
         predictor = self._train_model(
-            X_train, y_train, X_val, y_val,
-            best_params, class_weights,
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            best_params,
+            class_weights,
         )
 
         # Step 5: Calibrate probabilities (optional)
@@ -268,8 +272,16 @@ class TrainingPipeline:
         NDArray[np.int64],
         NDArray[np.int64],
     ]:
-        """Prepare training data from database."""
-        import pandas as pd
+        """Prepare training data from database.
+
+        Steps:
+            1. Load historical matches
+            2. Generate raw features once for all matches
+            3. Split by temporal indices
+            4. Fit transformers on training subset only
+            5. Transform all three subsets
+            6. Save fitted pipeline to disk for inference
+        """
         from algobet.predictions.features.pipeline import prepare_match_dataframe
 
         # Get historical matches
@@ -283,24 +295,13 @@ class TrainingPipeline:
 
         # Add result column
         matches_df["result"] = matches_df.apply(
-            lambda m: "H" if m["home_score"] > m["away_score"]
+            lambda m: "H"
+            if m["home_score"] > m["away_score"]
             else ("A" if m["home_score"] < m["away_score"] else "D"),
             axis=1,
         )
 
-        # Generate features
-        raw_features = self.feature_pipeline.generate_raw(matches_df, self.repo)
-
-        # Cache features if enabled
-        if self.config.use_feature_cache:
-            from algobet.predictions.features.store import features_to_store_format
-            features_list = features_to_store_format(
-                raw_features,
-                schema_version=self.config.feature_schema_version,
-            )
-            self.feature_store.store_bulk(features_list)
-
-        # Split data
+        # Split data temporally FIRST
         splitter = TemporalSplitter(
             train_ratio=self.config.train_ratio,
             val_ratio=self.config.val_ratio,
@@ -310,30 +311,40 @@ class TrainingPipeline:
         splits = list(splitter.split(matches_df))
         split = splits[0]  # Single split
 
-        # Get feature matrices
-        X = raw_features.values
+        # Encode targets
         y = encode_targets(matches_df["result"].values)
-
-        X_train = X[split.train_indices]
         y_train = y[split.train_indices]
-        X_val = X[split.val_indices]
         y_val = y[split.val_indices]
-        X_test = X[split.test_indices]
         y_test = y[split.test_indices]
 
-        # Fit and transform features
-        self.feature_pipeline.fit(matches_df.iloc[split.train_indices], self.repo)
+        # Fit pipeline on training data only, then transform all subsets
+        train_df = matches_df.iloc[split.train_indices]
+        val_df = matches_df.iloc[split.val_indices]
+        test_df = matches_df.iloc[split.test_indices]
 
-        # Transform all sets
-        X_train = self.feature_pipeline.transform(
-            matches_df.iloc[split.train_indices], self.repo
+        X_train = self.feature_pipeline.fit_transform(train_df, self.repo)
+        X_val = self.feature_pipeline.transform(val_df, self.repo)
+        X_test = self.feature_pipeline.transform(test_df, self.repo)
+
+        # Cache raw features if enabled
+        if self.config.use_feature_cache:
+            try:
+                raw_features = self.feature_pipeline.generate_raw(matches_df, self.repo)
+                from algobet.predictions.features.store import features_to_store_format
+
+                features_list = features_to_store_format(
+                    raw_features,
+                    schema_version=self.config.feature_schema_version,
+                )
+                self.feature_store.store_bulk(features_list)
+            except Exception:
+                pass  # Feature caching is best-effort
+
+        # Save fitted pipeline for inference
+        pipeline_dir = (
+            self.models_path.parent / "pipelines" / self.config.feature_schema_version
         )
-        X_val = self.feature_pipeline.transform(
-            matches_df.iloc[split.val_indices], self.repo
-        )
-        X_test = self.feature_pipeline.transform(
-            matches_df.iloc[split.test_indices], self.repo
-        )
+        self.feature_pipeline.save(pipeline_dir)
 
         return X_train, X_val, X_test, y_train, y_val, y_test
 
@@ -428,7 +439,9 @@ class TrainingPipeline:
         metrics = {
             "accuracy": accuracy_score(y, y_pred),
             "log_loss": log_loss(y, probas),
-            "precision_macro": precision_score(y, y_pred, average="macro", zero_division=0),
+            "precision_macro": precision_score(
+                y, y_pred, average="macro", zero_division=0
+            ),
             "recall_macro": recall_score(y, y_pred, average="macro", zero_division=0),
             "f1_macro": f1_score(y, y_pred, average="macro", zero_division=0),
         }

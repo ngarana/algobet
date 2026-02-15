@@ -32,8 +32,8 @@ class MatchResponse(BaseModel):
     """Match response schema."""
 
     id: int
-    tournament_id: int
-    season_id: int
+    tournament_id: int | None
+    season_id: int | None
     home_team_id: int
     away_team_id: int
     match_date: datetime
@@ -84,8 +84,8 @@ class MatchResponse(BaseModel):
 class MatchDetailResponse(MatchResponse):
     """Match with related entities and predictions."""
 
-    tournament: TournamentResponse
-    season: SeasonResponse
+    tournament: TournamentResponse | None
+    season: SeasonResponse | None
     home_team: TeamResponse
     away_team: TeamResponse
     predictions: list["PredictionResponse"]

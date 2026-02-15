@@ -92,9 +92,7 @@ def activate_model(version: str) -> None:
         response = service.activate_model(request)
 
         if response.previous_active_version:
-            click.echo(
-                f"Deactivated model: {response.previous_active_version}"
-            )
+            click.echo(f"Deactivated model: {response.previous_active_version}")
         success(response.message)
 
 

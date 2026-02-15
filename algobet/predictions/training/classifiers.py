@@ -23,8 +23,8 @@ try:
 
     HAS_XGBOOST = True
 except ImportError:
+    xgb = None  # type: ignore[assignment]
     HAS_XGBOOST = False
-    xgb = None
 
 try:
     import lightgbm as lgb
@@ -32,7 +32,7 @@ try:
     HAS_LIGHTGBM = True
 except ImportError:
     HAS_LIGHTGBM = False
-    lgb = None
+    lgb = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -141,7 +141,7 @@ class MatchPredictor(ABC):
                 break
 
         if importance is not None:
-            return dict(zip(self._feature_names, importance.tolist()))
+            return dict(zip(self._feature_names, importance.tolist(), strict=False))
 
         return None
 
@@ -200,7 +200,9 @@ class XGBoostPredictor(MatchPredictor):
 
     def __init__(self, config: ModelConfig | None = None) -> None:
         if not HAS_XGBOOST:
-            raise ImportError("XGBoost not installed. Install with: pip install xgboost")
+            raise ImportError(
+                "XGBoost not installed. Install with: pip install xgboost"
+            )
 
         if config is None:
             config = ModelConfig(
@@ -271,7 +273,9 @@ class XGBoostPredictor(MatchPredictor):
             dtrain,
             num_boost_round=n_estimators,
             evals=evals,
-            early_stopping_rounds=self.config.early_stopping_rounds if X_val is not None else None,
+            early_stopping_rounds=self.config.early_stopping_rounds
+            if X_val is not None
+            else None,
             verbose_eval=False,
         )
 
@@ -322,7 +326,9 @@ class LightGBMPredictor(MatchPredictor):
 
     def __init__(self, config: ModelConfig | None = None) -> None:
         if not HAS_LIGHTGBM:
-            raise ImportError("LightGBM not installed. Install with: pip install lightgbm")
+            raise ImportError(
+                "LightGBM not installed. Install with: pip install lightgbm"
+            )
 
         if config is None:
             config = ModelConfig(
@@ -391,7 +397,9 @@ class LightGBMPredictor(MatchPredictor):
             valid_sets=valid_sets,
             valid_names=valid_names,
             callbacks=[
-                lgb.early_stopping(self.config.early_stopping_rounds) if X_val is not None else None,
+                lgb.early_stopping(self.config.early_stopping_rounds)
+                if X_val is not None
+                else None,
             ],
         )
 
@@ -418,7 +426,7 @@ class LightGBMPredictor(MatchPredictor):
             return None
 
         importance = self._model.feature_importance(importance_type="gain")
-        return dict(zip(self._feature_names, importance.tolist()))
+        return dict(zip(self._feature_names, importance.tolist(), strict=False))
 
 
 class RandomForestPredictor(MatchPredictor):
@@ -544,7 +552,7 @@ class EnsemblePredictor(MatchPredictor):
 
         # Weighted average
         weighted_proba = np.zeros_like(all_probas[0])
-        for proba, weight in zip(all_probas, self.weights):
+        for proba, weight in zip(all_probas, self.weights, strict=False):
             weighted_proba += weight * proba
 
         return weighted_proba
@@ -566,7 +574,7 @@ class EnsemblePredictor(MatchPredictor):
 
         # Average importance
         result = {}
-        for key in all_importance[0].keys():
+        for key in all_importance[0]:
             result[key] = np.mean([imp[key] for imp in all_importance])
 
         return result
@@ -648,8 +656,7 @@ def create_predictor(
 
     if model_type not in predictors:
         raise ValueError(
-            f"Unknown model type: {model_type}. "
-            f"Available: {list(predictors.keys())}"
+            f"Unknown model type: {model_type}. Available: {list(predictors.keys())}"
         )
 
     predictor_class = predictors[model_type]

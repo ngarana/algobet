@@ -84,8 +84,9 @@ class OddsPortalScraper:
         """
         if self._page is None:
             raise RuntimeError("Browser not started. Call start() first.")
-        # Use domcontentloaded instead of load for faster initial response
+        # Use domcontentloaded + fixed wait for JS rendering
         self._page.goto(url, wait_until="domcontentloaded", timeout=120000)
+        self._page.wait_for_timeout(5000)
         # Wait for match rows to load (may take time due to JS rendering)
         try:
             self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=120000)
@@ -298,8 +299,9 @@ class OddsPortalScraper:
         """
         if self._page is None:
             raise RuntimeError("Browser not started. Call start() first.")
-        # Use domcontentloaded instead of load for faster initial response
+        # Use domcontentloaded + fixed wait for JS rendering
         self._page.goto(url, wait_until="domcontentloaded", timeout=120000)
+        self._page.wait_for_timeout(5000)
         # Wait for match rows to load
         try:
             self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=120000)
@@ -330,6 +332,10 @@ class OddsPortalScraper:
             )
 
         # Use JavaScript to extract match data with context (Date and Tournament)
+        # The structure is a flat list of siblings:
+        # 1. Tournament Header (data-testid="sport-country-league-item")
+        # 2. Date/Column Header (data-testid="secondary-header")
+        # 3. Match Rows (data-testid="game-row")
         match_data = self._page.evaluate(
             """
             () => {
@@ -338,86 +344,70 @@ class OddsPortalScraper:
                 let currentTournament = null;
                 let currentCountry = null;
 
-                // Find all containers with events
-                const containers = Array.from(document.querySelectorAll('.eventRow'));
+                // Select all relevant elements in document order
+                const elements = Array.from(document.querySelectorAll(
+                    'div[data-testid="sport-country-league-item"], ' +
+                    'div[data-testid="secondary-header"], ' +
+                    'div[data-testid="game-row"]'
+                ));
 
-                // Fallback if no eventRow class found
-                if (containers.length === 0) {
-                    const panel = document.querySelector('div[data-testid="results-panel"]');
-                    if (panel) containers.push(panel);
-                    // Also check for the main match list container on upcoming page
-                    const mainList = document.querySelector('.flex.flex-col.w-full');
-                    if (mainList && !containers.includes(mainList)) containers.push(mainList);
-                }
+                for (const el of elements) {
+                    const testId = el.getAttribute('data-testid');
 
-                for (const container of containers) {
-                    const children = Array.from(container.children);
+                    // 1. Tournament Header
+                    if (testId === 'sport-country-league-item') {
+                        // Extract Country and Tournament and Slug from links
+                        const countryLink = el.querySelector('a[data-testid="header-country-item"]');
+                        const tournamentLink = el.querySelector('a[data-testid="header-tournament-item"]');
 
-                    for (const child of children) {
-                        // 1. Check for Date Header (e.g. "Today, 15 Jan")
-                        // Usually in a div with text-sm or similar class
-                        if (child.className && child.className.includes('text-black-main') && child.className.includes('font-bold')) {
-                             // Simple heuristic for date header
-                             if (/\\d{1,2} [A-Za-z]+/.test(child.innerText)) {
-                                 currentDate = child.innerText.trim();
-                                 continue;
-                             }
-                        }
-                        // Also check for the specific structure found in results (secondary-header)
-                        const dateHeader = child.querySelector('div[data-testid="date-header"]');
-                        if (dateHeader) {
-                            currentDate = dateHeader.innerText.trim();
-                            continue;
-                        }
-
-                        // 2. Check for Tournament Header
-                        // Structure: Football / Country / Tournament
-                        const link = child.querySelector('a[href*="/football/"]');
-                        if (link && child.className.includes('bg-gray-light')) {
-                            // This is likely a tournament header row
-                            const text = link.innerText.trim();
-                            // Try to parse Country / Tournament
-                            // Usually breadcrumbs structure isn't directly in text here,
-                            // but often the link title or text helps.
-                            // Let's assume the text is the Tournament name
-                            currentTournament = text;
-
-                            // Try to find country (often in sibling or part of URL)
-                            const href = link.getAttribute('href');
+                        if (countryLink) currentCountry = countryLink.innerText.trim();
+                        if (tournamentLink) {
+                            currentTournament = tournamentLink.innerText.trim();
+                            // Extract slug from href (e.g. /football/argentina/primera-nacional/)
+                            const href = tournamentLink.getAttribute('href');
                             if (href) {
                                 const parts = href.split('/').filter(p => p);
-                                if (parts.length >= 3) {
-                                    currentCountry = parts[2].replace(/-/g, ' ');
-                                }
+                                if (parts.length > 0) currentSlug = parts[parts.length - 1];
                             }
-                            continue;
                         }
+                        continue;
+                    }
 
-                        // 3. Check for Match Row
-                        const gameRow = child.querySelector('div[data-testid="game-row"]') ||
-                                        (child.getAttribute('data-testid') === 'game-row' ? child : null);
+                    // 2. Date Header
+                    if (testId === 'secondary-header') {
+                        // ... existing date logic ...
+                        const dateTextContainer = el.querySelector('.text-black-main') || el;
+                        const text = dateTextContainer.innerText;
 
-                        if (!gameRow) continue;
+                        // Simple regex for date-like strings
+                        const dateMatch = text.match(/(\\d{1,2}\\s+[A-Za-z]+)|(Today)|(Tomorrow)/);
+                        if (dateMatch) {
+                           const parts = text.split('\\n');
+                           if (parts.length > 0) currentDate = parts[0].replace('Today, ', '').replace('Tomorrow, ', '').trim();
+                        }
+                        continue;
+                    }
 
-                        // Extract time
-                        const timeElem = gameRow.querySelector('div[data-testid="time-item"]');
+                    // 3. Match Row
+                    if (testId === 'game-row') {
+                        // ... existing match logic ...
+                        const timeElem = el.querySelector('div[data-testid="time-item"]');
                         const timeStr = timeElem ? timeElem.innerText.trim() : '00:00';
 
-                        // Extract teams
-                        const teamLinks = Array.from(gameRow.querySelectorAll('a[title]'));
+                        const teamLinks = Array.from(el.querySelectorAll('a[title]'));
                         if (teamLinks.length < 2) continue;
 
                         const homeTeam = teamLinks[0].getAttribute('title') || teamLinks[0].innerText.trim();
                         const awayTeam = teamLinks[1].getAttribute('title') || teamLinks[1].innerText.trim();
 
-                        // Extract odds
-                        const rowText = gameRow.innerText;
+                        const rowText = el.innerText;
                         const oddsMatches = rowText.match(/(\\d+\\.\\d+)/g) || [];
 
                         results.push({
                             date: currentDate,
                             tournament: currentTournament,
                             country: currentCountry,
+                            slug: currentSlug,
                             time: timeStr,
                             homeTeam: homeTeam,
                             awayTeam: awayTeam,
@@ -426,9 +416,6 @@ class OddsPortalScraper:
                             oddsAway: oddsMatches[2] ? parseFloat(oddsMatches[2]) : null,
                             numBookmakers: oddsMatches.length >= 3 ? parseInt(rowText.trim().split(/\\s+/).pop()) || null : null
                         });
-                        if (oddsMatches.length === 0) {
-                             // console.log("No odds found for", homeTeam); // Can't easily pipe console.log to python without setup
-                        }
                     }
                 }
                 return results;
@@ -440,19 +427,19 @@ class OddsPortalScraper:
         for data in match_data:
             # DEBUG: Print found odds
             if not data.get("oddsHome"):
-                print(f"DEBUG: No odds for {data['homeTeam']} vs {data['awayTeam']}")
+                print(
+                    f"DEBUG: No odds for {data['homeTeam']} vs {data['awayTeam']} ({data.get('country')} - {data.get('tournament')})"
+                )
             else:
-                print(f"DEBUG: Found odds for {data['homeTeam']}: {data['oddsHome']}")
+                print(
+                    f"DEBUG: Found odds for {data['homeTeam']}: {data['oddsHome']} ({data.get('country')} - {data.get('tournament')})"
+                )
 
             try:
                 # Parse Date
                 match_date = datetime.now()
                 if data.get("date"):
-                    clean_date = (
-                        data["date"].split(",")[1].strip()
-                        if "," in data["date"]
-                        else data["date"]
-                    )
+                    clean_date = data["date"]
                     # Add current year if missing (e.g. "15 Jan")
                     if str(datetime.now().year) not in clean_date:
                         clean_date = f"{clean_date} {datetime.now().year}"
@@ -463,13 +450,14 @@ class OddsPortalScraper:
                             f"{clean_date} {time_str}", "%d %b %Y %H:%M"
                         )
                     except ValueError:
-                        pass  # Keep default or try other formats if needed
+                        pass  # Keep default
 
                 parsed_matches.append(
                     {
                         "tournament_name": data.get("tournament")
                         or "Unknown Tournament",
-                        "country_name": (data.get("country") or "World").title(),
+                        "country": (data.get("country") or "World").title(),
+                        "tournament_slug": data.get("slug"),
                         "match_date": match_date,
                         "home_team": data["homeTeam"],
                         "away_team": data["awayTeam"],

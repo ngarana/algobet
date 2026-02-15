@@ -1,20 +1,26 @@
-'use client'
+"use client";
 
-import { useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { AlertCircleIcon, RefreshCwIcon } from 'lucide-react'
+import { useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { AlertCircleIcon, RefreshCwIcon } from "lucide-react";
 
 export default function SchedulesError({
   error,
   reset,
 }: {
-  error: Error & { digest?: string }
-  reset: () => void
+  error: Error & { digest?: string };
+  reset: () => void;
 }) {
   useEffect(() => {
-    console.error('Schedules page error:', error)
-  }, [error])
+    console.error("Schedules page error:", error);
+  }, [error]);
 
   return (
     <div className="container mx-auto py-10">
@@ -31,11 +37,11 @@ export default function SchedulesError({
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">{error.message}</p>
           <Button onClick={reset} variant="outline">
-            <RefreshCwIcon className="h-4 w-4 mr-2" />
+            <RefreshCwIcon className="mr-2 h-4 w-4" />
             Try Again
           </Button>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

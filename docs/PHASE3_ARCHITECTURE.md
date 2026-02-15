@@ -127,44 +127,44 @@ from typing import Protocol
 
 class DatabaseServiceProtocol(Protocol):
     """Protocol defining DatabaseService interface."""
-    
+
     def get_statistics(self) -> DatabaseStats:
         """Retrieve database statistics.
-        
+
         Returns:
             DatabaseStats with current record counts.
-            
+
         Raises:
             DatabaseConnectionError: If database is unreachable.
             DatabaseQueryError: If statistics query fails.
         """
         ...
-    
+
     def initialize_database(self) -> InitializationResult:
         """Initialize database with all tables.
-        
+
         Creates all tables defined in the SQLAlchemy metadata.
         Safe to call on existing databases (no-op for existing tables).
-        
+
         Returns:
             InitializationResult with created tables.
-            
+
         Raises:
             DatabaseConnectionError: If database is unreachable.
         """
         ...
-    
+
     def reset_database(self, *, confirm: bool = False) -> InitializationResult:
         """Reset database by dropping and recreating all tables.
-        
+
         WARNING: This destroys all data. Must be explicitly confirmed.
-        
+
         Args:
             confirm: Must be True to proceed with reset.
-            
+
         Returns:
             InitializationResult with created tables.
-            
+
         Raises:
             DatabaseConnectionError: If database is unreachable.
             DatabaseError: If reset fails.
@@ -194,20 +194,20 @@ from algobet.services.dto import DatabaseStats, InitializationResult
 
 class DatabaseService(BaseService[Any]):
     """Service for database management operations."""
-    
+
     def __init__(
-        self, 
-        session: Session, 
+        self,
+        session: Session,
         config: AlgobetConfig | None = None,
     ) -> None:
         super().__init__(session)
         self.config = config or get_config()
         self.logger = get_logger("services.database")
-    
+
     def get_statistics(self) -> DatabaseStats:
         """Retrieve database statistics."""
         self.logger.debug("Retrieving database statistics")
-        
+
         try:
             stats = DatabaseStats(
                 tournament_count=self._count(Tournament),
@@ -229,32 +229,32 @@ class DatabaseService(BaseService[Any]):
                 f"Failed to retrieve database statistics: {e}",
                 details={"error_type": type(e).__name__},
             ) from e
-    
+
     def _count(self, model_class: type) -> int:
         """Count records in a table."""
         return self.session.query(func.count(model_class.id)).scalar() or 0
-    
+
     def initialize_database(self) -> InitializationResult:
         """Initialize database with all tables."""
         self.logger.info("Initializing database")
         start_time = time.perf_counter()
-        
+
         try:
             from algobet.database import create_db_engine
-            
+
             engine = create_db_engine()
             tables_before = set(engine.table_names())
             Base.metadata.create_all(bind=engine)
             tables_after = set(engine.table_names())
-            
+
             created_tables = list(tables_after - tables_before)
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             self.logger.success(
                 "Database initialized",
                 extra={"tables_created": len(created_tables), "duration_ms": duration_ms}
             )
-            
+
             return InitializationResult(
                 success=True,
                 tables_created=created_tables,
@@ -267,30 +267,30 @@ class DatabaseService(BaseService[Any]):
                 f"Failed to initialize database: {e}",
                 details={"error_type": type(e).__name__},
             ) from e
-    
+
     def reset_database(self, *, confirm: bool = False) -> InitializationResult:
         """Reset database by dropping and recreating all tables."""
         if not confirm:
             raise ValueError("Database reset requires confirm=True")
-        
+
         self.logger.warning("Resetting database - all data will be lost")
         start_time = time.perf_counter()
-        
+
         try:
             from algobet.database import create_db_engine
-            
+
             engine = create_db_engine()
             Base.metadata.drop_all(bind=engine)
             Base.metadata.create_all(bind=engine)
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
             tables = list(engine.table_names())
-            
+
             self.logger.success(
                 "Database reset complete",
                 extra={"tables_created": len(tables), "duration_ms": duration_ms}
             )
-            
+
             return InitializationResult(
                 success=True,
                 tables_created=tables,
@@ -375,55 +375,55 @@ class UpcomingMatchFilter:
 ```python
 class QueryServiceProtocol(Protocol):
     """Protocol defining QueryService interface."""
-    
+
     def list_tournaments(
-        self, 
+        self,
         filter: TournamentFilter | None = None
     ) -> list[TournamentInfo]:
         """List tournaments with optional filtering.
-        
+
         Args:
             filter: Optional filter criteria.
-            
+
         Returns:
             List of TournamentInfo objects.
-            
+
         Raises:
             DataNotFoundError: If no tournaments match criteria.
             DatabaseQueryError: If query fails.
         """
         ...
-    
+
     def list_teams(
-        self, 
+        self,
         filter: TeamFilter | None = None
     ) -> list[TeamInfo]:
         """List teams with optional filtering.
-        
+
         Args:
             filter: Optional filter criteria.
-            
+
         Returns:
             List of TeamInfo objects with match counts.
-            
+
         Raises:
             DataNotFoundError: If no teams match criteria.
             DatabaseQueryError: If query fails.
         """
         ...
-    
+
     def list_upcoming_matches(
-        self, 
+        self,
         filter: UpcomingMatchFilter | None = None
     ) -> list[UpcomingMatchInfo]:
         """List upcoming matches within date range.
-        
+
         Args:
             filter: Optional filter with days_ahead.
-            
+
         Returns:
             List of UpcomingMatchInfo objects.
-            
+
         Raises:
             DataNotFoundError: If no upcoming matches found.
             DatabaseQueryError: If query fails.
@@ -458,34 +458,34 @@ from algobet.services.dto import (
 
 class QueryService(BaseService[Any]):
     """Service for querying and listing data."""
-    
+
     def __init__(self, session: Session) -> None:
         super().__init__(session)
         self.logger = get_logger("services.query")
-    
+
     def list_tournaments(
-        self, 
+        self,
         filter: TournamentFilter | None = None
     ) -> list[TournamentInfo]:
         """List tournaments with optional filtering."""
         self.logger.debug("Listing tournaments", extra={"filter": str(filter)})
-        
+
         try:
             query = self.session.query(Tournament)
-            
+
             if filter and filter.name_contains:
                 query = query.filter(
                     Tournament.name.ilike(f"%{filter.name_contains}%")
                 )
-            
+
             tournaments = query.order_by(Tournament.country, Tournament.name).all()
-            
+
             if not tournaments:
                 raise DataNotFoundError(
                     "No tournaments found.",
                     details={"filter": filter.name_contains if filter else None},
                 )
-            
+
             result = [
                 TournamentInfo(
                     id=t.id,
@@ -496,13 +496,13 @@ class QueryService(BaseService[Any]):
                 )
                 for t in tournaments
             ]
-            
+
             self.logger.info(
                 "Tournaments listed",
                 extra={"count": len(result)}
             )
             return result
-            
+
         except DataNotFoundError:
             raise
         except Exception as e:
@@ -511,28 +511,28 @@ class QueryService(BaseService[Any]):
                 f"Failed to list tournaments: {e}",
                 details={"error_type": type(e).__name__},
             ) from e
-    
+
     def list_teams(
-        self, 
+        self,
         filter: TeamFilter | None = None
     ) -> list[TeamInfo]:
         """List teams with optional filtering."""
         self.logger.debug("Listing teams", extra={"filter": str(filter)})
-        
+
         try:
             query = self.session.query(Team)
-            
+
             if filter and filter.name_contains:
                 query = query.filter(Team.name.ilike(f"%{filter.name_contains}%"))
-            
+
             teams = query.order_by(Team.name).all()
-            
+
             if not teams:
                 raise DataNotFoundError(
                     "No teams found.",
                     details={"filter": filter.name_contains if filter else None},
                 )
-            
+
             result = [
                 TeamInfo(
                     id=t.id,
@@ -543,10 +543,10 @@ class QueryService(BaseService[Any]):
                 )
                 for t in teams
             ]
-            
+
             self.logger.info("Teams listed", extra={"count": len(result)})
             return result
-            
+
         except DataNotFoundError:
             raise
         except Exception as e:
@@ -555,15 +555,15 @@ class QueryService(BaseService[Any]):
                 f"Failed to list teams: {e}",
                 details={"error_type": type(e).__name__},
             ) from e
-    
+
     def _count_matches(
-        self, 
-        team_id: int, 
+        self,
+        team_id: int,
         is_home: bool | None = None
     ) -> int:
         """Count matches for a team."""
         query = self.session.query(func.count(Match.id))
-        
+
         if is_home is None:
             # Total matches
             query = query.filter(
@@ -573,17 +573,17 @@ class QueryService(BaseService[Any]):
             query = query.filter(Match.home_team_id == team_id)
         else:
             query = query.filter(Match.away_team_id == team_id)
-        
+
         return query.scalar() or 0
-    
+
     def list_upcoming_matches(
-        self, 
+        self,
         filter: UpcomingMatchFilter | None = None
     ) -> list[UpcomingMatchInfo]:
         """List upcoming matches within date range."""
         days = filter.days_ahead if filter else 7
         self.logger.debug("Listing upcoming matches", extra={"days": days})
-        
+
         try:
             max_date = datetime.now() + timedelta(days=days)
             matches = (
@@ -593,13 +593,13 @@ class QueryService(BaseService[Any]):
                 .order_by(Match.match_date)
                 .all()
             )
-            
+
             if not matches:
                 raise DataNotFoundError(
                     f"No upcoming matches in the next {days} days.",
                     details={"days": days},
                 )
-            
+
             result = [
                 UpcomingMatchInfo(
                     id=m.id,
@@ -613,13 +613,13 @@ class QueryService(BaseService[Any]):
                 )
                 for m in matches
             ]
-            
+
             self.logger.info(
                 "Upcoming matches listed",
                 extra={"count": len(result), "days": days}
             )
             return result
-            
+
         except DataNotFoundError:
             raise
         except Exception as e:
@@ -678,59 +678,59 @@ class ModelDeletionResult:
 ```python
 class ModelManagementServiceProtocol(Protocol):
     """Protocol defining ModelManagementService interface."""
-    
+
     def list_models(self) -> list[ModelInfo]:
         """List all registered model versions.
-        
+
         Returns:
             List of ModelInfo objects.
-            
+
         Raises:
             ModelNotFoundError: If no models are registered.
             ModelLoadError: If registry access fails.
         """
         ...
-    
+
     def get_model(self, model_id: int) -> ModelInfo:
         """Get specific model by ID.
-        
+
         Args:
             model_id: Database ID of the model.
-            
+
         Returns:
             ModelInfo for the requested model.
-            
+
         Raises:
             ModelNotFoundError: If model ID does not exist.
         """
         ...
-    
+
     def delete_model(self, model_id: int) -> ModelDeletionResult:
         """Delete a model version.
-        
+
         Removes both the database record and the artifact file.
-        
+
         Args:
             model_id: Database ID of the model to delete.
-            
+
         Returns:
             ModelDeletionResult with deletion status.
-            
+
         Raises:
             ModelNotFoundError: If model ID does not exist.
             ModelLoadError: If deletion fails.
         """
         ...
-    
+
     def activate_model(self, model_id: int) -> ModelInfo:
         """Set a model as the production/active model.
-        
+
         Args:
             model_id: Database ID of the model to activate.
-            
+
         Returns:
             ModelInfo for the activated model.
-            
+
         Raises:
             ModelNotFoundError: If model ID does not exist.
         """
@@ -758,30 +758,30 @@ from algobet.services.dto import ModelDeletionResult, ModelInfo
 
 class ModelManagementService(BaseService[Any]):
     """Service for managing ML model versions."""
-    
+
     def __init__(
-        self, 
+        self,
         session: Session,
         models_path: Path | None = None,
     ) -> None:
         super().__init__(session)
         self.models_path = models_path or get_config().models.path
         self.registry = ModelRegistry(
-            storage_path=self.models_path, 
+            storage_path=self.models_path,
             session=session
         )
         self.logger = get_logger("services.model_management")
-    
+
     def list_models(self) -> list[ModelInfo]:
         """List all registered model versions."""
         self.logger.debug("Listing models")
-        
+
         try:
             models = list(self.registry.list_models())
-            
+
             if not models:
                 raise ModelNotFoundError("No models found.")
-            
+
             result = [
                 ModelInfo(
                     id=m.model_id,
@@ -795,10 +795,10 @@ class ModelManagementService(BaseService[Any]):
                 )
                 for m in models
             ]
-            
+
             self.logger.info("Models listed", extra={"count": len(result)})
             return result
-            
+
         except ModelNotFoundError:
             raise
         except Exception as e:
@@ -807,23 +807,23 @@ class ModelManagementService(BaseService[Any]):
                 f"Failed to list models: {e}",
                 details={"error_type": type(e).__name__},
             ) from e
-    
+
     def get_model(self, model_id: int) -> ModelInfo:
         """Get specific model by ID."""
         self.logger.debug("Getting model", extra={"model_id": model_id})
-        
+
         model = (
             self.session.query(ModelVersion)
             .filter(ModelVersion.id == model_id)
             .first()
         )
-        
+
         if not model:
             raise ModelNotFoundError(
                 f"Model version with ID {model_id} not found.",
                 details={"model_id": model_id},
             )
-        
+
         return ModelInfo(
             id=model.id,
             version=model.version,
@@ -834,14 +834,14 @@ class ModelManagementService(BaseService[Any]):
             description=model.description,
             artifact_path=self.models_path / f"{model.version}.pkl",
         )
-    
+
     def delete_model(self, model_id: int) -> ModelDeletionResult:
         """Delete a model version."""
         self.logger.info("Deleting model", extra={"model_id": model_id})
-        
+
         try:
             model = self.get_model(model_id)
-            
+
             # Delete artifact file
             artifact_deleted = False
             model_file = self.models_path / f"{model.version}.pkl"
@@ -852,7 +852,7 @@ class ModelManagementService(BaseService[Any]):
                     "Model artifact deleted",
                     extra={"path": str(model_file)}
                 )
-            
+
             # Delete database record
             db_model = (
                 self.session.query(ModelVersion)
@@ -862,19 +862,19 @@ class ModelManagementService(BaseService[Any]):
             if db_model:
                 self.session.delete(db_model)
                 self.session.flush()
-            
+
             self.logger.success(
                 "Model deleted",
                 extra={"version": model.version}
             )
-            
+
             return ModelDeletionResult(
                 success=True,
                 version=model.version,
                 artifact_deleted=artifact_deleted,
                 database_record_deleted=True,
             )
-            
+
         except ModelNotFoundError:
             raise
         except Exception as e:
@@ -883,19 +883,19 @@ class ModelManagementService(BaseService[Any]):
                 f"Failed to delete model: {e}",
                 details={"model_id": model_id, "error_type": type(e).__name__},
             ) from e
-    
+
     def activate_model(self, model_id: int) -> ModelInfo:
         """Set a model as the production/active model."""
         self.logger.info("Activating model", extra={"model_id": model_id})
-        
+
         model = self.get_model(model_id)
         self.registry.activate_model(model.version)
-        
+
         self.logger.success(
             "Model activated",
             extra={"version": model.version}
         )
-        
+
         # Return updated info
         return self.get_model(model_id)
 ```
@@ -1026,56 +1026,56 @@ class CalibrationResult:
 ```python
 class AnalysisServiceProtocol(Protocol):
     """Protocol defining AnalysisService interface."""
-    
+
     def run_backtest(
-        self, 
+        self,
         request: BacktestRequest
     ) -> BacktestResult:
         """Run historical backtest on model predictions.
-        
+
         Args:
             request: Backtest parameters.
-            
+
         Returns:
             BacktestResult with performance metrics.
-            
+
         Raises:
             NoActiveModelError: If no model specified and no active model.
             InsufficientDataError: If not enough matches for backtest.
             PredictionError: If prediction generation fails.
         """
         ...
-    
+
     def find_value_bets(
-        self, 
+        self,
         request: ValueBetRequest
     ) -> list[ValueBet]:
         """Find value betting opportunities.
-        
+
         Args:
             request: Value bet search parameters.
-            
+
         Returns:
             List of ValueBet opportunities sorted by EV.
-            
+
         Raises:
             NoActiveModelError: If no model specified and no active model.
             DataNotFoundError: If no upcoming matches found.
         """
         ...
-    
+
     def calibrate_model(
-        self, 
+        self,
         request: CalibrationRequest
     ) -> CalibrationResult:
         """Calibrate model probabilities.
-        
+
         Args:
             request: Calibration parameters.
-            
+
         Returns:
             CalibrationResult with before/after metrics.
-            
+
         Raises:
             NoActiveModelError: If no model specified and no active model.
             InsufficientDataError: If not enough historical matches.
@@ -1135,7 +1135,7 @@ from algobet.services.dto import (
 
 class AnalysisService(BaseService[Any]):
     """Service for prediction analysis and evaluation."""
-    
+
     def __init__(
         self,
         session: Session,
@@ -1149,9 +1149,9 @@ class AnalysisService(BaseService[Any]):
         )
         self.repo = MatchRepository(session)
         self.logger = get_logger("services.analysis")
-    
+
     def _load_model(
-        self, 
+        self,
         model_version: str | None = None
     ) -> tuple[Any, str]:
         """Load model from registry."""
@@ -1166,7 +1166,7 @@ class AnalysisService(BaseService[Any]):
             raise NoActiveModelError(
                 details={"requested_version": model_version}
             ) from e
-    
+
     def run_backtest(self, request: BacktestRequest) -> BacktestResult:
         """Run historical backtest on model predictions."""
         self.logger.info(
@@ -1176,17 +1176,17 @@ class AnalysisService(BaseService[Any]):
                 "min_matches": request.min_matches,
             }
         )
-        
+
         # Load model
         model, version = self._load_model(request.model_version)
-        
+
         # Set date range
         end_date = request.end_date or datetime.now()
         start_date = request.start_date or (end_date - timedelta(days=365))
-        
+
         # Query matches
         matches = self._query_finished_matches(start_date, end_date)
-        
+
         if len(matches) < request.min_matches:
             raise InsufficientDataError(
                 f"Insufficient matches: {len(matches)} < {request.min_matches} required.",
@@ -1195,17 +1195,17 @@ class AnalysisService(BaseService[Any]):
                     "required": request.min_matches,
                 }
             )
-        
+
         # Prepare data and run backtest
         # ... (feature generation, prediction, evaluation)
-        
+
         self.logger.success(
             "Backtest complete",
             extra={"matches": len(matches), "model": version}
         )
-        
+
         return result
-    
+
     def find_value_bets(self, request: ValueBetRequest) -> list[ValueBet]:
         """Find value betting opportunities."""
         self.logger.info(
@@ -1215,29 +1215,29 @@ class AnalysisService(BaseService[Any]):
                 "days_ahead": request.days_ahead,
             }
         )
-        
+
         # Load model
         model, version = self._load_model(request.model_version)
-        
+
         # Query upcoming matches
         matches = self._query_upcoming_matches(request.days_ahead)
-        
+
         if not matches:
             raise DataNotFoundError(
                 f"No upcoming matches with odds found.",
                 details={"days_ahead": request.days_ahead}
             )
-        
+
         # Generate predictions and calculate value
         # ... (feature generation, prediction, EV calculation)
-        
+
         self.logger.info(
             "Value bets found",
             extra={"count": len(value_bets)}
         )
-        
+
         return value_bets
-    
+
     def calibrate_model(self, request: CalibrationRequest) -> CalibrationResult:
         """Calibrate model probabilities."""
         self.logger.info(
@@ -1247,42 +1247,42 @@ class AnalysisService(BaseService[Any]):
                 "method": request.method,
             }
         )
-        
+
         # Load model
         model, version = self._load_model(request.model_version)
-        
+
         # Query historical matches
         matches = self._query_historical_matches(limit=2000)
-        
+
         if len(matches) < 100:
             raise InsufficientDataError(
                 f"Insufficient historical matches for calibration: {len(matches)}",
                 details={"found": len(matches), "required": 100}
             )
-        
+
         # Run calibration
         # ... (feature generation, calibration, evaluation)
-        
+
         self.logger.success(
             "Model calibrated",
             extra={"new_version": new_version}
         )
-        
+
         return result
-    
+
     # Private helper methods for querying matches
     def _query_finished_matches(
-        self, 
-        start_date: datetime, 
+        self,
+        start_date: datetime,
         end_date: datetime
     ) -> list[Match]:
         """Query finished matches with results and odds."""
         ...
-    
+
     def _query_upcoming_matches(self, days_ahead: int) -> list[Match]:
         """Query upcoming matches with odds."""
         ...
-    
+
     def _query_historical_matches(self, limit: int) -> list[Match]:
         """Query historical finished matches."""
         ...
@@ -1571,7 +1571,7 @@ Services integrate with the logging system by:
 
 1. **Named Loggers**: Each service gets a named logger via `get_logger("services.<name>")`
 2. **Structured Logging**: Services use `extra={}` for structured context
-3. **Log Levels**: 
+3. **Log Levels**:
    - `debug` for internal operations
    - `info` for significant events
    - `success` for completed operations
@@ -1670,10 +1670,10 @@ def test_get_statistics_returns_counts(mock_session):
     # Arrange
     mock_session.query.return_value.scalar.return_value = 42
     service = DatabaseService(mock_session)
-    
+
     # Act
     stats = service.get_statistics()
-    
+
     # Assert
     assert stats.match_count == 42
     assert stats.team_count == 42
@@ -1685,7 +1685,7 @@ def test_db_stats_command_displays_statistics(cli_runner, mock_db):
     """Test that db stats command displays statistics."""
     # Act
     result = cli_runner.invoke(db_cli, ["stats"])
-    
+
     # Assert
     assert result.exit_code == 0
     assert "Matches:" in result.output

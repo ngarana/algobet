@@ -82,9 +82,7 @@ class DatabaseService(BaseService[Session]):
 
         try:
             # Query counts for all entities
-            tournaments_count = self.session.query(
-                func.count(Tournament.id)
-            ).scalar()
+            tournaments_count = self.session.query(func.count(Tournament.id)).scalar()
             seasons_count = self.session.query(func.count(Season.id)).scalar()
             teams_count = self.session.query(func.count(Team.id)).scalar()
 

@@ -1,8 +1,8 @@
-'use client'
+"use client";
 
-import { Suspense } from 'react'
-import { MatchFilters } from '@/components/matches/MatchFilters'
-import { MatchList, MatchListSkeleton } from '@/components/matches/MatchList'
+import { Suspense } from "react";
+import { MatchFilters } from "@/components/matches/MatchFilters";
+import { MatchList, MatchListSkeleton } from "@/components/matches/MatchList";
 
 export default function MatchesPage() {
   return (
@@ -20,5 +20,5 @@ export default function MatchesPage() {
         <MatchList />
       </Suspense>
     </div>
-  )
+  );
 }

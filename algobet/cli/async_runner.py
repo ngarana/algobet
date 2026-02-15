@@ -21,9 +21,8 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import sys
-from collections.abc import Coroutine
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable, Coroutine
+from typing import Any, TypeVar
 
 import click
 
@@ -45,12 +44,7 @@ def get_event_loop() -> asyncio.AbstractEventLoop:
         return asyncio.get_running_loop()
     except RuntimeError:
         # No running loop, create a new one
-        if sys.version_info >= (3, 10):
-            return asyncio.new_event_loop()
-        else:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop
+        return asyncio.new_event_loop()
 
 
 def run_async(coro: Coroutine[Any, Any, T]) -> T:
@@ -85,7 +79,10 @@ def click_async(
     f: Callable[..., Coroutine[Any, Any, T]] | None = None,
     *,
     timeout: float | None = None,
-) -> Callable[..., T]:
+) -> (
+    Callable[..., T]
+    | Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., T]]
+):
     """Decorator to make a Click command async.
 
     This decorator wraps an async Click command function and handles
@@ -121,7 +118,7 @@ def click_async(
                 raise click.ClickException(
                     f"Command timed out after {timeout} seconds"
                 ) from None
-            except Exception as e:
+            except Exception:
                 # Let Click's exception handling deal with it
                 raise
 
@@ -139,7 +136,10 @@ def click_async_pass_context(
     f: Callable[..., Coroutine[Any, Any, T]] | None = None,
     *,
     timeout: float | None = None,
-) -> Callable[..., T]:
+) -> (
+    Callable[..., T]
+    | Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., T]]
+):
     """Decorator for async Click commands that need the context.
 
     This is similar to @click_async but ensures the Click context
@@ -163,7 +163,7 @@ def click_async_pass_context(
 
     def decorator(func: Callable[..., Coroutine[Any, Any, T]]) -> Callable[..., T]:
         @functools.wraps(func)
-        @click.pass_context
+        @click.pass_context  # type: ignore[arg-type]
         def wrapper(ctx: click.Context, *args: Any, **kwargs: Any) -> T:
             coro = func(ctx, *args, **kwargs)
 
@@ -176,7 +176,7 @@ def click_async_pass_context(
                 raise click.ClickException(
                     f"Command timed out after {timeout} seconds"
                 ) from None
-            except Exception as e:
+            except Exception:
                 raise
 
         return wrapper
@@ -302,7 +302,7 @@ class AsyncRunner:
         self.timeout = timeout
         self._loop: asyncio.AbstractEventLoop | None = None
 
-    def __enter__(self) -> "AsyncRunner":
+    def __enter__(self) -> AsyncRunner:
         """Enter the context and create an event loop."""
         self._loop = get_event_loop()
         return self

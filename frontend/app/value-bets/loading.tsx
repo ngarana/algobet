@@ -1,12 +1,12 @@
-import { Skeleton } from '@/components/ui/skeleton'
-import { Card, CardContent } from '@/components/ui/card'
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default function ValueBetsLoading() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Skeleton className="h-9 w-40 mb-2" />
+          <Skeleton className="mb-2 h-9 w-40" />
           <Skeleton className="h-4 w-64" />
         </div>
         <Skeleton className="h-8 w-24" />
@@ -38,5 +38,5 @@ export default function ValueBetsLoading() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

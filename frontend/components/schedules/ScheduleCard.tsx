@@ -1,9 +1,15 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   PlayIcon,
   PauseIcon,
@@ -13,96 +19,120 @@ import {
   XCircleIcon,
   MoreVerticalIcon,
   RefreshCwIcon,
-} from 'lucide-react'
-import type { ScheduledTask, TaskExecution } from '@/lib/api/schedules'
+} from "lucide-react";
+import type { ScheduledTask, TaskExecution } from "@/lib/api/schedules";
 
 interface ScheduleCardProps {
-  schedule: ScheduledTask
-  lastExecution?: TaskExecution | null
-  onRun?: () => void
-  onToggleActive?: () => void
-  onDelete?: () => void
-  isLoading?: boolean
+  schedule: ScheduledTask;
+  lastExecution?: TaskExecution | null;
+  onRun?: () => void;
+  onToggleActive?: () => void;
+  onDelete?: () => void;
+  isLoading?: boolean;
 }
 
 function getStatusBadge(isActive: boolean, lastExecution?: TaskExecution | null) {
   if (!isActive) {
     return (
       <Badge variant="outline">
-        <PauseIcon className="w-3 h-3 mr-1" /> Inactive
+        <PauseIcon className="mr-1 h-3 w-3" /> Inactive
       </Badge>
-    )
+    );
   }
 
   if (!lastExecution) {
     return (
       <Badge variant="secondary">
-        <ClockIcon className="w-3 h-3 mr-1" /> Pending
+        <ClockIcon className="mr-1 h-3 w-3" /> Pending
       </Badge>
-    )
+    );
   }
 
   switch (lastExecution.status) {
-    case 'completed':
+    case "completed":
       return (
         <Badge variant="success">
-          <CheckCircleIcon className="w-3 h-3 mr-1" /> Active
+          <CheckCircleIcon className="mr-1 h-3 w-3" /> Active
         </Badge>
-      )
-    case 'failed':
+      );
+    case "failed":
       return (
         <Badge variant="destructive">
-          <XCircleIcon className="w-3 h-3 mr-1" /> Error
+          <XCircleIcon className="mr-1 h-3 w-3" /> Error
         </Badge>
-      )
-    case 'running':
+      );
+    case "running":
       return (
         <Badge variant="default">
-          <RefreshCwIcon className="w-3 h-3 mr-1 animate-spin" /> Running
+          <RefreshCwIcon className="mr-1 h-3 w-3 animate-spin" /> Running
         </Badge>
-      )
+      );
     default:
       return (
         <Badge variant="secondary">
-          <ClockIcon className="w-3 h-3 mr-1" /> {lastExecution.status}
+          <ClockIcon className="mr-1 h-3 w-3" /> {lastExecution.status}
         </Badge>
-      )
+      );
   }
 }
 
 function formatCronExpression(cron: string): string {
-  const parts = cron.split(' ')
-  if (parts.length !== 5) return cron
+  const parts = cron.split(" ");
+  if (parts.length !== 5) return cron;
 
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
 
   // Common patterns
-  if (minute === '0' && hour === '6' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return 'Daily at 6:00 AM'
+  if (
+    minute === "0" &&
+    hour === "6" &&
+    dayOfMonth === "*" &&
+    month === "*" &&
+    dayOfWeek === "*"
+  ) {
+    return "Daily at 6:00 AM";
   }
-  if (minute === '0' && hour === '18' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return 'Daily at 6:00 PM'
+  if (
+    minute === "0" &&
+    hour === "18" &&
+    dayOfMonth === "*" &&
+    month === "*" &&
+    dayOfWeek === "*"
+  ) {
+    return "Daily at 6:00 PM";
   }
-  if (minute === '0' && hour === '7' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return 'Daily at 7:00 AM'
+  if (
+    minute === "0" &&
+    hour === "7" &&
+    dayOfMonth === "*" &&
+    month === "*" &&
+    dayOfWeek === "*"
+  ) {
+    return "Daily at 7:00 AM";
   }
-  if (minute === '0' && hour === '3' && dayOfMonth === '*' && month === '*' && dayOfWeek === '1') {
-    return 'Weekly on Monday at 3:00 AM'
+  if (
+    minute === "0" &&
+    hour === "3" &&
+    dayOfMonth === "*" &&
+    month === "*" &&
+    dayOfWeek === "1"
+  ) {
+    return "Weekly on Monday at 3:00 AM";
   }
 
-  return cron
+  return cron;
 }
 
 function getTaskTypeLabel(taskType: string): string {
   switch (taskType) {
-    case 'scrape_upcoming':
-      return 'Scrape Upcoming'
-    case 'scrape_results':
-      return 'Scrape Results'
-    case 'generate_predictions':
-      return 'Generate Predictions'
+    case "scrape_upcoming":
+      return "Scrape Upcoming";
+    case "scrape_results":
+      return "Scrape Results";
+    case "generate_predictions":
+      return "Generate Predictions";
     default:
-      return taskType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      return taskType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
 }
 
@@ -128,9 +158,11 @@ export function ScheduleCard({
       <CardContent>
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm">
-            <ClockIcon className="w-4 h-4 text-muted-foreground" />
+            <ClockIcon className="h-4 w-4 text-muted-foreground" />
             <span>{formatCronExpression(schedule.cron_expression)}</span>
-            <code className="text-xs bg-muted px-1 rounded">{schedule.cron_expression}</code>
+            <code className="rounded bg-muted px-1 text-xs">
+              {schedule.cron_expression}
+            </code>
           </div>
 
           {schedule.description && (
@@ -138,11 +170,12 @@ export function ScheduleCard({
           )}
 
           {lastExecution && (
-            <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
+            <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground">
               <p>Last run: {new Date(lastExecution.started_at).toLocaleString()}</p>
-              {lastExecution.duration !== null && lastExecution.duration !== undefined && (
-                <p>Duration: {lastExecution.duration.toFixed(2)}s</p>
-              )}
+              {lastExecution.duration !== null &&
+                lastExecution.duration !== undefined && (
+                  <p>Duration: {lastExecution.duration.toFixed(2)}s</p>
+                )}
               {lastExecution.error_message && (
                 <p className="text-destructive">Error: {lastExecution.error_message}</p>
               )}
@@ -157,7 +190,7 @@ export function ScheduleCard({
                 onClick={onRun}
                 disabled={isLoading || !schedule.is_active}
               >
-                <PlayIcon className="w-4 h-4 mr-1" />
+                <PlayIcon className="mr-1 h-4 w-4" />
                 Run Now
               </Button>
             )}
@@ -170,12 +203,12 @@ export function ScheduleCard({
               >
                 {schedule.is_active ? (
                   <>
-                    <PauseIcon className="w-4 h-4 mr-1" />
+                    <PauseIcon className="mr-1 h-4 w-4" />
                     Disable
                   </>
                 ) : (
                   <>
-                    <PlayIcon className="w-4 h-4 mr-1" />
+                    <PlayIcon className="mr-1 h-4 w-4" />
                     Enable
                   </>
                 )}
@@ -189,12 +222,12 @@ export function ScheduleCard({
                 disabled={isLoading}
                 className="text-destructive hover:text-destructive"
               >
-                <TrashIcon className="w-4 h-4" />
+                <TrashIcon className="h-4 w-4" />
               </Button>
             )}
           </div>
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

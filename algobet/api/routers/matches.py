@@ -60,7 +60,7 @@ def list_matches(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Invalid status: {status}. " "Must be SCHEDULED, FINISHED, or LIVE"
+                    f"Invalid status: {status}. Must be SCHEDULED, FINISHED, or LIVE"
                 ),
             )
         query = query.filter(Match.status == status)
@@ -263,8 +263,10 @@ def get_match(
         created_at=match.created_at,
         updated_at=match.updated_at,
         result=result,
-        tournament=TournamentResponse.model_validate(match.tournament),
-        season=SeasonResponse.model_validate(match.season),
+        tournament=TournamentResponse.model_validate(match.tournament)
+        if match.tournament
+        else None,
+        season=SeasonResponse.model_validate(match.season) if match.season else None,
         home_team=TeamResponse.model_validate(match.home_team),
         away_team=TeamResponse.model_validate(match.away_team),
         predictions=prediction_responses,
@@ -348,7 +350,7 @@ def get_match_h2h(
     match_id: int,
     limit: int = Query(5, ge=1, le=20, description="Number of H2H matches"),
     db: Session = Depends(get_db),
-) -> list[MatchResponse]:
+) -> PaginatedResponse[MatchResponse]:
     """Get head-to-head history for a match.
 
     Returns previous meetings between the two teams.

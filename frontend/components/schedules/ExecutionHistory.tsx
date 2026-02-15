@@ -1,6 +1,6 @@
-'use client'
+"use client";
 
-import { Badge } from '@/components/ui/badge'
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -8,61 +8,59 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import {
-  CheckCircleIcon,
-  XCircleIcon,
-  ClockIcon,
-  Loader2Icon,
-} from 'lucide-react'
-import type { TaskExecution } from '@/lib/api/schedules'
+} from "@/components/ui/table";
+import { CheckCircleIcon, XCircleIcon, ClockIcon, Loader2Icon } from "lucide-react";
+import type { TaskExecution } from "@/lib/api/schedules";
 
 interface ExecutionHistoryProps {
-  executions: TaskExecution[]
-  isLoading?: boolean
+  executions: TaskExecution[];
+  isLoading?: boolean;
 }
 
 function getStatusIcon(status: string) {
   switch (status) {
-    case 'completed':
-      return <CheckCircleIcon className="w-4 h-4 text-green-500" />
-    case 'failed':
-      return <XCircleIcon className="w-4 h-4 text-destructive" />
-    case 'running':
-      return <Loader2Icon className="w-4 h-4 text-primary animate-spin" />
+    case "completed":
+      return <CheckCircleIcon className="h-4 w-4 text-green-500" />;
+    case "failed":
+      return <XCircleIcon className="h-4 w-4 text-destructive" />;
+    case "running":
+      return <Loader2Icon className="h-4 w-4 animate-spin text-primary" />;
     default:
-      return <ClockIcon className="w-4 h-4 text-muted-foreground" />
+      return <ClockIcon className="h-4 w-4 text-muted-foreground" />;
   }
 }
 
 function getStatusBadge(status: string) {
   switch (status) {
-    case 'completed':
-      return <Badge variant="success">Completed</Badge>
-    case 'failed':
-      return <Badge variant="destructive">Failed</Badge>
-    case 'running':
-      return <Badge variant="default">Running</Badge>
+    case "completed":
+      return <Badge variant="success">Completed</Badge>;
+    case "failed":
+      return <Badge variant="destructive">Failed</Badge>;
+    case "running":
+      return <Badge variant="default">Running</Badge>;
     default:
-      return <Badge variant="secondary">{status}</Badge>
+      return <Badge variant="secondary">{status}</Badge>;
   }
 }
 
-export function ExecutionHistory({ executions, isLoading = false }: ExecutionHistoryProps) {
+export function ExecutionHistory({
+  executions,
+  isLoading = false,
+}: ExecutionHistoryProps) {
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-32">
+      <div className="flex h-32 items-center justify-center">
         <Loader2Icon className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
-    )
+    );
   }
 
   if (executions.length === 0) {
     return (
-      <div className="flex justify-center items-center h-32 text-muted-foreground">
+      <div className="flex h-32 items-center justify-center text-muted-foreground">
         No execution history
       </div>
-    )
+    );
   }
 
   return (
@@ -91,27 +89,29 @@ export function ExecutionHistory({ executions, isLoading = false }: ExecutionHis
             <TableCell className="text-sm">
               {execution.completed_at
                 ? new Date(execution.completed_at).toLocaleString()
-                : '-'}
+                : "-"}
             </TableCell>
             <TableCell className="text-sm">
               {execution.duration !== null && execution.duration !== undefined
                 ? `${execution.duration.toFixed(2)}s`
-                : '-'}
+                : "-"}
             </TableCell>
             <TableCell className="text-sm">
               {execution.error_message ? (
                 <span className="text-destructive">{execution.error_message}</span>
               ) : execution.result ? (
                 <span className="text-muted-foreground">
-                  {typeof execution.result.status === 'string' ? execution.result.status : 'OK'}
+                  {typeof execution.result.status === "string"
+                    ? execution.result.status
+                    : "OK"}
                 </span>
               ) : (
-                '-'
+                "-"
               )}
             </TableCell>
           </TableRow>
         ))}
       </TableBody>
     </Table>
-  )
+  );
 }

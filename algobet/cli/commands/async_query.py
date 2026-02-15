@@ -104,9 +104,7 @@ async def list_upcoming_matches(days: int) -> None:
         click.echo(f"\nUpcoming matches (next {days} days):\n")
         for m in upcoming_matches:
             date_str = (
-                m.match_date.strftime("%Y-%m-%d %H:%M")
-                if m.match_date
-                else "TBD"
+                m.match_date.strftime("%Y-%m-%d %H:%M") if m.match_date else "TBD"
             )
             click.echo(f"  {date_str}")
             click.echo(f"    {m.home_team} vs {m.away_team}")
@@ -115,7 +113,11 @@ async def list_upcoming_matches(days: int) -> None:
 
 
 @async_list_cli.command(name="matches")
-@click.option("--status", type=click.Choice(["SCHEDULED", "FINISHED", "LIVE"]), help="Filter by match status")
+@click.option(
+    "--status",
+    type=click.Choice(["SCHEDULED", "FINISHED", "LIVE"]),
+    help="Filter by match status",
+)
 @click.option("--team", "team_name", help="Filter by team name")
 @click.option("--limit", type=int, default=50, help="Maximum number of matches")
 @handle_errors
@@ -138,12 +140,13 @@ async def list_matches(status: str | None, team_name: str | None, limit: int) ->
                 details={"status": status, "team": team_name},
             )
 
-        click.echo(f"\nFound {len(response.matches)} match(es) (total: {response.total_count}):\n")
+        click.echo(
+            f"\nFound {len(response.matches)} match(es) "
+            f"(total: {response.total_count}):\n"
+        )
         for m in response.matches:
             date_str = (
-                m.match_date.strftime("%Y-%m-%d %H:%M")
-                if m.match_date
-                else "TBD"
+                m.match_date.strftime("%Y-%m-%d %H:%M") if m.match_date else "TBD"
             )
             score = (
                 f" ({m.home_score} - {m.away_score})"

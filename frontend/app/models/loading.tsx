@@ -1,11 +1,11 @@
-import { Skeleton } from '@/components/ui/skeleton'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export default function ModelsLoading() {
   return (
     <div className="space-y-6">
       <div>
-        <Skeleton className="h-8 w-24 mb-2" />
+        <Skeleton className="mb-2 h-8 w-24" />
         <Skeleton className="h-4 w-56" />
       </div>
 
@@ -24,5 +24,5 @@ export default function ModelsLoading() {
         ))}
       </div>
     </div>
-  )
+  );
 }

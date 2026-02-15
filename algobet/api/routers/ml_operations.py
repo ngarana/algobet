@@ -423,11 +423,9 @@ def run_calibrate(
     # Save calibrated model
     calibrated_model = CalibratedPredictor(predictor=model, calibrator=calibrator)
 
-    metrics = {
-        "calibration_method": request.method,
-        "calibration_ece": after_metrics["expected_calibration_error"],
-        "calibration_brier": after_metrics["brier_score"],
-        "base_model": base_version,
+    metrics: dict[str, float] = {
+        "calibration_ece": float(after_metrics["expected_calibration_error"]),
+        "calibration_brier": float(after_metrics["brier_score"]),
     }
 
     new_version = registry.save_model(

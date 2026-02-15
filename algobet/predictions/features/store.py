@@ -324,9 +324,7 @@ class FeatureStore:
         """
         schema = schema_version or self.schema_version
 
-        stmt = delete(ModelFeature).where(
-            ModelFeature.feature_schema_version == schema
-        )
+        stmt = delete(ModelFeature).where(ModelFeature.feature_schema_version == schema)
 
         result = self.session.execute(stmt)
         return result.rowcount

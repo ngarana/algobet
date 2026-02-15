@@ -505,7 +505,7 @@ ws.onopen = () => {
 
 ws.onmessage = (event) => {
   const progress = JSON.parse(event.data);
-  
+
   if (progress.status === 'running') {
     const percent = (progress.current_page / progress.total_pages) * 100;
     console.log(`Progress: ${percent.toFixed(1)}%`);
@@ -647,11 +647,11 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
       ...options?.headers,
     },
   });
-  
+
   if (!response.ok) {
     throw new Error(`API Error: ${response.statusText}`);
   }
-  
+
   return response.json();
 }
 

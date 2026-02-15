@@ -2,36 +2,36 @@
  * UI state store
  */
 
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 interface UIState {
   // Sidebar state
-  sidebarOpen: boolean
-  toggleSidebar: () => void
-  setSidebarOpen: (open: boolean) => void
-  
+  sidebarOpen: boolean;
+  toggleSidebar: () => void;
+  setSidebarOpen: (open: boolean) => void;
+
   // Theme (managed by next-themes, but we track user preference here)
-  theme: 'light' | 'dark' | 'system'
-  setTheme: (theme: 'light' | 'dark' | 'system') => void
-  
+  theme: "light" | "dark" | "system";
+  setTheme: (theme: "light" | "dark" | "system") => void;
+
   // Loading states
-  globalLoading: boolean
-  setGlobalLoading: (loading: boolean) => void
-  
+  globalLoading: boolean;
+  setGlobalLoading: (loading: boolean) => void;
+
   // Toast notifications
   toasts: Array<{
-    id: string
-    message: string
-    type: 'success' | 'error' | 'warning' | 'info'
-  }>
-  addToast: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void
-  removeToast: (id: string) => void
-  
+    id: string;
+    message: string;
+    type: "success" | "error" | "warning" | "info";
+  }>;
+  addToast: (message: string, type: "success" | "error" | "warning" | "info") => void;
+  removeToast: (id: string) => void;
+
   // Mobile menu
-  mobileMenuOpen: boolean
-  toggleMobileMenu: () => void
-  setMobileMenuOpen: (open: boolean) => void
+  mobileMenuOpen: boolean;
+  toggleMobileMenu: () => void;
+  setMobileMenuOpen: (open: boolean) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -39,18 +39,17 @@ export const useUIStore = create<UIState>()(
     (set) => ({
       // Sidebar
       sidebarOpen: true,
-      toggleSidebar: () =>
-        set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+      toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
-      
+
       // Theme
-      theme: 'system',
+      theme: "system",
       setTheme: (theme) => set({ theme }),
-      
+
       // Loading
       globalLoading: false,
       setGlobalLoading: (loading) => set({ globalLoading: loading }),
-      
+
       // Toasts
       toasts: [],
       addToast: (message, type) =>
@@ -68,7 +67,7 @@ export const useUIStore = create<UIState>()(
         set((state) => ({
           toasts: state.toasts.filter((toast) => toast.id !== id),
         })),
-      
+
       // Mobile menu
       mobileMenuOpen: false,
       toggleMobileMenu: () =>
@@ -76,11 +75,11 @@ export const useUIStore = create<UIState>()(
       setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
     }),
     {
-      name: 'algobet-ui',
+      name: "algobet-ui",
       partialize: (state) => ({
         sidebarOpen: state.sidebarOpen,
         theme: state.theme,
       }),
     }
   )
-)
+);

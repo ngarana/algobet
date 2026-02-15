@@ -67,9 +67,7 @@ class AnalysisService(BaseService[Session]):
         self.logger = get_logger("services.analysis")
         self.models_path = models_path
 
-    def _get_model(
-        self, model_version: str | None
-    ) -> tuple[Any, ModelVersion | None]:
+    def _get_model(self, model_version: str | None) -> tuple[Any, ModelVersion | None]:
         """Load model from registry.
 
         Args:
@@ -93,17 +91,21 @@ class AnalysisService(BaseService[Session]):
                 model_meta = None
                 for m in registry.list_models():
                     if m.version == model_version:
-                        model_meta = self.session.query(ModelVersion).filter(
-                            ModelVersion.version == model_version
-                        ).first()
+                        model_meta = (
+                            self.session.query(ModelVersion)
+                            .filter(ModelVersion.version == model_version)
+                            .first()
+                        )
                         break
                 return model, model_meta
             else:
                 model, metadata = registry.get_active_model()
                 # Get the database record
-                model_meta = self.session.query(ModelVersion).filter(
-                    ModelVersion.version == metadata.version
-                ).first()
+                model_meta = (
+                    self.session.query(ModelVersion)
+                    .filter(ModelVersion.version == metadata.version)
+                    .first()
+                )
                 return model, model_meta
         except ValueError as e:
             if model_version:
@@ -111,18 +113,14 @@ class AnalysisService(BaseService[Session]):
                     f"Model version '{model_version}' not found.",
                     details={"version": model_version},
                 ) from e
-            raise NoActiveModelError(
-                details={"error": str(e)}
-            ) from e
+            raise NoActiveModelError(details={"error": str(e)}) from e
         except FileNotFoundError as e:
             if model_version:
                 raise ModelNotFoundError(
                     f"Model version '{model_version}' not found.",
                     details={"version": model_version},
                 ) from e
-            raise NoActiveModelError(
-                details={"error": str(e)}
-            ) from e
+            raise NoActiveModelError(details={"error": str(e)}) from e
 
     def run_backtest(self, request: BacktestRequest) -> BacktestResponse:
         """Run a backtest on historical data.
@@ -280,14 +278,14 @@ class AnalysisService(BaseService[Session]):
                 "accuracy": result.classification.accuracy,
                 "log_loss": result.classification.log_loss,
                 "brier_score": result.classification.brier_score,
-                "home_accuracy": result.classification.home_accuracy,
-                "draw_accuracy": result.classification.draw_accuracy,
-                "away_accuracy": result.classification.away_accuracy,
+                "home_f1": result.classification.per_class_f1.get("H", 0.0),
+                "draw_f1": result.classification.per_class_f1.get("D", 0.0),
+                "away_f1": result.classification.per_class_f1.get("A", 0.0),
             }
 
             if result.betting:
-                metrics["roi"] = result.betting.roi
-                metrics["betting_accuracy"] = result.betting.betting_accuracy
+                metrics["roi_percent"] = result.betting.roi_percent
+                metrics["win_rate"] = result.betting.win_rate
 
             self.logger.info(
                 "Backtest completed successfully",
@@ -664,11 +662,10 @@ class AnalysisService(BaseService[Session]):
                 predictor=model, calibrator=calibrator
             )
 
-            metrics = {
-                "calibration_method": request.method,
-                "calibration_ece": cal_metrics["expected_calibration_error"],
-                "calibration_brier": cal_metrics["brier_score"],
-                "base_model": version,
+            metrics: dict[str, float] = {
+                "calibration_method": 1.0 if request.method == "isotonic" else 0.0,
+                "calibration_ece": float(cal_metrics["expected_calibration_error"]),
+                "calibration_brier": float(cal_metrics["brier_score"]),
             }
 
             new_version = registry.save_model(

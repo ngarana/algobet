@@ -295,7 +295,7 @@ def reliability_diagram_data(
     """
     data = {
         "outcomes": [],
-        "perfect_calibration": list(zip([0, 1], [0, 1])),
+        "perfect_calibration": list(zip([0, 1], [0, 1], strict=False)),
     }
 
     for label, curve in [
@@ -383,22 +383,30 @@ def detect_calibration_issues(
         ("Away Win", analysis.away_win),
     ]:
         # Check if high predictions are too confident
-        high_pred_bins = [b for b in curve.bins if b.mean_predicted > 0.7 and b.count > 0]
+        high_pred_bins = [
+            b for b in curve.bins if b.mean_predicted > 0.7 and b.count > 0
+        ]
         if high_pred_bins:
-            avg_gap = np.mean([b.mean_predicted - b.mean_actual for b in high_pred_bins])
+            avg_gap = np.mean(
+                [b.mean_predicted - b.mean_actual for b in high_pred_bins]
+            )
             if avg_gap > 0.1:
                 issues.append(
                     {
                         "type": "overconfidence",
                         "outcome": label,
-                        "description": f"Model is overconfident for {label} at high probabilities",
+                        "description": (
+                            f"Model is overconfident for {label} at high probabilities"
+                        ),
                         "avg_gap": avg_gap,
                         "recommendation": "Consider isotonic regression calibration",
                     }
                 )
 
         # Check for underconfidence
-        low_pred_bins = [b for b in curve.bins if b.mean_predicted < 0.3 and b.count > 0]
+        low_pred_bins = [
+            b for b in curve.bins if b.mean_predicted < 0.3 and b.count > 0
+        ]
         if low_pred_bins:
             avg_gap = np.mean([b.mean_actual - b.mean_predicted for b in low_pred_bins])
             if avg_gap > 0.1:
@@ -406,7 +414,9 @@ def detect_calibration_issues(
                     {
                         "type": "underconfidence",
                         "outcome": label,
-                        "description": f"Model is underconfident for {label} at low probabilities",
+                        "description": (
+                            f"Model is underconfident for {label} at low probabilities"
+                        ),
                         "avg_gap": avg_gap,
                         "recommendation": "Consider sigmoid calibration",
                     }
@@ -419,7 +429,9 @@ def detect_calibration_issues(
             {
                 "type": "draw_calibration",
                 "outcome": "Draw",
-                "description": "Draw predictions are poorly calibrated (common in football)",
+                "description": (
+                    "Draw predictions are poorly calibrated (common in football)"
+                ),
                 "draw_ece": draw_ece,
                 "recommendation": "Consider class weighting or specialized draw model",
             }

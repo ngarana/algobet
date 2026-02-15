@@ -136,6 +136,8 @@ algobet
 │   ├── backtest       # Backtesting
 │   ├── value-bets     # Value bet identification
 │   └── calibrate      # Model calibration
+├── train              # ML Training
+│   └── run            # Train new model
 ├── async-db           # Async database commands
 ├── async-list         # Async listing commands
 └── --debug, --verbose # Global options

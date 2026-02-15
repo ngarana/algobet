@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from algobet.config import AlgobetConfig, LoggingConfig
+    from algobet.config import LoggingConfig
 
 
 # Add custom SUCCESS log level between INFO and WARNING
@@ -25,7 +25,7 @@ SUCCESS_LEVEL = 25
 logging.addLevelName(SUCCESS_LEVEL, "SUCCESS")
 
 
-def success(self, message: str, *args: Any, **kwargs: Any) -> None:
+def success(self: logging.Logger, message: str, *args: Any, **kwargs: Any) -> None:
     """Log a success message."""
     if self.isEnabledFor(SUCCESS_LEVEL):
         self._log(SUCCESS_LEVEL, message, args, **kwargs)
@@ -160,7 +160,7 @@ def get_formatter(config: LoggingConfig) -> logging.Formatter:
         fmt = "%(message)s"
         if config.show_timestamp:
             fmt = "[%(asctime)s] " + fmt
-        if config.show_level and config.format != "structured":
+        if config.show_level and config.format == "text":
             fmt = "%(levelname)s: " + fmt
 
         return ColoredFormatter(

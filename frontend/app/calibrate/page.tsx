@@ -1,39 +1,56 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
+import { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { AlertCircle, Play, Target, TrendingDown, TrendingUp, CheckCircle } from 'lucide-react'
-import { useCalibrate } from '@/lib/queries/use-ml-operations'
-import { useActiveModel, useModels } from '@/lib/queries/use-models'
-import type { CalibrateResult, CalibrationMetrics } from '@/lib/types/ml-operations'
+} from "@/components/ui/select";
+import {
+  AlertCircle,
+  Play,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  CheckCircle,
+} from "lucide-react";
+import { useCalibrate } from "@/lib/queries/use-ml-operations";
+import { useActiveModel, useModels } from "@/lib/queries/use-models";
+import type { CalibrateResult, CalibrationMetrics } from "@/lib/types/ml-operations";
 
 function CalibrateForm({
   onSubmit,
   isLoading,
 }: {
-  onSubmit: (data: { method: 'isotonic' | 'sigmoid'; validationSplit: number; activate: boolean }) => void
-  isLoading: boolean
+  onSubmit: (data: {
+    method: "isotonic" | "sigmoid";
+    validationSplit: number;
+    activate: boolean;
+  }) => void;
+  isLoading: boolean;
 }) {
-  const { data: activeModel } = useActiveModel()
+  const { data: activeModel } = useActiveModel();
 
-  const [method, setMethod] = useState<'isotonic' | 'sigmoid'>('isotonic')
-  const [validationSplit, setValidationSplit] = useState(0.2)
-  const [activate, setActivate] = useState(true)
+  const [method, setMethod] = useState<"isotonic" | "sigmoid">("isotonic");
+  const [validationSplit, setValidationSplit] = useState(0.2);
+  const [activate, setActivate] = useState(true);
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    onSubmit({ method, validationSplit, activate })
-  }
+    e.preventDefault();
+    onSubmit({ method, validationSplit, activate });
+  };
 
   return (
     <Card>
@@ -48,12 +65,14 @@ function CalibrateForm({
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+          <div className="flex items-center gap-2 rounded-lg bg-muted p-3">
             <Target className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm">
-              Base Model:{' '}
+              Base Model:{" "}
               {activeModel ? (
-                <span className="font-medium">{activeModel.name} ({activeModel.algorithm})</span>
+                <span className="font-medium">
+                  {activeModel.name} ({activeModel.algorithm})
+                </span>
               ) : (
                 <span className="text-destructive">No active model</span>
               )}
@@ -64,7 +83,7 @@ function CalibrateForm({
             <Label htmlFor="method">Calibration Method</Label>
             <Select
               value={method}
-              onValueChange={(v) => setMethod(v as 'isotonic' | 'sigmoid')}
+              onValueChange={(v) => setMethod(v as "isotonic" | "sigmoid")}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -75,9 +94,9 @@ function CalibrateForm({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {method === 'isotonic'
-                ? 'More flexible, works better with more data'
-                : 'Simpler, less prone to overfitting'}
+              {method === "isotonic"
+                ? "More flexible, works better with more data"
+                : "Simpler, less prone to overfitting"}
             </p>
           </div>
 
@@ -114,12 +133,12 @@ function CalibrateForm({
           <Button type="submit" className="w-full" disabled={isLoading || !activeModel}>
             {isLoading ? (
               <>
-                <span className="animate-spin mr-2">⏳</span>
+                <span className="mr-2 animate-spin">⏳</span>
                 Calibrating...
               </>
             ) : (
               <>
-                <Play className="h-4 w-4 mr-2" />
+                <Play className="mr-2 h-4 w-4" />
                 Calibrate Model
               </>
             )}
@@ -127,7 +146,7 @@ function CalibrateForm({
         </form>
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function MetricsComparisonCard({
@@ -135,45 +154,45 @@ function MetricsComparisonCard({
   after,
   improvement,
 }: {
-  before: CalibrationMetrics
-  after: CalibrationMetrics
-  improvement: CalibrateResult['improvement']
+  before: CalibrationMetrics;
+  after: CalibrationMetrics;
+  improvement: CalibrateResult["improvement"];
 }) {
   const metrics = [
     {
-      label: 'Expected Calibration Error',
+      label: "Expected Calibration Error",
       before: before.expected_calibration_error,
       after: after.expected_calibration_error,
       improvement: improvement.ece_improvement,
       lowerIsBetter: true,
     },
     {
-      label: 'Maximum Calibration Error',
+      label: "Maximum Calibration Error",
       before: before.maximum_calibration_error,
       after: after.maximum_calibration_error,
       improvement: 0, // Not provided in improvement
       lowerIsBetter: true,
     },
     {
-      label: 'Brier Score',
+      label: "Brier Score",
       before: before.brier_score,
       after: after.brier_score,
       improvement: improvement.brier_improvement,
       lowerIsBetter: true,
     },
     {
-      label: 'Log Loss',
+      label: "Log Loss",
       before: before.log_loss,
       after: after.log_loss,
       improvement: improvement.log_loss_improvement,
       lowerIsBetter: true,
     },
-  ]
+  ];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-lg">
           <TrendingDown className="h-5 w-5" />
           Calibration Improvement
         </CardTitle>
@@ -183,33 +202,36 @@ function MetricsComparisonCard({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b">
-              <th className="text-left py-2">Metric</th>
-              <th className="text-right py-2">Before</th>
-              <th className="text-right py-2">After</th>
-              <th className="text-right py-2">Change</th>
+              <th className="py-2 text-left">Metric</th>
+              <th className="py-2 text-right">Before</th>
+              <th className="py-2 text-right">After</th>
+              <th className="py-2 text-right">Change</th>
             </tr>
           </thead>
           <tbody>
             {metrics.map((metric) => {
-              const change = metric.after - metric.before
-              const isPositive = metric.lowerIsBetter ? change < 0 : change > 0
+              const change = metric.after - metric.before;
+              const isPositive = metric.lowerIsBetter ? change < 0 : change > 0;
 
               return (
                 <tr key={metric.label} className="border-b">
                   <td className="py-2">{metric.label}</td>
                   <td className="text-right font-mono">{metric.before.toFixed(4)}</td>
                   <td className="text-right font-mono">{metric.after.toFixed(4)}</td>
-                  <td className={`text-right font-mono ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                    {change >= 0 ? '+' : ''}{change.toFixed(4)}
+                  <td
+                    className={`text-right font-mono ${isPositive ? "text-green-600" : "text-red-600"}`}
+                  >
+                    {change >= 0 ? "+" : ""}
+                    {change.toFixed(4)}
                   </td>
                 </tr>
-              )
+              );
             })}
           </tbody>
         </table>
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function CalibrateResults({ result }: { result: CalibrateResult }) {
@@ -257,38 +279,38 @@ function CalibrateResults({ result }: { result: CalibrateResult }) {
         improvement={result.improvement}
       />
     </div>
-  )
+  );
 }
 
 export default function CalibratePage() {
-  const calibrateMutation = useCalibrate()
-  const [result, setResult] = useState<CalibrateResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const calibrateMutation = useCalibrate();
+  const [result, setResult] = useState<CalibrateResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (data: {
-    method: 'isotonic' | 'sigmoid'
-    validationSplit: number
-    activate: boolean
+    method: "isotonic" | "sigmoid";
+    validationSplit: number;
+    activate: boolean;
   }) => {
-    setError(null)
-    setResult(null)
+    setError(null);
+    setResult(null);
 
     try {
       const result = await calibrateMutation.mutateAsync({
         method: data.method,
         validation_split: data.validationSplit,
         activate: data.activate,
-      })
-      setResult(result)
+      });
+      setResult(result);
     } catch (err) {
-      console.error('Calibrate error:', err)
+      console.error("Calibrate error:", err);
       setError(
         err instanceof Error
           ? err.message
-          : 'Failed to calibrate model. Please try again.'
-      )
+          : "Failed to calibrate model. Please try again."
+      );
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
@@ -327,14 +349,16 @@ export default function CalibratePage() {
           ) : (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <TrendingUp className="h-12 w-12 mb-4" />
+                <TrendingUp className="mb-4 h-12 w-12" />
                 <p className="text-lg font-medium">No calibration yet</p>
-                <p className="text-sm">Run calibration to improve probability estimates</p>
+                <p className="text-sm">
+                  Run calibration to improve probability estimates
+                </p>
               </CardContent>
             </Card>
           )}
         </div>
       </div>
     </div>
-  )
+  );
 }

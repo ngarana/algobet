@@ -2,38 +2,40 @@
  * TanStack Query hooks for dashboard statistics
  */
 
-import { useQuery } from '@tanstack/react-query'
-import { usePredictions, useUpcomingPredictions } from './use-predictions'
-import { useValueBets } from './use-value-bets'
-import { useActiveModel } from './use-models'
-import type { Prediction } from '@/lib/types/api'
+import { usePredictions, useUpcomingPredictions } from "./use-predictions";
+import { useValueBets } from "./use-value-bets";
+import { useActiveModel } from "./use-models";
+import type { Prediction } from "@/lib/types/api";
 
 export interface DashboardStats {
-  totalProfit: number
-  winRate: number
-  totalPredictions: number
-  successfulPredictions: number
-  upcomingMatchesCount: number
-  valueBetsCount: number
-  avgConfidence: number
-  activeModelAccuracy: number | null
+  totalProfit: number;
+  winRate: number;
+  totalPredictions: number;
+  successfulPredictions: number;
+  upcomingMatchesCount: number;
+  valueBetsCount: number;
+  avgConfidence: number;
+  activeModelAccuracy: number | null;
 }
 
 export const dashboardKeys = {
-  all: ['dashboard'] as const,
-  stats: () => [...dashboardKeys.all, 'stats'] as const,
-}
+  all: ["dashboard"] as const,
+  stats: () => [...dashboardKeys.all, "stats"] as const,
+};
 
 export function useDashboardStats() {
   // Get all predictions (both upcoming and historical)
-  const { data: allPredictionsData, isLoading: predictionsLoading } = usePredictions()
-  const { data: upcomingPredictionsData, isLoading: upcomingLoading } = useUpcomingPredictions()
-  const { data: valueBetsData, isLoading: valueBetsLoading } = useValueBets({ max_matches: 100 })
-  const { data: activeModelData, isLoading: modelLoading } = useActiveModel()
+  const { data: allPredictionsData, isLoading: predictionsLoading } = usePredictions();
+  const { data: upcomingPredictionsData, isLoading: upcomingLoading } =
+    useUpcomingPredictions();
+  const { data: valueBetsData, isLoading: valueBetsLoading } = useValueBets({
+    max_matches: 100,
+  });
+  const { data: activeModelData, isLoading: modelLoading } = useActiveModel();
 
-  const allPredictions = allPredictionsData?.items || []
-  const upcomingPredictions = upcomingPredictionsData?.items || []
-  const valueBets = valueBetsData || []
+  const allPredictions = allPredictionsData?.items || [];
+  const upcomingPredictions = upcomingPredictionsData?.items || [];
+  const valueBets = valueBetsData || [];
 
   // Calculate stats from available data
   const stats = calculateDashboardStats(
@@ -41,12 +43,13 @@ export function useDashboardStats() {
     upcomingPredictions,
     valueBets,
     activeModelData
-  )
+  );
 
   return {
     data: stats,
-    isLoading: predictionsLoading || upcomingLoading || valueBetsLoading || modelLoading,
-  }
+    isLoading:
+      predictionsLoading || upcomingLoading || valueBetsLoading || modelLoading,
+  };
 }
 
 function calculateDashboardStats(
@@ -57,20 +60,25 @@ function calculateDashboardStats(
 ): DashboardStats {
   // Calculate total profit (sum of actual_roi where available)
   const totalProfit = allPredictions
-    .filter(p => p.actual_roi !== null)
-    .reduce((sum, p) => sum + (p.actual_roi || 0), 0)
+    .filter((p) => p.actual_roi !== null)
+    .reduce((sum, p) => sum + (p.actual_roi || 0), 0);
 
   // Calculate win rate (successful predictions / total predictions with results)
-  const predictionsWithResults = allPredictions.filter(p => p.actual_roi !== null)
-  const successfulPredictions = predictionsWithResults.filter(p => (p.actual_roi || 0) > 0).length
-  const winRate = predictionsWithResults.length > 0 
-    ? successfulPredictions / predictionsWithResults.length 
-    : 0
+  const predictionsWithResults = allPredictions.filter((p) => p.actual_roi !== null);
+  const successfulPredictions = predictionsWithResults.filter(
+    (p) => (p.actual_roi || 0) > 0
+  ).length;
+  const winRate =
+    predictionsWithResults.length > 0
+      ? successfulPredictions / predictionsWithResults.length
+      : 0;
 
   // Calculate average confidence
-  const avgConfidence = allPredictions.length > 0
-    ? allPredictions.reduce((sum, p) => sum + (p.confidence || 0), 0) / allPredictions.length
-    : 0
+  const avgConfidence =
+    allPredictions.length > 0
+      ? allPredictions.reduce((sum, p) => sum + (p.confidence || 0), 0) /
+        allPredictions.length
+      : 0;
 
   return {
     totalProfit,
@@ -81,5 +89,5 @@ function calculateDashboardStats(
     valueBetsCount: valueBets.length,
     avgConfidence,
     activeModelAccuracy: activeModel?.accuracy || null,
-  }
+  };
 }

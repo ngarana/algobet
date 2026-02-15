@@ -2,7 +2,7 @@
  * TypeScript types and Zod schemas for ML operations
  */
 
-import { z } from 'zod'
+import { z } from "zod";
 
 // =============================================================================
 // Backtest Types
@@ -14,7 +14,7 @@ export const BacktestRequestSchema = z.object({
   end_date: z.string().optional(),
   min_matches: z.number().min(10).max(10000).default(100),
   min_edge: z.number().min(0).max(1).default(0).optional(),
-})
+});
 
 export const ClassificationMetricsSchema = z.object({
   accuracy: z.number(),
@@ -32,7 +32,7 @@ export const ClassificationMetricsSchema = z.object({
   confusion_matrix: z.array(z.array(z.number())),
   top_2_accuracy: z.number(),
   cohen_kappa: z.number(),
-})
+});
 
 export const BettingMetricsSchema = z.object({
   total_bets: z.number(),
@@ -50,7 +50,7 @@ export const BettingMetricsSchema = z.object({
   average_losing_odds: z.number(),
   average_kelly_fraction: z.number(),
   optimal_kelly_fraction: z.number(),
-})
+});
 
 export const BacktestResultSchema = z.object({
   model_version: z.string(),
@@ -62,7 +62,7 @@ export const BacktestResultSchema = z.object({
   expected_calibration_error: z.number(),
   maximum_calibration_error: z.number(),
   outcome_accuracy: z.record(z.number()),
-})
+});
 
 // =============================================================================
 // Calibrate Types
@@ -70,17 +70,17 @@ export const BacktestResultSchema = z.object({
 
 export const CalibrateRequestSchema = z.object({
   model_version: z.string().optional(),
-  method: z.enum(['isotonic', 'sigmoid']).default('isotonic'),
+  method: z.enum(["isotonic", "sigmoid"]).default("isotonic"),
   validation_split: z.number().min(0.1).max(0.5).default(0.2),
   activate: z.boolean().default(true),
-})
+});
 
 export const CalibrationMetricsSchema = z.object({
   expected_calibration_error: z.number(),
   maximum_calibration_error: z.number(),
   brier_score: z.number(),
   log_loss: z.number(),
-})
+});
 
 export const CalibrateResultSchema = z.object({
   base_model_version: z.string(),
@@ -95,17 +95,17 @@ export const CalibrateResultSchema = z.object({
     log_loss_improvement: z.number(),
   }),
   is_active: z.boolean(),
-})
+});
 
 // =============================================================================
 // TypeScript Interfaces
 // =============================================================================
 
-export type BacktestRequest = z.infer<typeof BacktestRequestSchema>
-export type ClassificationMetrics = z.infer<typeof ClassificationMetricsSchema>
-export type BettingMetrics = z.infer<typeof BettingMetricsSchema>
-export type BacktestResult = z.infer<typeof BacktestResultSchema>
+export type BacktestRequest = z.infer<typeof BacktestRequestSchema>;
+export type ClassificationMetrics = z.infer<typeof ClassificationMetricsSchema>;
+export type BettingMetrics = z.infer<typeof BettingMetricsSchema>;
+export type BacktestResult = z.infer<typeof BacktestResultSchema>;
 
-export type CalibrateRequest = z.infer<typeof CalibrateRequestSchema>
-export type CalibrationMetrics = z.infer<typeof CalibrationMetricsSchema>
-export type CalibrateResult = z.infer<typeof CalibrateResultSchema>
+export type CalibrateRequest = z.infer<typeof CalibrateRequestSchema>;
+export type CalibrationMetrics = z.infer<typeof CalibrationMetricsSchema>;
+export type CalibrateResult = z.infer<typeof CalibrateResultSchema>;

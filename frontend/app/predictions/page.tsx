@@ -1,17 +1,23 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
+import { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -19,62 +25,73 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import { Brain, RefreshCw, TrendingUp, Target, Calendar } from 'lucide-react'
-import { usePredictions, useUpcomingPredictions, usePredictionHistory } from '@/lib/queries/use-predictions'
-import { useActiveModel } from '@/lib/queries/use-models'
-import type { Prediction } from '@/lib/types/api'
+} from "@/components/ui/table";
+import { Brain, RefreshCw, TrendingUp, Target, Calendar } from "lucide-react";
+import {
+  usePredictions,
+  useUpcomingPredictions,
+  usePredictionHistory,
+} from "@/lib/queries/use-predictions";
+import { useActiveModel } from "@/lib/queries/use-models";
+import type { Prediction } from "@/lib/types/api";
 
 const outcomeLabels: Record<string, string> = {
-  H: 'Home Win',
-  D: 'Draw',
-  A: 'Away Win',
-}
+  H: "Home Win",
+  D: "Draw",
+  A: "Away Win",
+};
 
 const outcomeColors: Record<string, string> = {
-  H: 'bg-blue-500',
-  D: 'bg-yellow-500',
-  A: 'bg-red-500',
-}
+  H: "bg-blue-500",
+  D: "bg-yellow-500",
+  A: "bg-red-500",
+};
 
 function PredictionCard({ prediction }: { prediction: Prediction }) {
   return (
     <TableRow>
-      <TableCell className="font-medium">
-        Match #{prediction.match_id}
-      </TableCell>
+      <TableCell className="font-medium">Match #{prediction.match_id}</TableCell>
       <TableCell>
         <Badge className={outcomeColors[prediction.predicted_outcome]}>
           {outcomeLabels[prediction.predicted_outcome]}
         </Badge>
       </TableCell>
       <TableCell className="font-mono">
-        {(prediction.prob_home * 100).toFixed(1)}% / {(prediction.prob_draw * 100).toFixed(1)}% / {(prediction.prob_away * 100).toFixed(1)}%
+        {(prediction.prob_home * 100).toFixed(1)}% /{" "}
+        {(prediction.prob_draw * 100).toFixed(1)}% /{" "}
+        {(prediction.prob_away * 100).toFixed(1)}%
       </TableCell>
       <TableCell className="font-mono">
         {(prediction.confidence * 100).toFixed(1)}%
       </TableCell>
-      <TableCell className="text-muted-foreground text-sm">
+      <TableCell className="text-sm text-muted-foreground">
         {new Date(prediction.predicted_at).toLocaleDateString()}
       </TableCell>
       {prediction.actual_roi !== null && (
-        <TableCell className={`font-mono ${prediction.actual_roi >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-          {prediction.actual_roi >= 0 ? '+' : ''}{(prediction.actual_roi * 100).toFixed(1)}%
+        <TableCell
+          className={`font-mono ${prediction.actual_roi >= 0 ? "text-green-600" : "text-red-600"}`}
+        >
+          {prediction.actual_roi >= 0 ? "+" : ""}
+          {(prediction.actual_roi * 100).toFixed(1)}%
         </TableCell>
       )}
     </TableRow>
-  )
+  );
 }
 
 function PredictionsSummary({ predictions }: { predictions: Prediction[] }) {
-  const avgConfidence = predictions.length > 0
-    ? predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length
-    : 0
+  const avgConfidence =
+    predictions.length > 0
+      ? predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length
+      : 0;
 
-  const outcomeCounts = predictions.reduce((acc, p) => {
-    acc[p.predicted_outcome] = (acc[p.predicted_outcome] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
+  const outcomeCounts = predictions.reduce(
+    (acc, p) => {
+      acc[p.predicted_outcome] = (acc[p.predicted_outcome] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
 
   return (
     <div className="grid grid-cols-4 gap-4">
@@ -92,39 +109,50 @@ function PredictionsSummary({ predictions }: { predictions: Prediction[] }) {
       </Card>
       <Card>
         <CardContent className="p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{outcomeCounts['H'] || 0}</div>
+          <div className="text-2xl font-bold text-blue-600">
+            {outcomeCounts["H"] || 0}
+          </div>
           <div className="text-xs text-muted-foreground">Home Predictions</div>
         </CardContent>
       </Card>
       <Card>
         <CardContent className="p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">{outcomeCounts['A'] || 0}</div>
+          <div className="text-2xl font-bold text-red-600">
+            {outcomeCounts["A"] || 0}
+          </div>
           <div className="text-xs text-muted-foreground">Away Predictions</div>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
 
 export default function PredictionsPage() {
-  const { data: activeModel } = useActiveModel()
-  const [view, setView] = useState<'upcoming' | 'history'>('upcoming')
-  
-  const { data: upcomingData, isLoading: upcomingLoading, refetch: refetchUpcoming } = useUpcomingPredictions(7)
-  const { data: historyData, isLoading: historyLoading, refetch: refetchHistory } = usePredictionHistory()
+  const { data: activeModel } = useActiveModel();
+  const [view, setView] = useState<"upcoming" | "history">("upcoming");
 
-  const predictions = view === 'upcoming' 
-    ? (upcomingData?.items ?? [])
-    : (historyData?.items ?? [])
-  
-  const isLoading = view === 'upcoming' ? upcomingLoading : historyLoading
-  const refetch = view === 'upcoming' ? refetchUpcoming : refetchHistory
+  const {
+    data: upcomingData,
+    isLoading: upcomingLoading,
+    refetch: refetchUpcoming,
+  } = useUpcomingPredictions(7);
+  const {
+    data: historyData,
+    isLoading: historyLoading,
+    refetch: refetchHistory,
+  } = usePredictionHistory();
+
+  const predictions =
+    view === "upcoming" ? (upcomingData?.items ?? []) : (historyData?.items ?? []);
+
+  const isLoading = view === "upcoming" ? upcomingLoading : historyLoading;
+  const refetch = view === "upcoming" ? refetchUpcoming : refetchHistory;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <Brain className="h-8 w-8" />
             Predictions
           </h1>
@@ -139,7 +167,10 @@ export default function PredictionsPage() {
               {activeModel.algorithm} v{activeModel.version}
             </Badge>
           )}
-          <Select value={view} onValueChange={(v) => setView(v as 'upcoming' | 'history')}>
+          <Select
+            value={view}
+            onValueChange={(v) => setView(v as "upcoming" | "history")}
+          >
             <SelectTrigger className="w-40">
               <SelectValue />
             </SelectTrigger>
@@ -149,7 +180,7 @@ export default function PredictionsPage() {
             </SelectContent>
           </Select>
           <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
         </div>
@@ -172,7 +203,7 @@ export default function PredictionsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>
-                  {view === 'upcoming' ? 'Upcoming Predictions' : 'Prediction History'}
+                  {view === "upcoming" ? "Upcoming Predictions" : "Prediction History"}
                 </CardTitle>
                 <CardDescription>
                   {predictions.length} predictions from the active model
@@ -187,7 +218,7 @@ export default function PredictionsPage() {
                       <TableHead>Probabilities (H/D/A)</TableHead>
                       <TableHead>Confidence</TableHead>
                       <TableHead>Date</TableHead>
-                      {view === 'history' && <TableHead>ROI</TableHead>}
+                      {view === "history" && <TableHead>ROI</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -201,12 +232,12 @@ export default function PredictionsPage() {
           ) : (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <Brain className="h-12 w-12 mb-4" />
+                <Brain className="mb-4 h-12 w-12" />
                 <p className="text-lg font-medium">No predictions found</p>
                 <p className="text-sm">
-                  {view === 'upcoming' 
-                    ? 'Generate predictions for upcoming matches first'
-                    : 'No historical predictions available'}
+                  {view === "upcoming"
+                    ? "Generate predictions for upcoming matches first"
+                    : "No historical predictions available"}
                 </p>
               </CardContent>
             </Card>
@@ -214,5 +245,5 @@ export default function PredictionsPage() {
         </>
       )}
     </div>
-  )
+  );
 }

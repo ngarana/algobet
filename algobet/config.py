@@ -11,7 +11,7 @@ Configuration can be loaded from:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -145,7 +145,7 @@ class AlgobetConfig(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     cli: CLIConfig = Field(default_factory=CLIConfig)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
         return {
             "app_name": self.app_name,

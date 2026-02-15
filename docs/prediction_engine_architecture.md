@@ -298,23 +298,19 @@ algobet/
     │   ├── split.py          # Temporal data splitting
     │   └── tuner.py          # Hyperparameter tuning
     │
-    ├── evaluation/           # Model evaluation
-    │   ├── __init__.py
-    │   ├── metrics.py        # Metric calculations
-    │   ├── calibration.py    # Calibration analysis
-    │   └── reports.py        # Report generation
+    ├── cli/                  # CLI command groups
+    │   ├── dev_tools.py      # CLI entry point
+    │   └── commands/         # Individual command groups
+    │       ├── db.py         # Database management
+    │       ├── query.py      # Data listing
+    │       ├── models.py     # Model management
+    │       ├── analyze.py    # Analysis/backtesting
+    │       └── train.py      # ML TRAINING COMMANDS
     │
-    ├── service/              # Prediction service
-    │   ├── __init__.py
-    │   ├── predictor.py      # Main prediction interface
-    │   ├── batch.py          # Batch prediction handler
-    │   └── value.py          # Value bet detection
-    │
-    └── cli/                  # Prediction CLI commands
-        ├── __init__.py
-        ├── train.py          # Training commands
-        ├── predict.py        # Prediction commands
-        └── evaluate.py       # Evaluation commands
+    └── services/             # Service layer
+        ├── base.py
+        ├── prediction_service.py # MAIN PREDICTION INTERFACE
+        └── ...
 ```
 
 ### 3.2 File Organization Details
@@ -653,17 +649,27 @@ class PredictionService:
 
     def predict_match(
         self,
-        match_id: int,
+        match: Match,
         model_version: str | None = None
-    ) -> MatchPrediction:
+    ) -> PredictionResult:
         """Generate prediction for a single match.
 
+        Attempts to use full FeaturePipeline when available,
+        otherwise falls back to basic FormCalculator.
+
         Args:
-            match_id: Database ID of the match
+            match: Match object to predict
             model_version: Specific model version, or None for default
 
         Returns:
-            MatchPrediction with probabilities and metadata
+            PredictionResult with probabilities and metadata
+        """
+        ...
+
+    def generate_features_v2(self, match: Match) -> np.ndarray | None:
+        """Generate rich features (~50+) using FeaturePipeline.
+
+        Returns None if no fitted pipeline is found on disk.
         """
         ...
 
@@ -1195,22 +1201,19 @@ def backtest(
 ### 6.3 CLI Integration Point
 
 ```python
-# algobet/cli.py - Integration with existing CLI
+# algobet/cli/dev_tools.py - Integration with existing CLI
 
 import click
-from .predictions.cli.train import predictions_cli
+from algobet.cli.commands.train import train_cli
 
+@click.group()
 def cli():
     """AlgoBet - Football match database and prediction engine."""
     pass
 
-# Add existing commands...
-cli.add_command(init)
-cli.add_command(scrape)
+# Register command groups
+cli.add_command(train_cli)
 # ... etc
-
-# Add prediction commands
-cli.add_command(predictions_cli)
 ```
 
 ---
@@ -1334,35 +1337,30 @@ CREATE INDEX IF NOT EXISTS idx_features_gin ON model_features USING GIN (feature
 
 ## Appendix B: Example Usage Flow
 
-```bash
 # 1. Initialize database (existing command)
-algobet init
+algobet db init
 
 # 2. Scrape historical data (existing command)
-algobet scrape-all --url "..." --from-season "2020/2021"
+algobet scrap-results --url "..."
 
 # 3. Train a model
-algobet predictions train --model-type xgboost --tournament "Premier League"
-# Output: Model v1.0.0_20240115_143022 trained successfully
+algobet train run --model-type xgboost --tune --description "Season 24/25 model"
+# Output: Training COMPLETE: Model version: v1.0.0_...
 
-# 4. Evaluate the model
-algobet predictions evaluate --model-version v1.0.0_20240115_143022
+# 4. Evaluate the model (integrated into training)
+# TrainingPipeline.run() provides metrics automatically.
 
-# 5. Promote to production
-algobet predictions promote v1.0.0_20240115_143022
+# 5. List models
+algobet model list
 
-# 6. Scrape upcoming matches (existing command)
-algobet scrape-upcoming
+# 6. Generate predictions (via API or scheduler)
+# Scheduled task: daily-predictions
 
-# 7. Generate predictions
-algobet predictions predict --days 7 --format table
+# 7. Find value bets
+algobet analyze value-bets --min-ev 0.1 --days 3
 
-# 8. Find value bets
-algobet predictions value-bets --min-ev 0.1 --days 3
-
-# 9. Run backtest
-algobet predictions backtest --from-date 2023-01-01 --to-date 2023-12-31
-```
+# 8. Run backtest
+algobet analyze backtest --model-version v1.0.0_...
 
 ---
 

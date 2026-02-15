@@ -1,5 +1,6 @@
 """Unified prediction service for generating match predictions."""
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,8 +13,14 @@ from sqlalchemy.orm import Session
 from algobet.models import Match, ModelVersion, Prediction, Tournament
 from algobet.predictions.data.queries import MatchRepository
 from algobet.predictions.features.form_features import FormCalculator
+from algobet.predictions.features.pipeline import (
+    FeaturePipeline,
+    prepare_match_dataframe,
+)
 from algobet.predictions.models.registry import ModelRegistry
 from algobet.services.base import BaseService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -33,21 +40,65 @@ class PredictionResult:
 
 
 class PredictionService(BaseService[Any]):
-    """Service for generating and managing predictions."""
+    """Service for generating and managing predictions.
+
+    Uses the full FeaturePipeline when a fitted pipeline is available on disk,
+    otherwise falls back to the basic FormCalculator with 6 features.
+    """
 
     def __init__(
-        self, session: Session, models_path: Path = Path("data/models")
+        self,
+        session: Session,
+        models_path: Path = Path("data/models"),
+        pipelines_path: Path = Path("data/pipelines"),
     ) -> None:
         """Initialize the prediction service.
 
         Args:
             session: SQLAlchemy database session
             models_path: Path to model storage directory
+            pipelines_path: Path to pipeline storage directory
         """
         super().__init__(session)
         self.registry = ModelRegistry(storage_path=models_path, session=session)
         self.repo = MatchRepository(session)
         self.calc = FormCalculator(self.repo)
+        self.pipelines_path = Path(pipelines_path)
+        self._feature_pipeline: FeaturePipeline | None = None
+
+    def _load_feature_pipeline(
+        self,
+        schema_version: str = "v1.0",
+    ) -> FeaturePipeline | None:
+        """Load a fitted FeaturePipeline from disk if available.
+
+        Args:
+            schema_version: Feature schema version to load
+
+        Returns:
+            Loaded FeaturePipeline or None if not available
+        """
+        if self._feature_pipeline is not None:
+            return self._feature_pipeline
+
+        pipeline_dir = self.pipelines_path / schema_version
+        if pipeline_dir.exists() and (pipeline_dir / "config.json").exists():
+            try:
+                self._feature_pipeline = FeaturePipeline.load(pipeline_dir)
+                logger.info(
+                    "Loaded FeaturePipeline from %s (%d features)",
+                    pipeline_dir,
+                    len(self._feature_pipeline.feature_names),
+                )
+                return self._feature_pipeline
+            except Exception as e:
+                logger.warning(
+                    "Failed to load FeaturePipeline from %s: %s. "
+                    "Falling back to FormCalculator.",
+                    pipeline_dir,
+                    e,
+                )
+        return None
 
     def load_model(self, model_version: str | None = None) -> tuple[Any, str]:
         """Load model from registry.
@@ -66,7 +117,10 @@ class PredictionService(BaseService[Any]):
             return model, metadata.version
 
     def generate_features(self, match: Match) -> dict[str, float]:
-        """Generate ML features for a match.
+        """Generate ML features for a match using FormCalculator (basic, 6 features).
+
+        This is the fallback method. Prefer generate_features_v2() when a
+        fitted FeaturePipeline is available for richer feature generation.
 
         Args:
             match: Match object to generate features for
@@ -95,19 +149,53 @@ class PredictionService(BaseService[Any]):
             ),
         }
 
+    def generate_features_v2(self, match: Match) -> np.ndarray | None:
+        """Generate ML features using the full FeaturePipeline.
+
+        Produces ~50+ features including odds, temporal, tournament context,
+        H2H, and multi-window form features. Returns None if no fitted
+        pipeline is available, in which case callers should fall back to
+        generate_features().
+
+        Args:
+            match: Match object to generate features for
+
+        Returns:
+            Feature array (1, n_features) or None if pipeline unavailable
+        """
+        pipeline = self._load_feature_pipeline()
+        if pipeline is None or not pipeline.is_fitted:
+            return None
+
+        match_df = prepare_match_dataframe([match])
+        try:
+            features = pipeline.transform(match_df, self.repo)
+            return features
+        except Exception as e:
+            logger.warning(
+                "FeaturePipeline transform failed for match %d: %s. "
+                "Falling back to FormCalculator.",
+                match.id,
+                e,
+            )
+            return None
+
     def get_prediction(
-        self, model: Any, features: dict[str, float]
+        self, model: Any, features: dict[str, float] | np.ndarray
     ) -> tuple[str, float, dict[str, float]]:
         """Get prediction from model.
 
         Args:
             model: Loaded model object
-            features: Feature dictionary
+            features: Feature dictionary or numpy array
 
         Returns:
             Tuple of (predicted_outcome, confidence, probabilities)
         """
-        feature_array = np.array([list(features.values())])
+        if isinstance(features, dict):
+            feature_array = np.array([list(features.values())])
+        else:
+            feature_array = features if features.ndim == 2 else features.reshape(1, -1)
 
         try:
             probs = model.predict_proba(feature_array)[0]
@@ -133,6 +221,9 @@ class PredictionService(BaseService[Any]):
     ) -> PredictionResult:
         """Generate prediction for a single match.
 
+        Attempts to use the full FeaturePipeline for richer predictions.
+        Falls back to FormCalculator if the pipeline is not available.
+
         Args:
             match: Match object to predict
             model_version: Optional specific model version
@@ -141,7 +232,14 @@ class PredictionService(BaseService[Any]):
             PredictionResult with prediction details
         """
         model, version = self.load_model(model_version)
-        features = self.generate_features(match)
+
+        # Try full FeaturePipeline first, fall back to FormCalculator
+        v2_features = self.generate_features_v2(match)
+        if v2_features is not None:
+            features: dict[str, float] | np.ndarray = v2_features
+        else:
+            features = self.generate_features(match)
+
         outcome, confidence, probs = self.get_prediction(model, features)
 
         return PredictionResult(

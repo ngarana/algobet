@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -70,7 +70,7 @@ def display_backtest_results(result: EvaluationResult) -> None:
     click.echo("\n" + "=" * 60)
 
 
-def display_value_bets(value_bets: list[dict], min_ev: float) -> None:
+def display_value_bets(value_bets: list[dict[str, Any]], min_ev: float) -> None:
     """Display value bets in a formatted table."""
     click.echo(f"\n{'=' * 80}")
     click.echo(f"VALUE BETS (EV ≥ {min_ev:.1%})")
@@ -99,7 +99,7 @@ def display_value_bets(value_bets: list[dict], min_ev: float) -> None:
 
 
 def display_calibration_improvement(
-    raw_metrics: dict, cal_metrics: dict, metric_names: list[str]
+    raw_metrics: dict[str, Any], cal_metrics: dict[str, Any], metric_names: list[str]
 ) -> None:
     """Display calibration improvement metrics."""
     click.echo("\n📊 Calibration Improvement:")

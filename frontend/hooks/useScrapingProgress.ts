@@ -1,14 +1,14 @@
 // WebSocket hook for real-time scraping progress updates
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from "react";
 
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/api/v1';
+const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
 
 export interface ScrapingProgress {
-  type: 'progress' | 'status' | 'connection' | 'subscription_confirmed';
+  type: "progress" | "status" | "connection" | "subscription_confirmed";
   job_id: string;
   progress?: number;
-  status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status?: "pending" | "running" | "completed" | "failed" | "cancelled";
   matches_scraped?: number;
   message?: string;
   timestamp?: string;
@@ -60,12 +60,12 @@ export function useScrapingProgress(options: UseScrapingProgressOptions = {}) {
         setCurrentProgress(progress);
         onProgress?.(progress);
       } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+        console.error("Error parsing WebSocket message:", error);
       }
     };
 
     ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      console.error("WebSocket error:", error);
       onError?.(error);
     };
 
@@ -92,19 +92,23 @@ export function useScrapingProgress(options: UseScrapingProgressOptions = {}) {
 
   const subscribe = useCallback((targetJobId: string) => {
     if (wsRef.current) {
-      wsRef.current.send(JSON.stringify({
-        action: 'subscribe',
-        job_id: targetJobId,
-      }));
+      wsRef.current.send(
+        JSON.stringify({
+          action: "subscribe",
+          job_id: targetJobId,
+        })
+      );
     }
   }, []);
 
   const unsubscribe = useCallback((targetJobId: string) => {
     if (wsRef.current) {
-      wsRef.current.send(JSON.stringify({
-        action: 'unsubscribe',
-        job_id: targetJobId,
-      }));
+      wsRef.current.send(
+        JSON.stringify({
+          action: "unsubscribe",
+          job_id: targetJobId,
+        })
+      );
     }
   }, []);
 

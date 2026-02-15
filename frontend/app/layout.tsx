@@ -1,21 +1,17 @@
-import './globals.css'
-import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
-import { Providers } from './providers'
-import { Navbar, Sidebar, Breadcrumb } from '@/components/layout'
+import "./globals.css";
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import { Providers } from "./providers";
+import { Navbar, Sidebar, Breadcrumb } from "@/components/layout";
 
-const inter = Inter({ subsets: ['latin'] })
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'AlgoBet - Football Match Predictions',
-  description: 'AI-powered football match predictions and analysis',
-}
+  title: "AlgoBet - Football Match Predictions",
+  description: "AI-powered football match predictions and analysis",
+};
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
@@ -35,5 +31,5 @@ export default function RootLayout({
         </Providers>
       </body>
     </html>
-  )
+  );
 }

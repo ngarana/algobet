@@ -1,11 +1,11 @@
-import { Skeleton } from '@/components/ui/skeleton'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export default function ScrapingLoading() {
   return (
     <div className="space-y-6">
       <div>
-        <Skeleton className="h-8 w-32 mb-2" />
+        <Skeleton className="mb-2 h-8 w-32" />
         <Skeleton className="h-4 w-64" />
       </div>
 
@@ -20,5 +20,5 @@ export default function ScrapingLoading() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

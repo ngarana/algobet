@@ -16,7 +16,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
 
-class FeatureScaler(BaseEstimator, TransformerMixin):
+class FeatureScaler(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     """Standard scaler with missing value handling.
 
     Scales features to zero mean and unit variance, handling missing
@@ -86,10 +86,7 @@ class FeatureScaler(BaseEstimator, TransformerMixin):
         if self._imputer is None or self._scaler is None:
             raise ValueError("Scaler not fitted. Call fit() first.")
 
-        if isinstance(X, pd.DataFrame):
-            X_array = X.values
-        else:
-            X_array = X
+        X_array = X.values if isinstance(X, pd.DataFrame) else X
 
         X_imputed = self._imputer.transform(X_array)
         return self._scaler.transform(X_imputed)
@@ -166,7 +163,7 @@ class FeatureScaler(BaseEstimator, TransformerMixin):
         return scaler
 
 
-class MissingValueHandler(BaseEstimator, TransformerMixin):
+class MissingValueHandler(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     """Handle missing values with configurable strategies.
 
     Provides flexible missing value imputation with support for
@@ -218,7 +215,11 @@ class MissingValueHandler(BaseEstimator, TransformerMixin):
         self._imputer.fit(X_array)
 
         if self.add_indicator:
-            self._n_missing_features = len(self._imputer.indicator_.features_) if hasattr(self._imputer, "indicator_") else 0
+            self._n_missing_features = (
+                len(self._imputer.indicator_.features_)
+                if hasattr(self._imputer, "indicator_")
+                else 0
+            )
 
         return self
 
@@ -234,10 +235,7 @@ class MissingValueHandler(BaseEstimator, TransformerMixin):
         if self._imputer is None:
             raise ValueError("Imputer not fitted. Call fit() first.")
 
-        if isinstance(X, pd.DataFrame):
-            X_array = X.values
-        else:
-            X_array = X
+        X_array = X.values if isinstance(X, pd.DataFrame) else X
 
         return self._imputer.transform(X_array)
 
@@ -259,7 +257,7 @@ class MissingValueHandler(BaseEstimator, TransformerMixin):
         return names
 
 
-class FeatureSelector(BaseEstimator, TransformerMixin):
+class FeatureSelector(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     """Select features based on importance or variance.
 
     Supports multiple selection strategies for feature subset selection.
@@ -301,7 +299,9 @@ class FeatureSelector(BaseEstimator, TransformerMixin):
             X_array = X.values
         else:
             X_array = X
-            self._input_feature_names = [f"feature_{i}" for i in range(X_array.shape[1])]
+            self._input_feature_names = [
+                f"feature_{i}" for i in range(X_array.shape[1])
+            ]
 
         if self.selection_type == "variance":
             # Select features with variance above threshold
@@ -322,7 +322,9 @@ class FeatureSelector(BaseEstimator, TransformerMixin):
             # Keep all features
             self._selected_indices = np.arange(X_array.shape[1])
 
-        self._selected_names = [self._input_feature_names[i] for i in self._selected_indices]
+        self._selected_names = [
+            self._input_feature_names[i] for i in self._selected_indices
+        ]
 
         return self
 
@@ -338,10 +340,7 @@ class FeatureSelector(BaseEstimator, TransformerMixin):
         if self._selected_indices is None:
             raise ValueError("Selector not fitted. Call fit() first.")
 
-        if isinstance(X, pd.DataFrame):
-            X_array = X.values
-        else:
-            X_array = X
+        X_array = X.values if isinstance(X, pd.DataFrame) else X
 
         return X_array[:, self._selected_indices]
 
@@ -355,7 +354,7 @@ class FeatureSelector(BaseEstimator, TransformerMixin):
         return self._selected_names or []
 
 
-class OddsTransformer(BaseEstimator, TransformerMixin):
+class OddsTransformer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     """Transform betting odds to implied probabilities and derived features.
 
     Specialized transformer for odds-related feature engineering.
@@ -376,9 +375,7 @@ class OddsTransformer(BaseEstimator, TransformerMixin):
         self.add_value_features = add_value_features
         self._marginal_stats: dict[str, float] = {}
 
-    def fit(
-        self, X: pd.DataFrame | np.ndarray, y: Any = None
-    ) -> "OddsTransformer":
+    def fit(self, X: pd.DataFrame | np.ndarray, y: Any = None) -> "OddsTransformer":
         """Fit transformer to learn typical margin statistics.
 
         Args:
@@ -388,16 +385,16 @@ class OddsTransformer(BaseEstimator, TransformerMixin):
         Returns:
             self
         """
-        if isinstance(X, pd.DataFrame):
+        if isinstance(X, pd.DataFrame) and all(
+            c in X.columns
+            for c in ["implied_prob_home", "implied_prob_draw", "implied_prob_away"]
+        ):
             # Calculate typical margin
-            if all(c in X.columns for c in ["implied_prob_home", "implied_prob_draw", "implied_prob_away"]):
-                margins = (
-                    X["implied_prob_home"]
-                    + X["implied_prob_draw"]
-                    + X["implied_prob_away"]
-                )
-                self._marginal_stats["mean_margin"] = margins.mean()
-                self._marginal_stats["std_margin"] = margins.std()
+            margins = (
+                X["implied_prob_home"] + X["implied_prob_draw"] + X["implied_prob_away"]
+            )
+            self._marginal_stats["mean_margin"] = margins.mean()
+            self._marginal_stats["std_margin"] = margins.std()
 
         return self
 
@@ -413,17 +410,18 @@ class OddsTransformer(BaseEstimator, TransformerMixin):
         if isinstance(X, pd.DataFrame):
             result = X.copy()
 
-            if self.add_value_features:
+            if self.add_value_features and "implied_prob_home" in result.columns:
                 # Add odds-derived value features
-                if "implied_prob_home" in result.columns:
-                    result["odds_balance"] = (
-                        result["implied_prob_home"] - result["implied_prob_away"]
-                    )
-                    result["draw_likelihood"] = result["implied_prob_draw"]
+                result["odds_balance"] = (
+                    result["implied_prob_home"] - result["implied_prob_away"]
+                )
+                result["draw_likelihood"] = result["implied_prob_draw"]
 
-                    # Certainty index (how confident is the market)
-                    max_prob = result[["implied_prob_home", "implied_prob_draw", "implied_prob_away"]].max(axis=1)
-                    result["market_certainty"] = max_prob
+                # Certainty index (how confident is the market)
+                max_prob = result[
+                    ["implied_prob_home", "implied_prob_draw", "implied_prob_away"]
+                ].max(axis=1)
+                result["market_certainty"] = max_prob
 
             return result.values
         else:
@@ -437,7 +435,7 @@ class OddsTransformer(BaseEstimator, TransformerMixin):
         return names
 
 
-class TransformerPipeline(BaseEstimator, TransformerMixin):
+class TransformerPipeline(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     """Chain multiple transformers into a single pipeline.
 
     Simplified version of sklearn Pipeline for feature transformation.
@@ -464,7 +462,7 @@ class TransformerPipeline(BaseEstimator, TransformerMixin):
         """
         current_X = X
 
-        for name, transformer in self.steps:
+        for _name, transformer in self.steps:
             if hasattr(transformer, "fit"):
                 transformer.fit(current_X, y)
             if hasattr(transformer, "transform"):
@@ -487,7 +485,7 @@ class TransformerPipeline(BaseEstimator, TransformerMixin):
 
         current_X = X
 
-        for name, transformer in self.steps:
+        for _name, transformer in self.steps:
             if hasattr(transformer, "transform"):
                 current_X = transformer.transform(current_X)
 
@@ -501,7 +499,9 @@ class TransformerPipeline(BaseEstimator, TransformerMixin):
     def get_params_dict(self) -> dict[str, Any]:
         """Get parameters for serialization."""
         return {
-            "steps": [(name, type(transformer).__name__) for name, transformer in self.steps],
+            "steps": [
+                (name, type(transformer).__name__) for name, transformer in self.steps
+            ],
         }
 
     def save(self, path: Path) -> None:

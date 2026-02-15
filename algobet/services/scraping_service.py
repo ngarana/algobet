@@ -357,6 +357,10 @@ class ScrapingService(BaseService[Any]):
                     existing.odds_home = match_data["odds_home"]
                     existing.odds_draw = match_data.get("odds_draw")
                     existing.odds_away = match_data.get("odds_away")
+
+                # Update tournament if missing
+                if existing.tournament_id is None and tournament:
+                    existing.tournament_id = tournament.id
             else:
                 # Create new match
                 match = Match(

@@ -6,6 +6,8 @@ for CLI and API error handling.
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class AlgoBetError(Exception):
     """Base exception for all AlgoBet errors.
@@ -19,7 +21,11 @@ class AlgoBetError(Exception):
     exit_code: int = 1
 
     def __init__(
-        self, message: str, *, exit_code: int | None = None, details: dict | None = None
+        self,
+        message: str,
+        *,
+        exit_code: int | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the exception.
 
@@ -105,7 +111,7 @@ class NoActiveModelError(ModelError):
 
     exit_code = 24
 
-    def __init__(self, *, details: dict | None = None) -> None:
+    def __init__(self, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             "No active model found. Train or activate a model first.", details=details
         )

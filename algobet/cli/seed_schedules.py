@@ -6,6 +6,7 @@ import click
 
 from algobet.database import session_scope
 from algobet.services.scheduler_service import SchedulerService
+from algobet.services.scheduler_tasks import register_default_tasks
 
 DEFAULT_SCHEDULES = [
     {
@@ -68,6 +69,9 @@ DEFAULT_SCHEDULES = [
 @click.option("--force", is_flag=True, help="Overwrite existing schedules")
 def seed_schedules(dry_run: bool, force: bool) -> None:
     """Seed default scheduled tasks into the database."""
+    # Ensure task types are registered
+    register_default_tasks()
+
     with session_scope() as session:
         scheduler = SchedulerService(session)
 

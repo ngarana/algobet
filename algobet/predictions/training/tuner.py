@@ -8,21 +8,18 @@ data leakage.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
 from sklearn.metrics import log_loss
 
 from algobet.predictions.training.classifiers import (
-    MatchPredictor,
     ModelConfig,
     create_predictor,
 )
 from algobet.predictions.training.split import (
     ExpandingWindowSplitter,
-    TemporalSplit,
-    encode_targets,
 )
 
 # Try importing optuna
@@ -32,7 +29,7 @@ try:
     HAS_OPTUNA = True
 except ImportError:
     HAS_OPTUNA = False
-    optuna = None  # type: ignore[misc,assignment]
+    optuna = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     import optuna as optuna_types
@@ -153,8 +150,9 @@ class HyperparameterTuner:
         Returns:
             TuningResult with best parameters and score
         """
+
         # Create objective function
-        def objective(trial: "optuna_types.Trial") -> float:
+        def objective(trial: optuna_types.Trial) -> float:
             return self._objective(
                 trial=trial,
                 X=X,
@@ -249,7 +247,9 @@ class HyperparameterTuner:
             if isinstance(low, int) and isinstance(high, int):
                 params[param_name] = trial.suggest_int(param_name, low, high)
             elif isinstance(low, float) or isinstance(high, float):
-                params[param_name] = trial.suggest_float(param_name, low, high, log=param_name == "learning_rate")
+                params[param_name] = trial.suggest_float(
+                    param_name, low, high, log=param_name == "learning_rate"
+                )
             elif isinstance(low, str):
                 # Categorical
                 choices = [low, high] if high is not None else [low]
@@ -373,7 +373,7 @@ class GridSearchTuner:
         all_trials = []
 
         for i, values in enumerate(combinations):
-            params = dict(zip(param_names, values))
+            params = dict(zip(param_names, values, strict=False))
 
             config = ModelConfig(
                 model_type=self.model_type,
