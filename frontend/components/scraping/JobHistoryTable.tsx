@@ -21,16 +21,13 @@ import {
 
 export interface JobHistoryItem {
   id: string
-  job_type: string
-  url: string
+  scraping_type: string
+  tournament_url: string | null
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   created_at: string
-  progress: {
-    current_page: number
-    total_pages: number
-    matches_scraped: number
-    matches_saved: number
-  } | null
+  progress: number
+  matches_scraped: number
+  message?: string | null
 }
 
 interface JobHistoryTableProps {
@@ -109,44 +106,38 @@ export function JobHistoryTable({ jobs, isLoading = false, onRefresh }: JobHisto
                   {job.id.slice(0, 8)}...
                 </TableCell>
                 <TableCell>
-                  <Badge variant={job.job_type === 'upcoming' ? 'default' : 'secondary'}>
-                    {job.job_type}
+                  <Badge variant={job.scraping_type === 'upcoming' ? 'default' : 'secondary'}>
+                    {job.scraping_type}
                   </Badge>
                 </TableCell>
                 <TableCell>{getStatusBadge(job.status)}</TableCell>
                 <TableCell className="max-w-xs truncate">
-                  <a
-                    href={job.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    {job.url}
-                  </a>
+                  {job.tournament_url ? (
+                    <a
+                      href={job.tournament_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      {job.tournament_url}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground text-sm">All</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {new Date(job.created_at).toLocaleString()}
                 </TableCell>
                 <TableCell>
-                  {job.progress ? (
-                    <div className="space-y-1 min-w-32">
-                      <div className="flex justify-between text-xs">
-                        <span>S: {job.progress.matches_scraped}</span>
-                        <span>V: {job.progress.matches_saved}</span>
-                      </div>
-                      {job.progress.total_pages > 0 && (
-                        <Progress className="h-2">
-                          <ProgressValue
-                            value={
-                              (job.progress.current_page / job.progress.total_pages) * 100
-                            }
-                          />
-                        </Progress>
-                      )}
+                  <div className="space-y-1 min-w-32">
+                    <div className="flex justify-between text-xs">
+                      <span>M: {job.matches_scraped}</span>
+                      <span>{job.progress.toFixed(0)}%</span>
                     </div>
-                  ) : (
-                    <span className="text-muted-foreground text-sm">N/A</span>
-                  )}
+                    <Progress className="h-2">
+                      <ProgressValue value={job.progress} />
+                    </Progress>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}

@@ -1,6 +1,7 @@
 """API routers for AlgoBet"""
 
 from .matches import router as matches_router
+from .ml_operations import router as ml_operations_router
 from .models import router as models_router
 from .predictions import router as predictions_router
 from .schedules import router as schedules_router
@@ -20,4 +21,5 @@ __all__ = [
     "value_bets_router",
     "scraping_router",
     "schedules_router",
+    "ml_operations_router",
 ]

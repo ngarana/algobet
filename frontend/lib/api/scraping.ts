@@ -1,115 +1,90 @@
-// API client functions for scraping operations
+/**
+ * API client functions for scraping operations
+ */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+import { apiGet, apiPost, buildQueryString } from './client'
+import { z } from 'zod'
+import { createPaginatedResponseSchema } from '@/lib/types/schemas'
+import type { PaginatedResponse } from '@/lib/types/api'
 
-export interface ScrapingProgress {
-  job_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  current_page: number;
-  total_pages: number;
-  matches_scraped: number;
-  matches_saved: number;
-  message: string;
-  error: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-}
+// Zod schemas for runtime validation
+export const ScrapingProgressSchema = z.object({
+  job_id: z.string(),
+  progress: z.number(),
+  message: z.string(),
+  matches_scraped: z.number(),
+  status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled']).optional(),
+  timestamp: z.string(),
+})
 
-export interface ScrapingJob {
-  id: string;
-  job_type: string;
-  url: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  created_at: string;
-  progress: ScrapingProgress | null;
-}
+export const ScrapingJobSchema = z.object({
+  id: z.string(),
+  scraping_type: z.enum(['upcoming', 'results']),
+  tournament_url: z.string().nullable(),
+  tournament_name: z.string().nullable(),
+  season: z.string().nullable(),
+  status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled']),
+  progress: z.number(),
+  message: z.string().nullable(),
+  created_at: z.string(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  matches_scraped: z.number(),
+  errors: z.array(z.string()),
+})
 
-export interface ScrapeUpcomingRequest {
-  url?: string;
-}
+export const scrapingJobArraySchema = createPaginatedResponseSchema(ScrapingJobSchema)
 
-export interface ScrapeResultsRequest {
-  url: string;
-  max_pages?: number;
-}
+export const ScrapeUpcomingRequestSchema = z.object({
+  url: z.string().optional(),
+})
+
+export const ScrapeResultsRequestSchema = z.object({
+  url: z.string(),
+  max_pages: z.number().optional(),
+})
+
+// Types derived from schemas
+export type ScrapingProgress = z.infer<typeof ScrapingProgressSchema>
+export type ScrapingJob = z.infer<typeof ScrapingJobSchema>
+export type ScrapeUpcomingRequest = z.infer<typeof ScrapeUpcomingRequestSchema>
+export type ScrapeResultsRequest = z.infer<typeof ScrapeResultsRequestSchema>
 
 /**
  * Scrape upcoming matches from OddsPortal
  */
 export async function scrapeUpcomingMatches(request: ScrapeUpcomingRequest = {}): Promise<ScrapingJob> {
-  const response = await fetch(`${API_BASE_URL}/scraping/upcoming`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to scrape upcoming matches: ${response.statusText}`);
-  }
-
-  return response.json();
+  return apiPost('/scraping/upcoming', request, ScrapingJobSchema)
 }
 
 /**
  * Scrape historical results from OddsPortal
  */
 export async function scrapeResults(request: ScrapeResultsRequest): Promise<ScrapingJob> {
-  const response = await fetch(`${API_BASE_URL}/scraping/results`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to scrape results: ${response.statusText}`);
-  }
-
-  return response.json();
+  return apiPost('/scraping/results', request, ScrapingJobSchema)
 }
 
 /**
  * Get all scraping jobs
  */
-export async function getScrapingJobs(status?: string): Promise<ScrapingJob[]> {
-  const url = status
-    ? `${API_BASE_URL}/scraping/jobs?status=${status}`
-    : `${API_BASE_URL}/scraping/jobs`;
+export async function getScrapingJobs(status?: string): Promise<PaginatedResponse<ScrapingJob>> {
+  const params: Record<string, unknown> = {}
+  if (status) params.status = status
 
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to get scraping jobs: ${response.statusText}`);
-  }
-
-  return response.json();
+  const queryString = buildQueryString(params)
+  return apiGet(`/scraping/jobs${queryString}`, scrapingJobArraySchema)
 }
 
 /**
  * Get a specific scraping job by ID
  */
 export async function getScrapingJob(jobId: string): Promise<ScrapingJob> {
-  const response = await fetch(`${API_BASE_URL}/scraping/jobs/${jobId}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to get scraping job: ${response.statusText}`);
-  }
-
-  return response.json();
+  return apiGet(`/scraping/jobs/${jobId}`, ScrapingJobSchema)
 }
 
 /**
  * Cancel a scraping job
  */
 export async function cancelScrapingJob(jobId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/scraping/jobs/${jobId}/cancel`, {
-    method: 'POST',
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to cancel scraping job: ${response.statusText}`);
-  }
+  return apiPost(`/scraping/jobs/${jobId}/cancel`, {})
 }

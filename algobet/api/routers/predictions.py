@@ -13,6 +13,7 @@ from algobet.api.dependencies import get_db
 from algobet.api.schemas import (
     MatchStatus,
     ModelVersionResponse,
+    PaginatedResponse,
     PredictionResponse,
     PredictionWithMatchResponse,
 )
@@ -32,7 +33,7 @@ class GeneratePredictionsRequest(BaseModel):
     days_ahead: int | None = None
 
 
-@router.get("", response_model=list[PredictionResponse])
+@router.get("", response_model=PaginatedResponse[PredictionResponse])
 def list_predictions(
     match_id: int | None = Query(None, description="Filter by match ID"),
     model_version_id: int | None = Query(
@@ -89,11 +90,12 @@ def list_predictions(
     if min_confidence:
         query = query.filter(Prediction.confidence >= min_confidence)
 
+    total = query.count()
     predictions = query.order_by(Prediction.predicted_at.desc()).all()
 
-    result = []
+    items = []
     for pred in predictions:
-        result.append(
+        items.append(
             PredictionResponse(
                 id=pred.id,
                 match_id=pred.match_id,
@@ -109,7 +111,12 @@ def list_predictions(
             )
         )
 
-    return result
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        limit=50,  # Default limit if not specified
+        offset=0,
+    )
 
 
 @router.post("/generate", response_model=dict[str, Any])
@@ -230,7 +237,7 @@ def generate_predictions(
     }
 
 
-@router.get("/upcoming", response_model=list[PredictionWithMatchResponse])
+@router.get("/upcoming", response_model=PaginatedResponse[PredictionWithMatchResponse])
 def get_upcoming_predictions(
     days: int = Query(7, ge=1, le=30, description="Days ahead for predictions"),
     db: Session = Depends(get_db),
@@ -262,7 +269,8 @@ def get_upcoming_predictions(
         .all()
     )
 
-    result = []
+    total = len(predictions)
+    items = []
     for pred in predictions:
         match = pred.match
 
@@ -289,7 +297,7 @@ def get_upcoming_predictions(
         # Build ModelVersionResponse
         model_version = ModelVersionResponse.model_validate(pred.model_version)
 
-        result.append(
+        items.append(
             {
                 "id": pred.id,
                 "match_id": pred.match_id,
@@ -307,16 +315,21 @@ def get_upcoming_predictions(
             }
         )
 
-    return result
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        limit=len(items),
+        offset=0,
+    )
 
 
-@router.get("/history")
+@router.get("/history", response_model=PaginatedResponse[PredictionResponse])
 def get_prediction_history(
     from_date: datetime | None = Query(None, description="Start date"),
     to_date: datetime | None = Query(None, description="End date"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of records"),
     db: Session = Depends(get_db),
-) -> dict[str, Any]:
+) -> PaginatedResponse[PredictionResponse]:
     """Get prediction accuracy history.
 
     Returns historical prediction accuracy metrics over time.
@@ -339,47 +352,30 @@ def get_prediction_history(
     if to_date:
         query = query.filter(Prediction.predicted_at <= to_date)
 
+    total = query.count()
     predictions = query.order_by(Prediction.predicted_at.desc()).limit(limit).all()
 
-    # Calculate accuracy
-    correct_predictions = 0
-    total_predictions = len(predictions)
-
-    history = []
+    items = []
     for pred in predictions:
-        match = pred.match
-        if match.home_score is not None and match.away_score is not None:
-            # Determine actual result
-            if match.home_score > match.away_score:
-                actual = "H"
-            elif match.home_score < match.away_score:
-                actual = "A"
-            else:
-                actual = "D"
-
-            was_correct = pred.predicted_outcome == actual
-            if was_correct:
-                correct_predictions += 1
-
-            history.append(
-                {
-                    "prediction_id": pred.id,
-                    "match_id": pred.match_id,
-                    "predicted_outcome": pred.predicted_outcome,
-                    "actual_outcome": actual,
-                    "correct": was_correct,
-                    "confidence": pred.confidence,
-                    "predicted_at": pred.predicted_at.isoformat(),
-                }
+        items.append(
+            PredictionResponse(
+                id=pred.id,
+                match_id=pred.match_id,
+                model_version_id=pred.model_version_id,
+                prob_home=pred.prob_home,
+                prob_draw=pred.prob_draw,
+                prob_away=pred.prob_away,
+                predicted_outcome=pred.predicted_outcome,
+                confidence=pred.confidence,
+                predicted_at=pred.predicted_at,
+                actual_roi=pred.actual_roi,
+                max_probability=pred.max_probability,
             )
+        )
 
-    overall_accuracy = (
-        correct_predictions / total_predictions if total_predictions > 0 else None
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=0,
     )
-
-    return {
-        "history": history,
-        "overall_accuracy": overall_accuracy,
-        "total_predictions": total_predictions,
-        "correct_predictions": correct_predictions,
-    }

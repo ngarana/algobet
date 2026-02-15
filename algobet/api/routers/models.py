@@ -7,14 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
-from algobet.api.schemas import ModelVersionResponse
+from algobet.api.schemas import ModelVersionResponse, PaginatedResponse
 from algobet.models import ModelVersion
 from algobet.predictions.models.registry import ModelRegistry
 
 router = APIRouter()
 
 
-@router.get("", response_model=list[ModelVersionResponse])
+@router.get("", response_model=PaginatedResponse[ModelVersionResponse])
 def list_models(
     algorithm: str | None = Query(None, description="Filter by algorithm type"),
     active_only: bool = Query(False, description="Return only active models"),
@@ -36,7 +36,7 @@ def list_models(
     models = list(registry.list_models(model_type=algorithm, active_only=active_only))
 
     # Convert ModelMetadata to ModelVersionResponse
-    result = []
+    items = []
     for metadata in models:
         # Get the DB record to access all fields
         db_model = (
@@ -46,9 +46,14 @@ def list_models(
         )
 
         if db_model:
-            result.append(ModelVersionResponse.model_validate(db_model))
+            items.append(ModelVersionResponse.model_validate(db_model))
 
-    return result
+    return PaginatedResponse(
+        items=items,
+        total=len(items),
+        limit=50,
+        offset=0,
+    )
 
 
 @router.get("/active", response_model=ModelVersionResponse | None)

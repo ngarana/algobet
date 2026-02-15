@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from algobet.api.dependencies import get_db
 from algobet.api.schemas.scraping import (
     ScrapingJobCreate,
-    ScrapingJobList,
     ScrapingJobResponse,
     ScrapingJobStatus,
     ScrapingJobUpdate,
@@ -19,6 +18,7 @@ from algobet.api.schemas.scraping import (
     ScrapingStats,
     ScrapingType,
 )
+from algobet.api.schemas import PaginatedResponse
 from algobet.api.websockets import manager
 from algobet.services.scraping_service import ScrapingService
 
@@ -263,13 +263,13 @@ async def scrape_results(
         ) from e
 
 
-@router.get("/jobs", response_model=ScrapingJobList)
+@router.get("/jobs", response_model=PaginatedResponse[ScrapingJobResponse])
 async def list_jobs(
     status_filter: ScrapingJobStatus | None = None,
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-) -> ScrapingJobList:
+) -> PaginatedResponse[ScrapingJobResponse]:
     """List scraping jobs with optional filtering.
 
     Args:
@@ -293,11 +293,11 @@ async def list_jobs(
     total = len(jobs)
     paginated_jobs = jobs[offset : offset + limit]
 
-    return ScrapingJobList(
-        jobs=paginated_jobs,
+    return PaginatedResponse(
+        items=paginated_jobs,
         total=total,
-        page=(offset // limit) + 1,
-        page_size=limit,
+        limit=limit,
+        offset=offset,
     )
 
 

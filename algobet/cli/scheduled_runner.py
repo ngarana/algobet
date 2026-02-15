@@ -214,7 +214,7 @@ def status(task_name: str) -> None:
                 status_icon = "✓" if exec.status == "completed" else "✗"
                 duration = f"{exec.duration:.2f}s" if exec.duration else "N/A"
                 click.echo(
-                    f"  {status_icon} {exec.started_at} " f"({exec.status}, {duration})"
+                    f"  {status_icon} {exec.started_at} ({exec.status}, {duration})"
                 )
                 if exec.result:
                     click.echo(f"    Result: {exec.result}")

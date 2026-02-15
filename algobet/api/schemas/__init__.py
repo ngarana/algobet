@@ -1,7 +1,7 @@
 """Pydantic schemas for API request/response validation"""
 
 # Import base/common schemas first
-from .common import FormBreakdown
+from .common import FormBreakdown, PaginatedResponse
 
 # Import schemas that depend on the above
 from .match import (

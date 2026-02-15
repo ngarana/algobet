@@ -25,7 +25,7 @@ export default function ScrapingPage() {
   // WebSocket connection for real-time progress
   const { currentProgress, isConnected } = useScrapingProgress({
     jobId: currentJob?.id,
-    onProgress: (progress: ScrapingProgressType) => {
+    onProgress: (progress: any) => {
       if (progress.status === 'completed' || progress.status === 'failed') {
         // Refresh jobs list when job completes
         refreshJobs()
@@ -38,8 +38,8 @@ export default function ScrapingPage() {
 
   const refreshJobs = useCallback(async () => {
     try {
-      const fetchedJobs = await getScrapingJobs()
-      setJobs(fetchedJobs)
+      const response = await getScrapingJobs()
+      setJobs(response.items)
     } catch (err) {
       console.error('Error fetching jobs:', err)
       setError('Failed to fetch scraping jobs')
@@ -91,8 +91,23 @@ export default function ScrapingPage() {
     }
   }
 
-  // Use WebSocket progress if available, otherwise fall back to job progress
-  const displayProgress = currentProgress || currentJob?.progress || null
+  // Map display progress correctly
+  const displayProgress: any = currentProgress ? {
+    job_id: currentProgress.job_id,
+    status: currentProgress.status || 'running',
+    progress: currentProgress.progress,
+    matches_scraped: currentProgress.matches_scraped,
+    message: currentProgress.message,
+    timestamp: currentProgress.timestamp,
+  } : currentJob ? {
+    job_id: currentJob.id,
+    status: currentJob.status,
+    progress: currentJob.progress,
+    matches_scraped: currentJob.matches_scraped,
+    message: currentJob.message,
+    started_at: currentJob.started_at,
+    completed_at: currentJob.completed_at,
+  } : null
 
   return (
     <div className="container mx-auto py-10">
@@ -141,7 +156,7 @@ export default function ScrapingPage() {
         <div className="mt-6">
           <ScrapingProgressCard
             progress={displayProgress}
-            url={currentJob.url}
+            url={currentJob.tournament_url || undefined}
           />
           {isConnected && currentJob && (
             <p className="text-xs text-muted-foreground mt-2">
@@ -154,21 +169,16 @@ export default function ScrapingPage() {
       {/* Job History */}
       <div className="mt-6">
         <JobHistoryTable
-          jobs={jobs.map((job) => ({
+          jobs={(jobs as any)?.items?.map((job: any) => ({
             id: job.id,
-            job_type: job.job_type,
-            url: job.url,
+            scraping_type: job.scraping_type,
+            tournament_url: job.tournament_url,
             status: job.status,
             created_at: job.created_at,
-            progress: job.progress
-              ? {
-                  current_page: job.progress.current_page,
-                  total_pages: job.progress.total_pages,
-                  matches_scraped: job.progress.matches_scraped,
-                  matches_saved: job.progress.matches_saved,
-                }
-              : null,
-          }))}
+            progress: job.progress,
+            matches_scraped: job.matches_scraped,
+            message: job.message,
+          })) || []}
           isLoading={isLoading}
           onRefresh={refreshJobs}
         />

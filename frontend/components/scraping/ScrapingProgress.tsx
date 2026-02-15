@@ -13,14 +13,12 @@ import {
 export interface ScrapingProgressData {
   job_id: string
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  current_page: number
-  total_pages: number
+  progress: number
   matches_scraped: number
-  matches_saved: number
   message: string
-  error: string | null
-  started_at: string | null
-  completed_at: string | null
+  error?: string | null
+  started_at?: string | null
+  completed_at?: string | null
 }
 
 interface ScrapingProgressProps {
@@ -55,10 +53,6 @@ export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
     )
   }
 
-  const progressPercent =
-    progress.total_pages > 0
-      ? (progress.current_page / progress.total_pages) * 100
-      : 0
 
   return (
     <Card>
@@ -83,24 +77,18 @@ export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <span>Pages</span>
-            <span className="font-medium">
-              {progress.current_page} / {progress.total_pages || '?'}
-            </span>
+            <span>Overall Progress</span>
+            <span className="font-medium">{progress.progress.toFixed(1)}%</span>
           </div>
           <Progress>
-            <ProgressValue value={progressPercent} />
+            <ProgressValue value={progress.progress} />
           </Progress>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4">
           <div className="bg-muted/50 rounded-lg p-3">
-            <p className="text-sm text-muted-foreground">Scraped</p>
+            <p className="text-sm text-muted-foreground">Matches Scraped</p>
             <p className="text-2xl font-bold">{progress.matches_scraped}</p>
-          </div>
-          <div className="bg-muted/50 rounded-lg p-3">
-            <p className="text-sm text-muted-foreground">Saved</p>
-            <p className="text-2xl font-bold">{progress.matches_saved}</p>
           </div>
         </div>
 

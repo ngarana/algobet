@@ -283,13 +283,13 @@ Detailed architecture in [prediction_engine_architecture.md](docs/prediction_eng
 - [x] **PE-4.1** predictions table exists
 - [x] **PE-4.2** model_features table with JSONB storage (`algobet/models.py`)
 
-### Phase PE-5: CLI Enhancements
+### Phase PE-5: CLI Enhancements ✅ Completed
 
 **Priority: Low | Estimated: 1 week**
 
-- [ ] **PE-5.1** Add backtest command
-- [ ] **PE-5.2** Add value-bets command
-- [ ] **PE-5.3** Add calibrate command
+- [x] **PE-5.1** Add backtest command
+- [x] **PE-5.2** Add value-bets command
+- [x] **PE-5.3** Add calibrate command
 
 ---
 

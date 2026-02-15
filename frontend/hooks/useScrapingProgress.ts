@@ -5,16 +5,14 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/api/v1';
 
 export interface ScrapingProgress {
+  type: 'progress' | 'status' | 'connection' | 'subscription_confirmed';
   job_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  current_page: number;
-  total_pages: number;
-  matches_scraped: number;
-  matches_saved: number;
-  message: string;
-  error: string | null;
-  started_at: string | null;
-  completed_at: string | null;
+  progress?: number;
+  status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  matches_scraped?: number;
+  message?: string;
+  timestamp?: string;
+  error?: string;
 }
 
 export interface UseScrapingProgressOptions {

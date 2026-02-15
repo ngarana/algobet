@@ -1,187 +1,83 @@
-"""Development tools for AlgoBet."""
+"""Development tools CLI for AlgoBet.
+
+This module provides a unified CLI for development and administrative tasks.
+Commands are organized into logical groups:
+- db: Database management (init, reset, stats)
+- list: Query/list commands (tournaments, teams, upcoming matches)
+- model: Model management (list, delete)
+- analyze: Prediction analysis (backtest, value-bets, calibrate)
+- async-db: Async database management commands
+- async-list: Async query/list commands
+"""
 
 from __future__ import annotations
 
 import click
-from sqlalchemy import func
 
-from algobet.database import session_scope
-from algobet.models import (
-    Base,
-    Match,
-    ModelVersion,
-    Prediction,
-    Season,
-    Team,
-    Tournament,
-)
+from algobet.cli.commands.analyze import analyze_cli
+from algobet.cli.commands.async_db import async_db_cli
+from algobet.cli.commands.async_query import async_list_cli
+from algobet.cli.commands.db import db_cli
+from algobet.cli.commands.models import model_cli
+from algobet.cli.commands.query import list_cli
+from algobet.cli.container import get_container
+from algobet.cli.logger import init_logging
+
+# Initialize logging on module import
+init_logging()
 
 
 @click.group()
-def cli() -> None:
-    """AlgoBet Development Tools."""
-    pass
+@click.option(
+    "--debug",
+    is_flag=True,
+    help="Enable debug mode (shows stack traces, verbose output)",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Enable verbose output",
+)
+@click.option(
+    "--config-file",
+    type=click.Path(exists=True),
+    help="Path to configuration file",
+)
+@click.pass_context
+def cli(
+    ctx: click.Context, debug: bool, verbose: bool, config_file: str | None
+) -> None:
+    """AlgoBet Development Tools.
+
+    Provides administrative and development commands for managing
+    the AlgoBet database, models, and predictions.
+    """
+    # Ensure context object exists
+    ctx.ensure_object(dict)
+
+    # Store options in context
+    ctx.obj["debug"] = debug
+    ctx.obj["verbose"] = verbose
+
+    # Initialize DI container
+    get_container()
+
+    # Reload config if config file specified
+    if config_file:
+        # TODO: Implement config file loading
+        click.echo(f"Loading config from: {config_file}")
 
 
-@cli.command()
-def init_db() -> None:
-    """Initialize the database with all tables."""
-    from algobet.database import create_db_engine
+# Register command groups (sync)
+cli.add_command(db_cli)
+cli.add_command(list_cli)
+cli.add_command(model_cli)
+cli.add_command(analyze_cli)
 
-    click.echo("Creating database tables...")
-    engine = create_db_engine()
-    Base.metadata.create_all(bind=engine)
-    click.echo("✓ Database initialized successfully")
-
-
-@cli.command()
-@click.confirmation_option(prompt="Are you sure you want to reset the database?")
-def reset_db() -> None:
-    """Reset the database by dropping and recreating all tables."""
-    from algobet.database import create_db_engine
-
-    click.echo("Dropping all tables...")
-    engine = create_db_engine()
-    Base.metadata.drop_all(bind=engine)
-    click.echo("Creating tables...")
-    Base.metadata.create_all(bind=engine)
-    click.echo("✓ Database reset successfully")
-
-
-@cli.command()
-def db_stats() -> None:
-    """Display database statistics."""
-    with session_scope() as session:
-        stats = {
-            "Tournaments": session.query(func.count(Tournament.id)).scalar(),
-            "Seasons": session.query(func.count(Season.id)).scalar(),
-            "Teams": session.query(func.count(Team.id)).scalar(),
-            "Matches": session.query(func.count(Match.id)).scalar(),
-            "Predictions": session.query(func.count(Prediction.id)).scalar(),
-            "Model Versions": session.query(func.count(ModelVersion.id)).scalar(),
-        }
-
-        click.echo("\n" + "=" * 40)
-        click.echo("AlgoBet Database Statistics")
-        click.echo("=" * 40)
-        for name, count in stats.items():
-            click.echo(f"{name:20s}: {count:,}")
-        click.echo("=" * 40 + "\n")
-
-
-@cli.command()
-@click.option("--tournament", help="Filter by tournament name")
-def list_tournaments(tournament: str | None = None) -> None:
-    """List all tournaments in the database."""
-    with session_scope() as session:
-        query = session.query(Tournament)
-        if tournament:
-            query = query.filter(Tournament.name.ilike(f"%{tournament}%"))
-
-        tournaments = query.order_by(Tournament.country, Tournament.name).all()
-
-        if not tournaments:
-            click.echo("No tournaments found.")
-            return
-
-        click.echo(f"\nFound {len(tournaments)} tournament(s):\n")
-        for t in tournaments:
-            click.echo(f"  {t.country}: {t.name} (slug: {t.url_slug})")
-            if t.seasons:
-                click.echo(f"    Seasons: {', '.join(s.name for s in t.seasons)}")
-        click.echo()
-
-
-@cli.command()
-@click.option("--team", help="Filter by team name")
-def list_teams(team: str | None = None) -> None:
-    """List all teams in the database."""
-    with session_scope() as session:
-        query = session.query(Team)
-        if team:
-            query = query.filter(Team.name.ilike(f"%{team}%"))
-
-        teams = query.order_by(Team.name).all()
-
-        if not teams:
-            click.echo("No teams found.")
-            return
-
-        click.echo(f"\nFound {len(teams)} team(s):\n")
-        for t in teams:
-            click.echo(f"  {t.name}")
-            home_matches = (
-                session.query(func.count(Match.id))
-                .filter(Match.home_team_id == t.id)
-                .scalar()
-            )
-            away_matches = (
-                session.query(func.count(Match.id))
-                .filter(Match.away_team_id == t.id)
-                .scalar()
-            )
-            click.echo(
-                f"    Home matches: {home_matches}, Away matches: {away_matches}"
-            )
-        click.echo()
-
-
-@cli.command()
-@click.option("--days", type=int, default=7, help="Number of days ahead")
-def upcoming_matches(days: int) -> None:
-    """List upcoming matches within the specified number of days."""
-    from datetime import datetime, timedelta
-
-    with session_scope() as session:
-        max_date = datetime.now() + timedelta(days=days)
-        matches = (
-            session.query(Match)
-            .filter(Match.status == "SCHEDULED")
-            .filter(Match.match_date <= max_date)
-            .order_by(Match.match_date)
-            .all()
-        )
-
-        if not matches:
-            click.echo(f"No upcoming matches in the next {days} days.")
-            return
-
-        click.echo(f"\nUpcoming matches (next {days} days):\n")
-        for m in matches:
-            click.echo(f"  {m.match_date.strftime('%Y-%m-%d %H:%M')}")
-            click.echo(f"    {m.home_team.name} vs {m.away_team.name}")
-            if m.tournament:
-                click.echo(f"    {m.tournament.name}")
-            if m.odds_home:
-                click.echo(
-                    f"    Odds: {m.odds_home:.2f} - "
-                    f"{m.odds_draw:.2f} - {m.odds_away:.2f}"
-                )
-            click.echo()
-
-
-@cli.command()
-@click.argument("model_id", type=int)
-def delete_model(model_id: int) -> None:
-    """Delete a model version from the database."""
-    from pathlib import Path
-
-    with session_scope() as session:
-        model = session.query(ModelVersion).filter(ModelVersion.id == model_id).first()
-        if not model:
-            click.echo(f"Model version with ID {model_id} not found.")
-            return
-
-        # Delete model file
-        models_path = Path("data/models")
-        model_file = models_path / f"{model.version}.pkl"
-        if model_file.exists():
-            model_file.unlink()
-            click.echo(f"✓ Deleted model file: {model_file}")
-
-        # Delete database record
-        session.delete(model)
-        click.echo(f"✓ Deleted model version: {model.version}")
+# Register async command groups
+cli.add_command(async_db_cli)
+cli.add_command(async_list_cli)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from algobet.api.routers import (
     matches_router,
+    ml_operations_router,
     models_router,
     predictions_router,
     schedules_router,
@@ -76,6 +77,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
     ],  # Add production URLs as needed
     allow_credentials=True,
     allow_methods=["*"],
@@ -117,6 +122,12 @@ app.include_router(
     models_router,
     prefix="/api/v1/models",
     tags=["models"],
+)
+
+app.include_router(
+    ml_operations_router,
+    prefix="/api/v1/ml",
+    tags=["ml-operations"],
 )
 
 app.include_router(

@@ -11,6 +11,7 @@ from algobet.api.schemas import (
     MatchDetailResponse,
     MatchResponse,
     MatchStatus,
+    PaginatedResponse,
     PredictionResponse,
 )
 from algobet.api.schemas.team import TeamResponse
@@ -21,7 +22,7 @@ from algobet.predictions.data.queries import MatchRepository
 router = APIRouter()
 
 
-@router.get("", response_model=list[MatchResponse])
+@router.get("", response_model=PaginatedResponse[MatchResponse])
 def list_matches(
     status: str | None = Query(
         None, description="Filter by status (SCHEDULED, FINISHED, LIVE)"
@@ -42,7 +43,7 @@ def list_matches(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of matches"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     db: Session = Depends(get_db),
-) -> list[MatchResponse]:
+) -> PaginatedResponse[MatchResponse]:
     """List matches with filtering.
 
     Supports filtering by status, tournament, season, team, date range, and
@@ -109,10 +110,11 @@ def list_matches(
                 )
             )
 
+    total = query.count()
     matches = query.order_by(Match.match_date).offset(offset).limit(limit).all()
 
     # Add computed result field
-    result = []
+    items = []
     for match in matches:
         result_value = None
         if (
@@ -127,7 +129,7 @@ def list_matches(
             else:
                 result_value = "D"
 
-        result.append(
+        items.append(
             MatchResponse(
                 id=match.id,
                 tournament_id=match.tournament_id,
@@ -148,7 +150,12 @@ def list_matches(
             )
         )
 
-    return result
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{match_id}", response_model=MatchDetailResponse)
@@ -336,7 +343,7 @@ def get_match_predictions(
     return {"match_id": match_id, "predictions": prediction_responses}
 
 
-@router.get("/{match_id}/h2h", response_model=list[MatchResponse])
+@router.get("/{match_id}/h2h", response_model=PaginatedResponse[MatchResponse])
 def get_match_h2h(
     match_id: int,
     limit: int = Query(5, ge=1, le=20, description="Number of H2H matches"),
@@ -359,7 +366,7 @@ def get_match_h2h(
     )
 
     # Convert to response format
-    result = []
+    items = []
     for h2h_match in h2h_matches:
         h2h_result = None
         if (
@@ -374,7 +381,7 @@ def get_match_h2h(
             else:
                 h2h_result = "D"
 
-        result.append(
+        items.append(
             MatchResponse(
                 id=h2h_match.id,
                 tournament_id=h2h_match.tournament_id,
@@ -395,4 +402,9 @@ def get_match_h2h(
             )
         )
 
-    return result
+    return PaginatedResponse(
+        items=items,
+        total=len(items),  # repo doesn't return count for h2h
+        limit=limit,
+        offset=0,
+    )
