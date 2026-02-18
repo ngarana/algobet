@@ -6,6 +6,7 @@ Commands are organized into logical groups:
 - list: Query/list commands (tournaments, teams, upcoming matches)
 - model: Model management (list, delete)
 - analyze: Prediction analysis (backtest, value-bets, calibrate)
+- import-data: Import football data from Football-Data.co.uk
 - async-db: Async database management commands
 - async-list: Async query/list commands
 """
@@ -18,6 +19,7 @@ from algobet.cli.commands.analyze import analyze_cli
 from algobet.cli.commands.async_db import async_db_cli
 from algobet.cli.commands.async_query import async_list_cli
 from algobet.cli.commands.db import db_cli
+from algobet.cli.commands.import_data import import_cli
 from algobet.cli.commands.models import model_cli
 from algobet.cli.commands.query import list_cli
 from algobet.cli.commands.train import train_cli
@@ -77,6 +79,7 @@ cli.add_command(list_cli)
 cli.add_command(model_cli)
 cli.add_command(analyze_cli)
 cli.add_command(train_cli)
+cli.add_command(import_cli)
 
 # Register async command groups
 cli.add_command(async_db_cli)
