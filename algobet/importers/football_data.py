@@ -266,17 +266,21 @@ class FootballDataImporter:
         """Parse Football-Data date and time into datetime.
 
         Args:
-            date_str: Date string in DD/MM/YYYY format
+            date_str: Date string in DD/MM/YYYY or DD/MM/YY format
             time_str: Optional time string in HH:MM format
 
         Returns:
             Parsed datetime object
         """
-        # Handle missing time (some older data may not have it)
         if time_str and time_str.strip():
-            return datetime.strptime(f"{date_str} {time_str}", "%d/%m/%Y %H:%M")
-        # Default to 15:00 if no time provided
-        return datetime.strptime(f"{date_str} 15:00", "%d/%m/%Y %H:%M")
+            try:
+                return datetime.strptime(f"{date_str} {time_str}", "%d/%m/%Y %H:%M")
+            except ValueError:
+                return datetime.strptime(f"{date_str} {time_str}", "%d/%m/%y %H:%M")
+        try:
+            return datetime.strptime(f"{date_str} 15:00", "%d/%m/%Y %H:%M")
+        except ValueError:
+            return datetime.strptime(f"{date_str} 15:00", "%d/%m/%y %H:%M")
 
     def get_or_create_tournament(self, division_code: str) -> Tournament | None:
         """Get or create a tournament from division code.
@@ -482,6 +486,8 @@ class FootballDataImporter:
         Returns:
             List of row dictionaries
         """
+        if content.startswith("\ufeff"):
+            content = content[1:]
         reader = csv.DictReader(content.splitlines())
         return list(reader)
 
