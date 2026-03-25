@@ -27,8 +27,9 @@ class ScrapingJobBase(BaseModel):
     """Base schema for scraping job."""
 
     scraping_type: ScrapingType = Field(..., description="Type of scraping operation")
+    # Legacy URL support (optional - API-Football uses league IDs)
     tournament_url: HttpUrl | None = Field(
-        None, description="URL of tournament to scrape"
+        None, description="[Legacy] URL of tournament to scrape"
     )
     tournament_name: str | None = Field(
         None, description="Name of tournament to scrape"
@@ -38,6 +39,18 @@ class ScrapingJobBase(BaseModel):
         None, description="Start date for results scraping"
     )
     end_date: datetime | None = Field(None, description="End date for results scraping")
+    # API-Football fields
+    league_ids: list[int] | None = Field(
+        None,
+        description="List of API-Football league IDs to scrape (e.g., [39] for Premier League)",
+    )
+    league_id: int | None = Field(
+        None,
+        description="Single API-Football league ID (shorthand for league_ids=[id])",
+    )
+    max_results: int | None = Field(
+        None, ge=1, le=100, description="Maximum number of results to fetch per league"
+    )
 
 
 class ScrapingJobCreate(ScrapingJobBase):
@@ -70,6 +83,10 @@ class ScrapingJobUpdate(BaseModel):
     message: str | None = Field(None, description="Updated status message")
     matches_scraped: int | None = Field(None, description="Updated match count")
     errors: list[str] | None = Field(None, description="Updated error list")
+    started_at: datetime | None = Field(None, description="Updated job start timestamp")
+    completed_at: datetime | None = Field(
+        None, description="Updated job completion timestamp"
+    )
 
 
 class ScrapingProgress(BaseModel):
@@ -79,6 +96,21 @@ class ScrapingProgress(BaseModel):
     progress: float = Field(..., description="Progress percentage (0-100)")
     message: str = Field(..., description="Progress message")
     matches_scraped: int = Field(0, description="Number of matches scraped so far")
+    matches_saved: int | None = Field(
+        None, description="Number of matches saved so far"
+    )
+    status: ScrapingJobStatus | None = Field(
+        None, description="Current job status during progress updates"
+    )
+    current_page: int | None = Field(None, description="Current page being scraped")
+    total_pages: int | None = Field(None, description="Total pages to scrape")
+    started_at: datetime | None = Field(
+        None, description="Timestamp when the scraping job started"
+    )
+    completed_at: datetime | None = Field(
+        None, description="Timestamp when the scraping job completed"
+    )
+    error: str | None = Field(None, description="Current error message, if any")
     timestamp: datetime = Field(
         default_factory=datetime.utcnow, description="Progress timestamp"
     )

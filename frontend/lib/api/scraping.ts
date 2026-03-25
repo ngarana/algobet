@@ -1,5 +1,5 @@
 /**
- * API client functions for scraping operations
+ * API client functions for scraping operations (API-Football integration)
  */
 
 import { apiGet, apiPost, buildQueryString } from "./client";
@@ -13,6 +13,12 @@ export const ScrapingProgressSchema = z.object({
   progress: z.number(),
   message: z.string(),
   matches_scraped: z.number(),
+  matches_saved: z.number().optional(),
+  current_page: z.number().optional(),
+  total_pages: z.number().optional(),
+  started_at: z.string().optional().nullable(),
+  completed_at: z.string().optional().nullable(),
+  error: z.string().optional().nullable(),
   status: z.enum(["pending", "running", "completed", "failed", "cancelled"]).optional(),
   timestamp: z.string(),
 });
@@ -31,17 +37,21 @@ export const ScrapingJobSchema = z.object({
   completed_at: z.string().nullable(),
   matches_scraped: z.number(),
   errors: z.array(z.string()),
+  // API-Football fields
+  league_ids: z.array(z.number()).nullable().optional(),
+  league_id: z.number().nullable().optional(),
+  max_results: z.number().nullable().optional(),
 });
 
 export const scrapingJobArraySchema = createPaginatedResponseSchema(ScrapingJobSchema);
 
 export const ScrapeUpcomingRequestSchema = z.object({
-  url: z.string().optional(),
+  league_ids: z.array(z.number()).optional(),
 });
 
 export const ScrapeResultsRequestSchema = z.object({
-  url: z.string(),
-  max_pages: z.number().optional(),
+  league_id: z.number().optional(),
+  max_results: z.number().optional(),
 });
 
 // Types derived from schemas
@@ -51,21 +61,51 @@ export type ScrapeUpcomingRequest = z.infer<typeof ScrapeUpcomingRequestSchema>;
 export type ScrapeResultsRequest = z.infer<typeof ScrapeResultsRequestSchema>;
 
 /**
- * Scrape upcoming matches from OddsPortal
+ * Popular league IDs for API-Football
+ */
+export const POPULAR_LEAGUES = [
+  { id: 39, name: "Premier League", country: "England", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
+  { id: 140, name: "La Liga", country: "Spain", flag: "🇪🇸" },
+  { id: 135, name: "Serie A", country: "Italy", flag: "🇮🇹" },
+  { id: 78, name: "Bundesliga", country: "Germany", flag: "🇩🇪" },
+  { id: 61, name: "Ligue 1", country: "France", flag: "🇫🇷" },
+  { id: 2, name: "Champions League", country: "Europe", flag: "🇪🇺" },
+  { id: 3, name: "Europa League", country: "Europe", flag: "🇪🇺" },
+  { id: 848, name: "Conference League", country: "Europe", flag: "🇪🇺" },
+  { id: 886, name: "Eredivisie", country: "Netherlands", flag: "🇳🇱" },
+  { id: 15, name: "FIFA World Cup", country: "World", flag: "🌍" },
+  { id: 960, name: "UEFA Nations League", country: "Europe", flag: "🇪🇺" },
+];
+
+/**
+ * Fetch upcoming matches using API-Football
  */
 export async function scrapeUpcomingMatches(
   request: ScrapeUpcomingRequest = {}
 ): Promise<ScrapingJob> {
-  return apiPost("/scraping/upcoming", request, ScrapingJobSchema);
+  const params: Record<string, unknown> = {};
+  if (request.league_ids && request.league_ids.length > 0) {
+    params.league_ids = request.league_ids.join(",");
+  }
+  const queryString = buildQueryString(params);
+  return apiPost(`/scraping/upcoming${queryString}`, {}, ScrapingJobSchema);
 }
 
 /**
- * Scrape historical results from OddsPortal
+ * Fetch historical results using API-Football
  */
 export async function scrapeResults(
-  request: ScrapeResultsRequest
+  request: ScrapeResultsRequest = {}
 ): Promise<ScrapingJob> {
-  return apiPost("/scraping/results", request, ScrapingJobSchema);
+  const params: Record<string, unknown> = {};
+  if (request.league_id) {
+    params.league_id = request.league_id;
+  }
+  if (request.max_results) {
+    params.max_results = request.max_results;
+  }
+  const queryString = buildQueryString(params);
+  return apiPost(`/scraping/results${queryString}`, {}, ScrapingJobSchema);
 }
 
 /**
@@ -75,7 +115,7 @@ export async function getScrapingJobs(
   status?: string
 ): Promise<PaginatedResponse<ScrapingJob>> {
   const params: Record<string, unknown> = {};
-  if (status) params.status = status;
+  if (status) params.status_filter = status;
 
   const queryString = buildQueryString(params);
   return apiGet(`/scraping/jobs${queryString}`, scrapingJobArraySchema);
@@ -89,8 +129,20 @@ export async function getScrapingJob(jobId: string): Promise<ScrapingJob> {
 }
 
 /**
- * Cancel a scraping job
+ * Get scraping statistics
  */
-export async function cancelScrapingJob(jobId: string): Promise<void> {
-  return apiPost(`/scraping/jobs/${jobId}/cancel`, {});
+export async function getScrapingStats(): Promise<ScrapingStats> {
+  return apiGet("/scraping/stats", ScrapingStatsSchema);
 }
+
+export const ScrapingStatsSchema = z.object({
+  total_jobs: z.number(),
+  completed_jobs: z.number(),
+  failed_jobs: z.number(),
+  running_jobs: z.number(),
+  total_matches_scraped: z.number(),
+  average_duration_seconds: z.number().nullable(),
+  success_rate: z.number(),
+});
+
+export type ScrapingStats = z.infer<typeof ScrapingStatsSchema>;
