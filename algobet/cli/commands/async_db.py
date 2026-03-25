@@ -11,7 +11,7 @@ import click
 from algobet.cli.async_runner import click_async
 from algobet.cli.error_handler import handle_errors
 from algobet.cli.logger import info, success
-from algobet.database import async_session_scope
+from algobet.infrastructure.database import async_session_scope
 from algobet.services import AsyncDatabaseService
 from algobet.services.dto import DatabaseStatsRequest
 
@@ -30,8 +30,8 @@ async def init_db(drop_existing: bool) -> None:
     """Initialize the database with all tables (async version)."""
     info("Creating database tables...")
 
-    from algobet.database import create_async_db_engine
-    from algobet.models import Base
+    from algobet.infrastructure.database import create_async_db_engine
+    from algobet.infrastructure.models import Base
 
     engine = create_async_db_engine()
     async with engine.begin() as conn:
@@ -52,8 +52,8 @@ async def reset_db() -> None:
     """Reset the database by dropping and recreating all tables (async version)."""
     info("Dropping all tables...")
 
-    from algobet.database import create_async_db_engine
-    from algobet.models import Base
+    from algobet.infrastructure.database import create_async_db_engine
+    from algobet.infrastructure.models import Base
 
     engine = create_async_db_engine()
     async with engine.begin() as conn:

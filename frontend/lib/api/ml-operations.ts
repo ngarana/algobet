@@ -8,13 +8,11 @@ import type {
   CalibrateResult,
   BacktestRequest,
   CalibrateRequest,
-  BacktestHistoryItem,
   BacktestHistoryList,
 } from "@/lib/types/ml-operations";
 import {
   BacktestResultSchema,
   CalibrateResultSchema,
-  BacktestHistoryItemSchema,
   BacktestHistoryListSchema,
 } from "@/lib/types/ml-operations";
 

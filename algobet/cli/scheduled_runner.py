@@ -6,7 +6,7 @@ import sys
 
 import click
 
-from algobet.database import session_scope
+from algobet.infrastructure.database import session_scope
 from algobet.services.scheduler_service import SchedulerService
 from algobet.services.scheduler_tasks import register_default_tasks
 from algobet.services.scraping_service import ScrapingService

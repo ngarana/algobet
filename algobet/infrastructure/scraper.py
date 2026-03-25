@@ -343,6 +343,7 @@ class OddsPortalScraper:
                 let currentDate = null;
                 let currentTournament = null;
                 let currentCountry = null;
+                let currentSlug = null;
 
                 // Select all relevant elements in document order
                 const elements = Array.from(document.querySelectorAll(

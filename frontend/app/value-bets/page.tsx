@@ -28,7 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TrendingUp, Filter, RefreshCw, Trophy, Calendar, Target } from "lucide-react";
+import { Filter, RefreshCw, Trophy, TrendingUp } from "lucide-react";
 import { useValueBets } from "@/lib/queries/use-value-bets";
 import { useActiveModel } from "@/lib/queries/use-models";
 import type { ValueBet } from "@/lib/types/api";
@@ -101,75 +101,6 @@ function ValueBetsFilters({
                 <SelectItem value="30">30 days</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ValueBetCard({ valueBet }: { valueBet: ValueBet }) {
-  const outcomeLabels: Record<string, string> = {
-    H: "Home Win",
-    D: "Draw",
-    A: "Away Win",
-  };
-
-  const outcomeColors: Record<string, string> = {
-    H: "bg-blue-500",
-    D: "bg-yellow-500",
-    A: "bg-red-500",
-  };
-
-  const matchDate = new Date(valueBet.match.match_date);
-  const ev = valueBet.expected_value;
-
-  return (
-    <Card className="transition-shadow hover:shadow-md">
-      <CardContent className="p-4">
-        <div className="mb-3 flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            <Badge className={outcomeColors[valueBet.predicted_outcome]}>
-              {outcomeLabels[valueBet.predicted_outcome]}
-            </Badge>
-            <span className="text-lg font-bold">
-              @ {valueBet.market_odds.toFixed(2)}
-            </span>
-          </div>
-          <Badge variant={ev >= 0.1 ? "default" : "secondary"}>
-            EV: {(ev * 100).toFixed(1)}%
-          </Badge>
-        </div>
-
-        <div className="space-y-2">
-          <div className="font-medium">
-            {valueBet.match.home_team_id} vs {valueBet.match.away_team_id}
-          </div>
-
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              {matchDate.toLocaleDateString()}
-            </span>
-            <span className="flex items-center gap-1">
-              <Target className="h-3 w-3" />
-              {(valueBet.predicted_probability * 100).toFixed(1)}% prob
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between border-t pt-2">
-            <div className="text-sm">
-              <span className="text-muted-foreground">Kelly:</span>{" "}
-              <span className="font-mono">
-                {(valueBet.kelly_fraction * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">Confidence:</span>{" "}
-              <span className="font-mono">
-                {(valueBet.confidence * 100).toFixed(1)}%
-              </span>
-            </div>
           </div>
         </div>
       </CardContent>

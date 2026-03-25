@@ -151,7 +151,7 @@ class TestNoBackwardCompatibility:
     def test_old_database_import_fails(self):
         """Test that importing from old database.py raises ImportError."""
         with pytest.raises(ImportError):
-            from algobet.database import get_session
+            from algobet.infrastructure.database import get_session
 
     def test_old_config_import_fails(self):
         """Test that importing from old config.py raises ImportError."""

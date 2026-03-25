@@ -270,6 +270,85 @@ class ScrapingService(BaseService[Any]):
 
         return progress
 
+    def scrape_by_date(
+        self,
+        date: str | None = None,
+        league_id: int | None = None,
+    ) -> ScrapingProgress:
+        """Fetch ALL matches for a specific date across all leagues.
+
+        This is the closest equivalent to scraping all matches from
+        OddsPortal's main page - it returns every football match
+        scheduled for a given date.
+
+        Args:
+            date: Date in YYYY-MM-DD format (defaults to today)
+            league_id: Optional filter by specific league ID
+
+        Returns:
+            Final progress update
+        """
+        job = self.create_job("by-date", f"api-football://date/{date or 'today'}")
+        progress = ScrapingProgress(
+            job_id=job.id,
+            status=JobStatus.RUNNING,
+            progress=5.0,
+            started_at=datetime.now(),
+            message=f"Fetching all matches for {date or 'today'} from API-Football...",
+        )
+        self._emit_progress(progress)
+
+        try:
+            client = APIFootballClient()
+
+            progress.progress = 10.0
+            progress.message = "Fetching fixtures by date from API-Football..."
+            self._emit_progress(progress)
+
+            # Fetch ALL fixtures for the date (only 1 API request!)
+            response = client.get_fixtures_by_date(date=date, league_id=league_id)
+            fixtures = response.fixtures
+
+            progress.progress = 50.0
+            progress.matches_scraped = len(fixtures)
+            progress.message = (
+                f"Found {len(fixtures)} matches across "
+                f"{len(set(f.league.name for f in fixtures))} leagues. Saving..."
+            )
+            self._emit_progress(progress)
+
+            # Save matches to database
+            saved_count = self._save_api_fixtures(fixtures, is_upcoming=False)
+            progress.matches_saved = saved_count
+
+            progress.progress = 100.0
+            progress.status = JobStatus.COMPLETED
+            progress.completed_at = datetime.now()
+            progress.message = (
+                f"Completed! Fetched {len(fixtures)} matches from "
+                f"{response.requests_made} API request(s), saved {saved_count}."
+            )
+
+        except ValueError as e:
+            # API key not configured
+            progress.status = JobStatus.FAILED
+            progress.progress = 0.0
+            progress.error = str(e)
+            progress.message = f"Configuration error: {e}"
+            progress.completed_at = datetime.now()
+        except Exception as e:
+            progress.status = JobStatus.FAILED
+            progress.progress = 0.0
+            progress.error = str(e)
+            progress.message = f"Failed: {e}"
+            progress.completed_at = datetime.now()
+
+        self._emit_progress(progress)
+        job.status = progress.status
+        job.progress = progress
+
+        return progress
+
     def scrape_results(
         self,
         url: str = "",

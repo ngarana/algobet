@@ -12,7 +12,7 @@ import click
 
 from algobet.cli.async_runner import click_async
 from algobet.cli.error_handler import handle_errors
-from algobet.database import async_session_scope
+from algobet.infrastructure.database import async_session_scope
 from algobet.exceptions import DataNotFoundError
 from algobet.services import AsyncQueryService
 from algobet.services.dto import MatchFilter, TeamFilter, TournamentFilter

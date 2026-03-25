@@ -39,7 +39,7 @@ from sqlalchemy.orm import Session, close_all_sessions, sessionmaker
 
 from algobet.api.dependencies import get_db
 from algobet.api.main import app
-from algobet.models import Base
+from algobet.infrastructure.models import Base
 
 
 @pytest.fixture(scope="session")

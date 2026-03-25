@@ -6,7 +6,7 @@ betting odds in CSV format.
 
 Usage:
     from algobet.importers import FootballDataImporter
-    from algobet.database import session_scope
+    from algobet.infrastructure.database import session_scope
 
     with session_scope() as session:
         importer = FootballDataImporter(session)

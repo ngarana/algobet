@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from algobet.models import Match
+from algobet.matches.models import Match
 
 
 class MatchRepository:

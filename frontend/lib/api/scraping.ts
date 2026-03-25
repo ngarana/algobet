@@ -25,7 +25,7 @@ export const ScrapingProgressSchema = z.object({
 
 export const ScrapingJobSchema = z.object({
   id: z.string(),
-  scraping_type: z.enum(["upcoming", "results"]),
+  scraping_type: z.enum(["upcoming", "results", "by-date"]),
   tournament_url: z.string().nullable(),
   tournament_name: z.string().nullable(),
   season: z.string().nullable(),
@@ -54,11 +54,17 @@ export const ScrapeResultsRequestSchema = z.object({
   max_results: z.number().optional(),
 });
 
+export const ScrapeByDateRequestSchema = z.object({
+  date: z.string().optional(), // YYYY-MM-DD format
+  league_id: z.number().optional(),
+});
+
 // Types derived from schemas
 export type ScrapingProgress = z.infer<typeof ScrapingProgressSchema>;
 export type ScrapingJob = z.infer<typeof ScrapingJobSchema>;
 export type ScrapeUpcomingRequest = z.infer<typeof ScrapeUpcomingRequestSchema>;
 export type ScrapeResultsRequest = z.infer<typeof ScrapeResultsRequestSchema>;
+export type ScrapeByDateRequest = z.infer<typeof ScrapeByDateRequestSchema>;
 
 /**
  * Popular league IDs for API-Football
@@ -106,6 +112,25 @@ export async function scrapeResults(
   }
   const queryString = buildQueryString(params);
   return apiPost(`/scraping/results${queryString}`, {}, ScrapingJobSchema);
+}
+
+/**
+ * Fetch ALL matches for a specific date across all leagues.
+ * This is the equivalent of scraping all matches from OddsPortal's main page.
+ * Uses only 1 API request regardless of how many leagues have matches.
+ */
+export async function scrapeByDate(
+  request: ScrapeByDateRequest = {}
+): Promise<ScrapingJob> {
+  const params: Record<string, unknown> = {};
+  if (request.date) {
+    params.date = request.date;
+  }
+  if (request.league_id) {
+    params.league_id = request.league_id;
+  }
+  const queryString = buildQueryString(params);
+  return apiPost(`/scraping/by-date${queryString}`, {}, ScrapingJobSchema);
 }
 
 /**

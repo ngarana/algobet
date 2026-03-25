@@ -22,7 +22,7 @@ class MockWebSocket {
     }, 0);
   }
 
-  send(data: string) {
+  send(_data: string) {
     // Mock send
   }
 
@@ -77,15 +77,6 @@ describe("useScrapingProgress", () => {
   });
 
   it("should handle progress updates", async () => {
-    const mockProgress = {
-      type: "progress" as const,
-      job_id: "test-job-123",
-      progress: 50,
-      status: "running" as const,
-      matches_scraped: 10,
-      message: "In progress",
-    };
-
     const onProgressMock = vi.fn();
 
     const { result } = renderHook(() =>

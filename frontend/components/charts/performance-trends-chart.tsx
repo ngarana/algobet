@@ -1,16 +1,13 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart3 } from "lucide-react";
 
 interface PerformanceTrendsProps {
-  data?: any[];
   isLoading?: boolean;
 }
 
 export function PerformanceTrendsChart({
-  data,
   isLoading = false,
 }: PerformanceTrendsProps) {
   if (isLoading) {

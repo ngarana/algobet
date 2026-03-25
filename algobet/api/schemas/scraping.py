@@ -21,6 +21,7 @@ class ScrapingType(str, Enum):
 
     UPCOMING = "upcoming"
     RESULTS = "results"
+    BY_DATE = "by-date"  # Fetch all matches for a specific date
 
 
 class ScrapingJobBase(BaseModel):

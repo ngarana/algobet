@@ -8,7 +8,7 @@ import click
 
 from algobet.cli.error_handler import handle_errors
 from algobet.cli.logger import success
-from algobet.database import session_scope
+from algobet.infrastructure.database import session_scope
 from algobet.exceptions import ModelLoadError, ModelNotFoundError
 from algobet.models import ModelVersion
 from algobet.services import ModelManagementService

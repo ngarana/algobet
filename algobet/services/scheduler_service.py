@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from algobet.database import session_scope
+from algobet.infrastructure.database import session_scope
 from algobet.models import ScheduledTask, TaskExecution
 from algobet.services.base import BaseService
 

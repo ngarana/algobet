@@ -8,7 +8,7 @@ import click
 
 from algobet.cli.error_handler import handle_errors
 from algobet.cli.presenters import display_value_bets
-from algobet.database import session_scope
+from algobet.infrastructure.database import session_scope
 from algobet.services import AnalysisService
 from algobet.services.dto import (
     BacktestRequest,

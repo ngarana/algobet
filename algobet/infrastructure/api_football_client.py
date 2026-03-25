@@ -408,6 +408,136 @@ class APIFootballClient:
             requests_made=self._requests_made,
         )
 
+    def get_fixtures_by_date(
+        self,
+        date: str | None = None,
+        league_id: int | None = None,
+        season: int | None = None,
+    ) -> APIFootballResponse:
+        """Get ALL fixtures for a specific date across all leagues.
+
+        This is the equivalent of scraping all matches from OddsPortal's
+        main page - it returns every football match scheduled for a given date.
+
+        Args:
+            date: Date in YYYY-MM-DD format (defaults to today)
+            league_id: Optional filter by specific league
+            season: Optional filter by season year
+
+        Returns:
+            APIFootballResponse with all fixtures for that date
+
+        Example:
+            client = APIFootballClient()
+            # Get all matches today
+            response = client.get_fixtures_by_date()
+            # Get all matches on a specific date
+            response = client.get_fixtures_by_date(date="2026-03-25")
+            # Get Premier League matches only
+            response = client.get_fixtures_by_date(date="2026-03-25", league_id=39)
+        """
+        if date is None:
+            from datetime import date as dt_date
+
+            date = dt_date.today().isoformat()
+
+        params: dict[str, Any] = {"date": date}
+        if league_id:
+            params["league"] = league_id
+        if season:
+            params["season"] = season
+
+        data = self._request("/fixtures", params)
+        fixtures = [self._parse_fixture(f) for f in data.get("response", [])]
+
+        # Sort by league then by time
+        fixtures.sort(key=lambda f: (f.league.name, f.date))
+
+        return APIFootballResponse(
+            fixtures=fixtures,
+            total=len(fixtures),
+            requests_made=self._requests_made,
+        )
+
+    def get_upcoming_by_date(
+        self,
+        date: str | None = None,
+        league_id: int | None = None,
+    ) -> APIFootballResponse:
+        """Get upcoming (not started) fixtures for a specific date.
+
+        Similar to get_fixtures_by_date but only returns matches that
+        haven't started yet.
+
+        Args:
+            date: Date in YYYY-MM-DD format (defaults to today)
+            league_id: Optional filter by specific league
+
+        Returns:
+            APIFootballResponse with upcoming fixtures for that date
+        """
+        if date is None:
+            from datetime import date as dt_date
+
+            date = dt_date.today().isoformat()
+
+        params: dict[str, Any] = {
+            "date": date,
+            "status": "NS-TBD-PST",
+        }
+        if league_id:
+            params["league"] = league_id
+
+        data = self._request("/fixtures", params)
+        fixtures = [self._parse_fixture(f) for f in data.get("response", [])]
+
+        # Sort by league then by time
+        fixtures.sort(key=lambda f: (f.league.name, f.date))
+
+        return APIFootballResponse(
+            fixtures=fixtures,
+            total=len(fixtures),
+            requests_made=self._requests_made,
+        )
+
+    def get_results_by_date(
+        self,
+        date: str | None = None,
+        league_id: int | None = None,
+    ) -> APIFootballResponse:
+        """Get completed results for a specific date.
+
+        Args:
+            date: Date in YYYY-MM-DD format (defaults to today)
+            league_id: Optional filter by specific league
+
+        Returns:
+            APIFootballResponse with results for that date
+        """
+        if date is None:
+            from datetime import date as dt_date
+
+            date = dt_date.today().isoformat()
+
+        params: dict[str, Any] = {
+            "date": date,
+            "status": "FT-AET-PEN",
+        }
+        if league_id:
+            params["league"] = league_id
+
+        data = self._request("/fixtures", params)
+        fixtures = [self._parse_fixture(f) for f in data.get("response", [])]
+
+        # Sort by league then by time
+        fixtures.sort(key=lambda f: (f.league.name, f.date))
+
+        return APIFootballResponse(
+            fixtures=fixtures,
+            total=len(fixtures),
+            requests_made=self._requests_made,
+        )
+
     def get_results(
         self,
         league_id: int | None = None,

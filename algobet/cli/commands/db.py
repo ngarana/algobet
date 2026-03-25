@@ -6,7 +6,7 @@ import click
 
 from algobet.cli.error_handler import handle_errors
 from algobet.cli.logger import info, success
-from algobet.database import session_scope
+from algobet.infrastructure.database import session_scope
 from algobet.services import DatabaseService
 from algobet.services.dto import (
     DatabaseStatsRequest,
@@ -26,8 +26,8 @@ def init_db() -> None:
     info("Creating database tables...")
 
     # DatabaseService.initialize doesn't need a session, it creates its own engine
-    from algobet.database import create_db_engine
-    from algobet.models import Base
+    from algobet.infrastructure.database import create_db_engine
+    from algobet.infrastructure.models import Base
 
     engine = create_db_engine()
     Base.metadata.create_all(bind=engine)
@@ -41,8 +41,8 @@ def reset_db() -> None:
     """Reset the database by dropping and recreating all tables."""
     info("Dropping all tables...")
 
-    from algobet.database import create_db_engine
-    from algobet.models import Base
+    from algobet.infrastructure.database import create_db_engine
+    from algobet.infrastructure.models import Base
 
     engine = create_db_engine()
     Base.metadata.drop_all(bind=engine)

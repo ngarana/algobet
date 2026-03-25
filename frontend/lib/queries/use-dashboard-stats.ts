@@ -42,7 +42,7 @@ export function useDashboardStats() {
     allPredictions,
     upcomingPredictions,
     valueBets,
-    activeModelData
+    activeModelData ?? null
   );
 
   return {
@@ -55,8 +55,8 @@ export function useDashboardStats() {
 function calculateDashboardStats(
   allPredictions: Prediction[],
   upcomingPredictions: Prediction[],
-  valueBets: any[], // Using any for now since we don't have the exact type
-  activeModel: any // Using any for now since we don't have the exact type
+  valueBets: unknown[],
+  activeModel: { accuracy?: number | null } | null
 ): DashboardStats {
   // Calculate total profit (sum of actual_roi where available)
   const totalProfit = allPredictions

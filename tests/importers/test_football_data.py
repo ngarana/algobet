@@ -27,7 +27,7 @@ from algobet.importers.football_data import (
     ImportProgress,
     ImportResult,
 )
-from algobet.models import Base
+from algobet.infrastructure.models import Base
 
 
 @pytest.fixture

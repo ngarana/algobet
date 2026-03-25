@@ -27,7 +27,7 @@ import click
 
 from algobet.cli.error_handler import handle_errors
 from algobet.cli.logger import error, info, success
-from algobet.database import session_scope
+from algobet.infrastructure.database import session_scope
 from algobet.importers.football_data import (
     DIVISION_MAPPING,
     FootballDataImporter,

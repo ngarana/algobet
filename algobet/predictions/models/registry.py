@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from algobet.models import ModelVersion
+from algobet.predictions.models.base import ModelVersion
 
 
 @dataclass

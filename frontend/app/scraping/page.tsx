@@ -13,6 +13,7 @@ import {
 } from "@/components/scraping";
 import { useScrapingProgress } from "@/hooks/useScrapingProgress";
 import {
+  useScrapeByDate,
   useScrapeResults,
   useScrapeUpcoming,
   useScrapingJobs,
@@ -22,6 +23,7 @@ import type { ScrapingJob } from "@/lib/api/scraping";
 import {
   ActivityIcon,
   AlertTriangleIcon,
+  CalendarIcon,
   RadarIcon,
   RefreshCwIcon,
 } from "lucide-react";
@@ -51,6 +53,7 @@ export default function ScrapingPage() {
 
   const scrapeUpcomingMutation = useScrapeUpcoming();
   const scrapeResultsMutation = useScrapeResults();
+  const scrapeByDateMutation = useScrapeByDate();
 
   const jobs = useMemo(
     () =>
@@ -173,7 +176,31 @@ export default function ScrapingPage() {
     [refreshAll, scrapeResultsMutation]
   );
 
+  const handleScrapeByDate = useCallback(
+    async (date?: string) => {
+      setPageError(null);
+
+      try {
+        const job = await scrapeByDateMutation.mutateAsync({
+          date,
+        });
+        setFocusedJobId(job.id);
+        await refreshAll();
+      } catch (error) {
+        console.error("Error starting by-date scrape:", error);
+        setPageError(
+          "Could not start the by-date scrape. Check your API-Football key configuration."
+        );
+      }
+    },
+    [refreshAll, scrapeByDateMutation]
+  );
+
   const workspaceRefreshing = jobsFetching || statsFetching;
+  const isAnyLoading =
+    scrapeUpcomingMutation.isPending ||
+    scrapeResultsMutation.isPending ||
+    scrapeByDateMutation.isPending;
 
   return (
     <div className="space-y-6 pb-8">
@@ -217,6 +244,19 @@ export default function ScrapingPage() {
             </div>
 
             <div className="flex flex-wrap gap-3">
+              <Button
+                variant="outline"
+                onClick={() => handleScrapeByDate()}
+                disabled={isAnyLoading}
+                className="border-primary/50 bg-primary/5 hover:bg-primary/10"
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                Fetch All Today
+                <Badge variant="secondary" className="ml-2">
+                  1 req
+                </Badge>
+              </Button>
+
               <div className="rounded-2xl border border-border/60 bg-background/70 px-4 py-3">
                 <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Active jobs
@@ -231,7 +271,7 @@ export default function ScrapingPage() {
                 </p>
                 <p className="mt-1 text-sm font-semibold text-foreground dark:text-slate-50">
                   {focusedJob
-                    ? `${focusedJob.scraping_type === "upcoming" ? "Upcoming" : "Results"} job ${focusedJob.id.slice(0, 8)}...`
+                    ? `${focusedJob.scraping_type === "upcoming" ? "Upcoming" : focusedJob.scraping_type === "by-date" ? "By Date" : "Results"} job ${focusedJob.id.slice(0, 8)}...`
                     : "No job selected"}
                 </p>
               </div>

@@ -12,7 +12,6 @@ import {
 import type {
   BacktestRequest,
   CalibrateRequest,
-  BacktestHistoryItem,
 } from "@/lib/types/ml-operations";
 
 export const mlOperationsKeys = {
@@ -77,8 +76,8 @@ export function useBacktestHistory(filters?: {
  */
 export function useBacktestDetail(backtestId: number | null) {
   return useQuery({
-    queryKey: mlOperationsKeys.backtestDetail(backtestId!),
-    queryFn: () => getBacktestDetail(backtestId!),
+    queryKey: mlOperationsKeys.backtestDetail(backtestId ?? 0),
+    queryFn: () => getBacktestDetail(backtestId ?? 0),
     enabled: backtestId !== null,
   });
 }

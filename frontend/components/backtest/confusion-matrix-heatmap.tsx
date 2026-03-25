@@ -8,12 +8,6 @@ interface ConfusionMatrixHeatmapProps {
   title?: string;
 }
 
-const OUTCOME_COLORS = {
-  H: { bg: "bg-blue-100", border: "border-blue-300", text: "text-blue-800" },
-  D: { bg: "bg-gray-100", border: "border-gray-300", text: "text-gray-800" },
-  A: { bg: "bg-red-100", border: "border-red-300", text: "text-red-800" },
-};
-
 export function ConfusionMatrixHeatmap({
   confusionMatrix,
   labels = ["H", "D", "A"],

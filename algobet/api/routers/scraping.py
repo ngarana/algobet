@@ -133,6 +133,19 @@ async def run_scraping_job(
                 league_id=job_create.league_id,
                 max_pages=job_create.max_results,
             )
+        elif job_create.scraping_type == ScrapingType.BY_DATE:
+            # Extract date from job (stored in tournament_url as workaround)
+            date_str = None
+            if job_create.tournament_url:
+                url_str = str(job_create.tournament_url)
+                if "date/" in url_str:
+                    date_str = url_str.split("date/")[-1]
+                    if date_str == "today":
+                        date_str = None
+            result = service.scrape_by_date(
+                date=date_str,
+                league_id=job_create.league_id,
+            )
         else:
             raise ValueError(f"Unsupported scraping type: {job_create.scraping_type}")
 
@@ -291,6 +304,90 @@ async def scrape_results(
 
         return job
 
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create scraping job: {str(e)}",
+        ) from e
+
+
+@router.post("/by-date", response_model=ScrapingJobResponse)
+async def scrape_by_date(
+    background_tasks: BackgroundTasks,
+    date: str | None = None,
+    league_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> ScrapingJobResponse:
+    """Fetch ALL matches for a specific date across all leagues.
+
+    This is the equivalent of scraping all matches from OddsPortal's main page.
+    Uses only 1 API request regardless of how many leagues have matches.
+
+    Args:
+        date: Date in YYYY-MM-DD format (defaults to today)
+        league_id: Optional filter by specific league ID
+        db: Database session
+
+    Returns:
+        Scraping job response with job details
+
+    Example:
+        # Get all matches today
+        POST /api/v1/scraping/by-date
+
+        # Get all matches on a specific date
+        POST /api/v1/scraping/by-date?date=2026-03-25
+
+        # Get only Premier League matches
+        POST /api/v1/scraping/by-date?date=2026-03-25&league_id=39
+    """
+    try:
+        # Validate date format if provided
+        if date:
+            try:
+                from datetime import date as dt_date
+
+                dt_date.fromisoformat(date)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid date format. Use YYYY-MM-DD.",
+                ) from None
+
+        # Store date in tournament_url field as workaround
+        date_url = f"https://api-football.io/date/{date or 'today'}"
+
+        # Create scraping job
+        job_create = ScrapingJobCreate(
+            scraping_type=ScrapingType.BY_DATE,
+            tournament_url=HttpUrl(date_url),
+            tournament_name=None,
+            season=None,
+            start_date=None,
+            end_date=None,
+            league_id=league_id,
+        )
+
+        job_id = str(uuid.uuid4())
+        job = ScrapingJobResponse(
+            id=job_id,
+            status=ScrapingJobStatus.PENDING,
+            progress=0.0,
+            message=f"Fetching all matches for {date or 'today'}",
+            created_at=datetime.now(timezone.utc),
+            **job_create.model_dump(),
+        )
+
+        # Store job
+        scraping_jobs[job_id] = job
+
+        # Add to background tasks
+        background_tasks.add_task(run_scraping_job, job_id, job_create, db)
+
+        return job
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

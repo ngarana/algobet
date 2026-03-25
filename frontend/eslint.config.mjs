@@ -32,10 +32,22 @@ export default tseslint.config(
     },
   },
   {
+    files: ["**/*.{js,jsx}"],
+    languageOptions: {
+      globals: {
+        module: "readonly",
+        require: "readonly",
+        exports: "readonly",
+        __dirname: "readonly",
+      },
+    },
+  },
+  {
     files: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}"],
     rules: {
       "testing-library/render-result-naming-convention": "off",
       "testing-library/no-unnecessary-act": "error",
+      "testing-library/no-node-access": "off",
     },
   },
   {
