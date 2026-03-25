@@ -4,13 +4,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 
 from algobet.api.dependencies import get_db
-from algobet.models import Match
+from algobet.models import BacktestHistory, Match
 from algobet.predictions.data.queries import MatchRepository
 from algobet.predictions.evaluation import evaluate_predictions
 from algobet.predictions.features.pipeline import (
@@ -251,6 +251,71 @@ def run_backtest(
         date_range=date_range,
     )
 
+    # Save backtest results to database
+    if model_meta:
+        backtest_record = BacktestHistory(
+            model_version_id=model_meta.id,
+            min_matches=request.min_matches,
+            start_date=start_date,
+            end_date=end_date,
+            num_samples=result.num_samples,
+            date_range_start=date_range[0],
+            date_range_end=date_range[1],
+            accuracy=result.classification.accuracy,
+            log_loss=result.classification.log_loss,
+            brier_score=result.classification.brier_score,
+            f1_macro=result.classification.f1_macro,
+            f1_weighted=result.classification.f1_weighted,
+            precision_macro=result.classification.precision_macro,
+            recall_macro=result.classification.recall_macro,
+            top_2_accuracy=result.classification.top_2_accuracy,
+            cohen_kappa=result.classification.cohen_kappa,
+            f1_home=result.classification.per_class_f1.get("H", 0.0),
+            f1_draw=result.classification.per_class_f1.get("D", 0.0),
+            f1_away=result.classification.per_class_f1.get("A", 0.0),
+            total_bets=result.betting.total_bets if result.betting else None,
+            win_rate=result.betting.win_rate if result.betting else None,
+            roi_percent=result.betting.roi_percent if result.betting else None,
+            profit_loss=result.betting.profit_loss if result.betting else None,
+            sharpe_ratio=result.betting.sharpe_ratio if result.betting else None,
+            max_drawdown=result.betting.max_drawdown if result.betting else None,
+            expected_calibration_error=result.expected_calibration_error,
+            maximum_calibration_error=result.maximum_calibration_error,
+            full_metrics={
+                "classification": {
+                    "accuracy": result.classification.accuracy,
+                    "log_loss": result.classification.log_loss,
+                    "brier_score": result.classification.brier_score,
+                    "f1_macro": result.classification.f1_macro,
+                    "per_class_f1": result.classification.per_class_f1,
+                    "confusion_matrix": result.classification.confusion_matrix,
+                },
+                "betting": {
+                    "total_bets": result.betting.total_bets if result.betting else None,
+                    "win_rate": result.betting.win_rate if result.betting else None,
+                    "roi_percent": result.betting.roi_percent
+                    if result.betting
+                    else None,
+                    "sharpe_ratio": result.betting.sharpe_ratio
+                    if result.betting
+                    else None,
+                    "max_drawdown": result.betting.max_drawdown
+                    if result.betting
+                    else None,
+                }
+                if result.betting
+                else None,
+                "calibration": {
+                    "expected_calibration_error": result.expected_calibration_error,
+                    "maximum_calibration_error": result.maximum_calibration_error,
+                },
+                "outcome_accuracy": result.outcome_accuracy,
+            },
+        )
+        db.add(backtest_record)
+        db.commit()
+        db.refresh(backtest_record)
+
     # Build response
     return BacktestResultResponse(
         model_version=result.model_version,
@@ -461,4 +526,197 @@ def run_calibrate(
         ),
         improvement=improvement,
         is_active=is_active,
+    )
+
+
+class BacktestHistoryItem(BaseModel):
+    """Backtest history item for list response."""
+
+    id: int
+    model_version_id: int
+    model_name: str | None = None
+    model_version: str | None = None
+    num_samples: int
+    date_range_start: str | None
+    date_range_end: str | None
+    accuracy: float
+    log_loss: float
+    f1_macro: float
+    roi_percent: float | None
+    win_rate: float | None
+    evaluated_at: str
+
+
+class BacktestHistoryListResponse(BaseModel):
+    """Response for backtest history list."""
+
+    items: list[BacktestHistoryItem]
+    total: int
+
+
+@router.get("/backtest/history", response_model=BacktestHistoryListResponse)
+def get_backtest_history(
+    model_version_id: int | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> BacktestHistoryListResponse:
+    """Get backtest history for analysis and comparison.
+
+    Returns a paginated list of historical backtest results, optionally
+    filtered by model version.
+
+    Args:
+        model_version_id: Optional filter by model version
+        limit: Maximum number of results to return
+        offset: Number of results to skip for pagination
+        db: Database session
+
+    Returns:
+        BacktestHistoryListResponse with list of backtest results
+    """
+    query = db.query(BacktestHistory).options(joinedload(BacktestHistory.model_version))
+
+    if model_version_id:
+        query = query.filter(BacktestHistory.model_version_id == model_version_id)
+
+    total = query.count()
+
+    history = (
+        query.order_by(BacktestHistory.evaluated_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    items = []
+    for h in history:
+        items.append(
+            BacktestHistoryItem(
+                id=h.id,
+                model_version_id=h.model_version_id,
+                model_name=h.model_version.name if h.model_version else None,
+                model_version=h.model_version.version if h.model_version else None,
+                num_samples=h.num_samples,
+                date_range_start=h.date_range_start,
+                date_range_end=h.date_range_end,
+                accuracy=h.accuracy,
+                log_loss=h.log_loss,
+                f1_macro=h.f1_macro,
+                roi_percent=h.roi_percent,
+                win_rate=h.win_rate,
+                evaluated_at=h.evaluated_at.isoformat(),
+            )
+        )
+
+    return BacktestHistoryListResponse(items=items, total=total)
+
+
+@router.get("/backtest/{backtest_id}", response_model=BacktestResultResponse)
+def get_backtest_detail(
+    backtest_id: int,
+    db: Session = Depends(get_db),
+) -> BacktestResultResponse:
+    """Get detailed backtest result by ID.
+
+    Returns the complete backtest metrics for a specific backtest run.
+
+    Args:
+        backtest_id: Backtest history record ID
+        db: Database session
+
+    Returns:
+        BacktestResultResponse with full metrics
+
+    Raises:
+        HTTPException: If backtest not found
+    """
+    history = (
+        db.query(BacktestHistory)
+        .options(joinedload(BacktestHistory.model_version))
+        .filter(BacktestHistory.id == backtest_id)
+        .first()
+    )
+
+    if not history:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    full_metrics = history.full_metrics or {}
+    classification = full_metrics.get("classification", {})
+    betting = full_metrics.get("betting")
+    calibration = full_metrics.get("calibration", {})
+
+    return BacktestResultResponse(
+        model_version=history.model_version.version
+        if history.model_version
+        else "unknown",
+        evaluated_at=history.evaluated_at.isoformat(),
+        num_samples=history.num_samples,
+        date_range=(history.date_range_start, history.date_range_end)
+        if history.date_range_start
+        else None,
+        classification=ClassificationMetricsResponse(
+            accuracy=history.accuracy,
+            log_loss=history.log_loss,
+            brier_score=history.brier_score,
+            precision_macro=history.precision_macro,
+            recall_macro=history.recall_macro,
+            f1_macro=history.f1_macro,
+            precision_weighted=history.f1_weighted,
+            recall_weighted=history.recall_macro,
+            f1_weighted=history.f1_weighted,
+            per_class_precision=classification.get(
+                "per_class_precision", {"H": 0.0, "D": 0.0, "A": 0.0}
+            ),
+            per_class_recall=classification.get(
+                "per_class_recall", {"H": 0.0, "D": 0.0, "A": 0.0}
+            ),
+            per_class_f1={
+                "H": history.f1_home,
+                "D": history.f1_draw,
+                "A": history.f1_away,
+            },
+            confusion_matrix=classification.get(
+                "confusion_matrix", [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+            ),
+            top_2_accuracy=history.top_2_accuracy,
+            cohen_kappa=history.cohen_kappa,
+        ),
+        betting=(
+            BettingMetricsResponse(
+                total_bets=betting.get("total_bets", 0),
+                winning_bets=int(
+                    betting.get("total_bets", 0) * betting.get("win_rate", 0)
+                ),
+                losing_bets=int(
+                    betting.get("total_bets", 0) * (1 - betting.get("win_rate", 0))
+                ),
+                total_stake=history.profit_loss / (history.roi_percent / 100)
+                if history.roi_percent and history.roi_percent != 0
+                else 0,
+                total_return=(history.profit_loss or 0)
+                + (
+                    history.profit_loss / (history.roi_percent / 100)
+                    if history.roi_percent and history.roi_percent != 0
+                    else 0
+                ),
+                profit_loss=history.profit_loss or 0,
+                roi_percent=history.roi_percent or 0,
+                yield_percent=history.roi_percent or 0,
+                sharpe_ratio=history.sharpe_ratio or 0,
+                max_drawdown=history.max_drawdown or 0,
+                win_rate=history.win_rate or 0,
+                average_winning_odds=0,
+                average_losing_odds=0,
+                average_kelly_fraction=0,
+                optimal_kelly_fraction=0.25,
+            )
+            if betting
+            else None
+        ),
+        expected_calibration_error=history.expected_calibration_error,
+        maximum_calibration_error=history.maximum_calibration_error,
+        outcome_accuracy=full_metrics.get(
+            "outcome_accuracy", {"H": 0.0, "D": 0.0, "A": 0.0}
+        ),
     )

@@ -109,3 +109,31 @@ export type BacktestResult = z.infer<typeof BacktestResultSchema>;
 export type CalibrateRequest = z.infer<typeof CalibrateRequestSchema>;
 export type CalibrationMetrics = z.infer<typeof CalibrationMetricsSchema>;
 export type CalibrateResult = z.infer<typeof CalibrateResultSchema>;
+
+// =============================================================================
+// Backtest History Types
+// =============================================================================
+
+export const BacktestHistoryItemSchema = z.object({
+  id: z.number(),
+  model_version_id: z.number(),
+  model_name: z.string().nullable(),
+  model_version: z.string().nullable(),
+  num_samples: z.number(),
+  date_range_start: z.string().nullable(),
+  date_range_end: z.string().nullable(),
+  accuracy: z.number(),
+  log_loss: z.number(),
+  f1_macro: z.number(),
+  roi_percent: z.number().nullable(),
+  win_rate: z.number().nullable(),
+  evaluated_at: z.string(),
+});
+
+export const BacktestHistoryListSchema = z.object({
+  items: z.array(BacktestHistoryItemSchema),
+  total: z.number(),
+});
+
+export type BacktestHistoryItem = z.infer<typeof BacktestHistoryItemSchema>;
+export type BacktestHistoryList = z.infer<typeof BacktestHistoryListSchema>;

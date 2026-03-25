@@ -2,13 +2,30 @@
  * TanStack Query hooks for ML operations
  */
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { runBacktest, runCalibrate } from "@/lib/api/ml-operations";
-import type { BacktestRequest, CalibrateRequest } from "@/lib/types/ml-operations";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  runBacktest,
+  runCalibrate,
+  getBacktestHistory,
+  getBacktestDetail,
+} from "@/lib/api/ml-operations";
+import type {
+  BacktestRequest,
+  CalibrateRequest,
+  BacktestHistoryItem,
+} from "@/lib/types/ml-operations";
 
 export const mlOperationsKeys = {
   all: ["ml-operations"] as const,
   backtest: () => [...mlOperationsKeys.all, "backtest"] as const,
+  backtestHistory: () => [...mlOperationsKeys.all, "backtest-history"] as const,
+  backtestHistoryList: (filters?: {
+    model_version_id?: number;
+    limit?: number;
+    offset?: number;
+  }) => [...mlOperationsKeys.backtestHistory(), "list", filters] as const,
+  backtestDetail: (id: number) =>
+    [...mlOperationsKeys.backtestHistory(), "detail", id] as const,
   calibrate: () => [...mlOperationsKeys.all, "calibrate"] as const,
 };
 
@@ -21,8 +38,8 @@ export function useBacktest() {
   return useMutation({
     mutationFn: (request: BacktestRequest) => runBacktest(request),
     onSuccess: () => {
-      // Invalidate models to refresh any cached data
       queryClient.invalidateQueries({ queryKey: ["models"] });
+      queryClient.invalidateQueries({ queryKey: mlOperationsKeys.backtestHistory() });
     },
   });
 }
@@ -36,9 +53,33 @@ export function useCalibrate() {
   return useMutation({
     mutationFn: (request: CalibrateRequest) => runCalibrate(request),
     onSuccess: () => {
-      // Invalidate models to refresh the list with new calibrated model
       queryClient.invalidateQueries({ queryKey: ["models"] });
     },
+  });
+}
+
+/**
+ * Get backtest history
+ */
+export function useBacktestHistory(filters?: {
+  model_version_id?: number;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: mlOperationsKeys.backtestHistoryList(filters),
+    queryFn: () => getBacktestHistory(filters),
+  });
+}
+
+/**
+ * Get backtest detail
+ */
+export function useBacktestDetail(backtestId: number | null) {
+  return useQuery({
+    queryKey: mlOperationsKeys.backtestDetail(backtestId!),
+    queryFn: () => getBacktestDetail(backtestId!),
+    enabled: backtestId !== null,
   });
 }
 
@@ -53,6 +94,8 @@ export function useInvalidateMLOperations() {
       queryClient.invalidateQueries({ queryKey: mlOperationsKeys.all }),
     invalidateBacktest: () =>
       queryClient.invalidateQueries({ queryKey: mlOperationsKeys.backtest() }),
+    invalidateBacktestHistory: () =>
+      queryClient.invalidateQueries({ queryKey: mlOperationsKeys.backtestHistory() }),
     invalidateCalibrate: () =>
       queryClient.invalidateQueries({ queryKey: mlOperationsKeys.calibrate() }),
   };

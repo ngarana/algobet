@@ -1,11 +1,31 @@
 """Test configuration and fixtures for AlgoBet API tests."""
 
+import json
+
 # Patch JSONB to TEXT for SQLite compatibility BEFORE importing models
-from sqlalchemy import TEXT
-from sqlalchemy.dialects import postgresql  # type: ignore[assignment,misc]
+from sqlalchemy import TEXT, TypeDecorator
+from sqlalchemy.dialects import postgresql
+
+
+class JSONText(TypeDecorator):
+    """JSON type that stores data as TEXT for SQLite compatibility."""
+
+    impl = TEXT
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            return json.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            return json.loads(value)
+        return value
+
 
 # Monkey-patch JSONB for SQLite compatibility
-postgresql.JSONB = TEXT  # type: ignore[assignment,misc]
+postgresql.JSONB = JSONText  # type: ignore[assignment,misc]
 
 import contextlib
 import os
@@ -88,6 +108,9 @@ def test_client(test_session: Session) -> Generator[TestClient, None, None]:
         # Delete in reverse order of dependencies
         try:
             test_session.query(Base.metadata.tables["predictions"]).delete(
+                synchronize_session=False
+            )
+            test_session.query(Base.metadata.tables["backtest_history"]).delete(
                 synchronize_session=False
             )
             test_session.query(Base.metadata.tables["model_versions"]).delete(

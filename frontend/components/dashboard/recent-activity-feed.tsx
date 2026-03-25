@@ -1,68 +1,127 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity } from "lucide-react";
+import { useMemo } from "react";
+import { usePredictions } from "@/lib/queries/use-predictions";
+import { useValueBets } from "@/lib/queries/use-value-bets";
+import { useModels } from "@/lib/queries/use-models";
+import type { Prediction, ValueBet, ModelVersion } from "@/lib/types/api";
 
 interface ActivityItem {
   id: string;
   type: "prediction" | "value_bet" | "model_update" | "profit";
   title: string;
   description: string;
-  timestamp: string;
+  timestamp: Date;
   color: string;
 }
 
-interface RecentActivityFeedProps {
-  activities?: ActivityItem[];
-  isLoading?: boolean;
+function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+  return date.toLocaleDateString();
 }
 
-export function RecentActivityFeed({
-  activities: propActivities,
-  isLoading = false,
-}: RecentActivityFeedProps) {
-  const [activities, setActivities] = useState<ActivityItem[]>(
-    propActivities || [
-      {
-        id: "1",
-        type: "value_bet",
-        title: "New Value Bet Found",
-        description: "Manchester United vs Liverpool @ 2.45 odds",
-        timestamp: "2 hours ago",
-        color: "bg-green-500",
-      },
-      {
-        id: "2",
-        type: "model_update",
-        title: "Model Updated",
-        description: "Random Forest v2.1 activated",
-        timestamp: "5 hours ago",
-        color: "bg-blue-500",
-      },
-      {
-        id: "3",
-        type: "prediction",
-        title: "Prediction Generated",
-        description: "15 new match predictions",
-        timestamp: "Yesterday",
-        color: "bg-purple-500",
-      },
-      {
-        id: "4",
+function getOutcomeLabel(outcome: string): string {
+  switch (outcome) {
+    case "H":
+      return "Home Win";
+    case "D":
+      return "Draw";
+    case "A":
+      return "Away Win";
+    default:
+      return outcome;
+  }
+}
+
+export function RecentActivityFeed() {
+  const { data: predictionsData, isLoading: predictionsLoading } = usePredictions();
+  const { data: valueBetsData, isLoading: valueBetsLoading } = useValueBets({
+    max_matches: 50,
+  });
+  const { data: modelsData, isLoading: modelsLoading } = useModels();
+
+  const isLoading = predictionsLoading || valueBetsLoading || modelsLoading;
+
+  const activities = useMemo(() => {
+    const items: ActivityItem[] = [];
+    const predictions = predictionsData?.items || [];
+    const valueBets = valueBetsData || [];
+    const models = modelsData?.items || [];
+
+    if (valueBets.length > 0) {
+      const recentValueBets = valueBets.slice(0, 5);
+      for (const vb of recentValueBets) {
+        items.push({
+          id: `vb-${vb.prediction_id}-${vb.predicted_outcome}`,
+          type: "value_bet",
+          title: "Value Bet Found",
+          description: `${vb.match.home_team_id} vs ${vb.match.away_team_id} - ${getOutcomeLabel(vb.predicted_outcome)} @ ${vb.market_odds.toFixed(2)} (EV: +${(vb.expected_value * 100).toFixed(1)}%)`,
+          timestamp: new Date(vb.match.match_date),
+          color: "bg-green-500",
+        });
+      }
+    }
+
+    if (predictions.length > 0) {
+      const recentPredictions = predictions.slice(0, 5);
+      for (const pred of recentPredictions) {
+        items.push({
+          id: `pred-${pred.id}`,
+          type: "prediction",
+          title: "Prediction Generated",
+          description: `Match #${pred.match_id} - ${getOutcomeLabel(pred.predicted_outcome)} (${(pred.confidence * 100).toFixed(0)}% confidence)`,
+          timestamp: new Date(pred.predicted_at),
+          color: "bg-purple-500",
+        });
+      }
+    }
+
+    const profitable = predictions
+      .filter((p: Prediction) => p.actual_roi !== null && p.actual_roi > 0)
+      .slice(0, 3);
+    for (const pred of profitable) {
+      items.push({
+        id: `profit-${pred.id}`,
         type: "profit",
         title: "Profit Recorded",
-        description: "+$245.50 from recent bets",
-        timestamp: "2 days ago",
+        description: `+$${pred.actual_roi!.toFixed(2)} from Match #${pred.match_id}`,
+        timestamp: new Date(pred.predicted_at),
         color: "bg-yellow-500",
-      },
-    ]
-  );
+      });
+    }
 
-  // In a real implementation, this would fetch live data
-  useEffect(() => {
-    // Simulate fetching recent activities
-  }, []);
+    if (models.length > 0) {
+      const recentModels = [...models]
+        .sort(
+          (a: ModelVersion, b: ModelVersion) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        .slice(0, 2);
+      for (const model of recentModels) {
+        items.push({
+          id: `model-${model.id}`,
+          type: "model_update",
+          title: model.is_active ? "Model Activated" : "Model Created",
+          description: `${model.name} (${model.algorithm})${model.accuracy ? ` - ${(model.accuracy * 100).toFixed(1)}% accuracy` : ""}`,
+          timestamp: new Date(model.created_at),
+          color: "bg-blue-500",
+        });
+      }
+    }
+
+    return items
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .slice(0, 10);
+  }, [predictionsData, valueBetsData, modelsData]);
 
   if (isLoading) {
     return (
@@ -80,6 +139,12 @@ export function RecentActivityFeed({
     );
   }
 
+  if (activities.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">No recent activity to display.</p>
+    );
+  }
+
   return (
     <div className="space-y-3">
       {activities.map((activity) => (
@@ -90,7 +155,9 @@ export function RecentActivityFeed({
               <span className="font-medium">{activity.title}:</span>{" "}
               {activity.description}
             </p>
-            <p className="text-xs text-muted-foreground">{activity.timestamp}</p>
+            <p className="text-xs text-muted-foreground">
+              {formatRelativeTime(activity.timestamp)}
+            </p>
           </div>
         </div>
       ))}

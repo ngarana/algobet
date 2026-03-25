@@ -1,0 +1,125 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'frontend/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'frontend/**'
+
+jobs:
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run TypeScript type check
+        run: pnpm typecheck
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Check code formatting
+        run: pnpm format:check
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./frontend/coverage/coverage-final.json
+          flags: frontend
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: quality-gates
+
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build application
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_WS_URL: ${{ secrets.NEXT_PUBLIC_WS_URL }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: ./frontend/.next
+          retention-days: 7

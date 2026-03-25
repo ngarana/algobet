@@ -12,10 +12,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, Play, TrendingUp, Target, BarChart3 } from "lucide-react";
-import { useBacktest } from "@/lib/queries/use-ml-operations";
+import {
+  AlertCircle,
+  Play,
+  TrendingUp,
+  Target,
+  BarChart3,
+  History,
+  GitCompare,
+} from "lucide-react";
+import { useBacktest, useBacktestHistory } from "@/lib/queries/use-ml-operations";
 import { useActiveModel, useModels } from "@/lib/queries/use-models";
-import type { BacktestResult } from "@/lib/types/ml-operations";
+import type { BacktestResult, BacktestHistoryItem } from "@/lib/types/ml-operations";
+import {
+  ConfusionMatrixHeatmap,
+  CalibrationCurve,
+  EquityCurveChart,
+} from "@/components/backtest";
 
 function BacktestForm({
   onSubmit,
@@ -300,6 +313,179 @@ function CalibrationCard({ result }: { result: BacktestResult }) {
   );
 }
 
+function BacktestHistoryCard({
+  onSelect,
+  selectedIds,
+}: {
+  onSelect: (item: BacktestHistoryItem) => void;
+  selectedIds: number[];
+}) {
+  const { data, isLoading } = useBacktestHistory({ limit: 10 });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5" />
+            Backtest History
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {[...Array(3)].map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data?.items.length) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <History className="h-5 w-5" />
+          Backtest History
+        </CardTitle>
+        <CardDescription>Click to compare previous backtest results</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="max-h-64 space-y-2 overflow-y-auto">
+          {data.items.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onSelect(item)}
+              className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                selectedIds.includes(item.id)
+                  ? "border-primary bg-primary/10"
+                  : "border-border hover:bg-muted"
+              }`}
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm font-medium">
+                    {item.model_name || item.model_version || "Unknown"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(item.evaluated_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-mono text-sm">
+                    {(item.accuracy * 100).toFixed(1)}%
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.num_samples.toLocaleString()} samples
+                  </p>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ModelComparisonCard({ items }: { items: BacktestHistoryItem[] }) {
+  if (items.length < 2) {
+    return null;
+  }
+
+  const bestAccuracy = items.reduce((best, item) =>
+    item.accuracy > best.accuracy ? item : best
+  );
+  const bestF1 = items.reduce((best, item) =>
+    item.f1_macro > best.f1_macro ? item : best
+  );
+  const bestROI = items.reduce((best, item) =>
+    (item.roi_percent ?? -Infinity) > (best.roi_percent ?? -Infinity) ? item : best
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <GitCompare className="h-5 w-5" />
+          Model Comparison
+        </CardTitle>
+        <CardDescription>Comparing {items.length} backtest results</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="py-2 text-left">Model</th>
+                <th className="py-2 text-right">Accuracy</th>
+                <th className="py-2 text-right">F1 Macro</th>
+                <th className="py-2 text-right">ROI%</th>
+                <th className="py-2 text-right">Win Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id} className="border-b">
+                  <td className="py-2">
+                    <div>
+                      <p className="font-medium">
+                        {item.model_name || item.model_version}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.date_range_start} to {item.date_range_end}
+                      </p>
+                    </div>
+                  </td>
+                  <td className="py-2 text-right font-mono">
+                    <span
+                      className={
+                        bestAccuracy.id === item.id ? "font-bold text-green-600" : ""
+                      }
+                    >
+                      {(item.accuracy * 100).toFixed(1)}%
+                    </span>
+                  </td>
+                  <td className="py-2 text-right font-mono">
+                    <span
+                      className={
+                        bestF1.id === item.id ? "font-bold text-green-600" : ""
+                      }
+                    >
+                      {item.f1_macro.toFixed(3)}
+                    </span>
+                  </td>
+                  <td className="py-2 text-right font-mono">
+                    <span
+                      className={
+                        bestROI.id === item.id ? "font-bold text-green-600" : ""
+                      }
+                    >
+                      {item.roi_percent !== null
+                        ? `${item.roi_percent.toFixed(1)}%`
+                        : "N/A"}
+                    </span>
+                  </td>
+                  <td className="py-2 text-right font-mono">
+                    {item.win_rate !== null
+                      ? `${(item.win_rate * 100).toFixed(1)}%`
+                      : "N/A"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function BacktestResults({ result }: { result: BacktestResult }) {
   return (
     <div className="space-y-6">
@@ -323,6 +509,31 @@ function BacktestResults({ result }: { result: BacktestResult }) {
         {result.betting && <BettingMetricsCard metrics={result.betting} />}
         <CalibrationCard result={result} />
       </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <ConfusionMatrixHeatmap
+          confusionMatrix={result.classification.confusion_matrix}
+          title="Prediction Confusion Matrix"
+        />
+        <CalibrationCurve
+          expectedCalibrationError={result.expected_calibration_error}
+          maximumCalibrationError={result.maximum_calibration_error}
+          outcomeAccuracy={result.outcome_accuracy}
+          title="Probability Calibration"
+        />
+      </div>
+
+      {result.betting && (
+        <EquityCurveChart
+          profitLoss={result.betting.profit_loss}
+          roiPercent={result.betting.roi_percent}
+          maxDrawdown={result.betting.max_drawdown}
+          sharpeRatio={result.betting.sharpe_ratio}
+          winRate={result.betting.win_rate}
+          totalBets={result.betting.total_bets}
+          title="Betting Performance Simulation"
+        />
+      )}
     </div>
   );
 }
@@ -331,6 +542,7 @@ export default function BacktestPage() {
   const backtestMutation = useBacktest();
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [compareItems, setCompareItems] = useState<BacktestHistoryItem[]>([]);
 
   const handleSubmit = async (data: {
     startDate: string;
@@ -355,6 +567,19 @@ export default function BacktestPage() {
     }
   };
 
+  const handleHistorySelect = (item: BacktestHistoryItem) => {
+    setCompareItems((prev) => {
+      const exists = prev.find((i) => i.id === item.id);
+      if (exists) {
+        return prev.filter((i) => i.id !== item.id);
+      }
+      if (prev.length >= 5) {
+        return [...prev.slice(1), item];
+      }
+      return [...prev, item];
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -374,14 +599,18 @@ export default function BacktestPage() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-1">
+        <div className="space-y-6 lg:col-span-1">
           <BacktestForm
             onSubmit={handleSubmit}
             isLoading={backtestMutation.isPending}
           />
+          <BacktestHistoryCard
+            onSelect={handleHistorySelect}
+            selectedIds={compareItems.map((i) => i.id)}
+          />
         </div>
 
-        <div className="lg:col-span-2">
+        <div className="space-y-6 lg:col-span-2">
           {backtestMutation.isPending ? (
             <div className="space-y-4">
               <Skeleton className="h-8 w-48" />
@@ -398,6 +627,8 @@ export default function BacktestPage() {
               </CardContent>
             </Card>
           )}
+
+          <ModelComparisonCard items={compareItems} />
         </div>
       </div>
     </div>

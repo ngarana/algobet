@@ -471,3 +471,73 @@ class TaskExecution(Base):
         if self.completed_at:
             return (self.completed_at - self.started_at).total_seconds()
         return None
+
+
+class BacktestHistory(Base):
+    """Stores historical backtest results for model comparison."""
+
+    __tablename__ = "backtest_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    model_version_id: Mapped[int] = mapped_column(
+        ForeignKey("model_versions.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Test configuration
+    min_matches: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Data info
+    num_samples: Mapped[int] = mapped_column(Integer, nullable=False)
+    date_range_start: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    date_range_end: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # Classification metrics
+    accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    log_loss: Mapped[float] = mapped_column(Float, nullable=False)
+    brier_score: Mapped[float] = mapped_column(Float, nullable=False)
+    f1_macro: Mapped[float] = mapped_column(Float, nullable=False)
+    f1_weighted: Mapped[float] = mapped_column(Float, nullable=False)
+    precision_macro: Mapped[float] = mapped_column(Float, nullable=False)
+    recall_macro: Mapped[float] = mapped_column(Float, nullable=False)
+    top_2_accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    cohen_kappa: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # Per-class F1 scores
+    f1_home: Mapped[float] = mapped_column(Float, nullable=False)
+    f1_draw: Mapped[float] = mapped_column(Float, nullable=False)
+    f1_away: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # Betting metrics (nullable as they require odds)
+    total_bets: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    win_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    roi_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    profit_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sharpe_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_drawdown: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Calibration metrics
+    expected_calibration_error: Mapped[float] = mapped_column(Float, nullable=False)
+    maximum_calibration_error: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # Full metrics as JSON for detailed analysis
+    full_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    # Metadata
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    execution_time_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Relationships
+    model_version: Mapped["ModelVersion"] = relationship(back_populates="backtests")
+
+    def __repr__(self) -> str:
+        return (
+            f"<BacktestHistory(id={self.id}, model_version_id={self.model_version_id}, "
+            f"accuracy={self.accuracy:.3f}, num_samples={self.num_samples})>"
+        )
+
+
+ModelVersion.backtests = relationship(
+    "BacktestHistory", back_populates="model_version", cascade="all, delete-orphan"
+)

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:18
+    image: postgres:18-alpine
     container_name: algobet-db
     environment:
       POSTGRES_USER: algobet
@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U algobet -d football" ]
       interval: 5s
@@ -23,7 +23,7 @@ services:
     container_name: algobet-api
     command: uvicorn algobet.api.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - ./algobet:/app/algobet
       - ./data:/app/data
@@ -41,6 +41,27 @@ services:
       - API_ENV=development
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
       - LOG_LEVEL=info
+
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: algobet-scraper
+    command: python -m algobet.cli.dev_tools scheduler run --interval 60
+    volumes:
+      - ./algobet:/app/algobet
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - POSTGRES_USER=algobet
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=football
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - LOG_LEVEL=info
+    restart: unless-stopped
 
 volumes:
   pgdata:
