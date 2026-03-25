@@ -120,9 +120,20 @@ class ConnectionManager:
         message = {
             "type": "progress",
             "job_id": progress.job_id,
+            "status": progress.status,
             "progress": progress.progress,
             "message": progress.message,
             "matches_scraped": progress.matches_scraped,
+            "matches_saved": progress.matches_saved,
+            "current_page": progress.current_page,
+            "total_pages": progress.total_pages,
+            "started_at": (
+                progress.started_at.isoformat() if progress.started_at else None
+            ),
+            "completed_at": (
+                progress.completed_at.isoformat() if progress.completed_at else None
+            ),
+            "error": progress.error,
             "timestamp": progress.timestamp.isoformat(),
         }
 

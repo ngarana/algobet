@@ -52,6 +52,25 @@ class ModelsConfig(BaseSettings):
         return v.expanduser().resolve()
 
 
+class APIFootballConfig(BaseSettings):
+    """API-Football configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="ALGOBET_API_FOOTBALL__")
+
+    api_key: str = Field(
+        default="",
+        description="API-Football API key from dashboard.api-football.com",
+    )
+    base_url: str = Field(
+        default="https://v3.football.api-sports.io",
+        description="API-Football base URL",
+    )
+    rate_limit_per_day: int = Field(
+        default=100, ge=1, description="Daily API request limit (free tier: 100)"
+    )
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+
+
 class ScrapingConfig(BaseSettings):
     """Web scraping configuration."""
 
@@ -59,12 +78,18 @@ class ScrapingConfig(BaseSettings):
 
     default_url: str = Field(
         default="https://www.oddsportal.com/matches/football/",
-        description="Default URL for upcoming matches",
+        description="Default URL for upcoming matches (legacy)",
     )
     timeout: int = Field(default=120, ge=1, description="Page load timeout in seconds")
     headless: bool = Field(default=True, description="Run browser in headless mode")
     max_retries: int = Field(default=3, ge=0, description="Max retry attempts")
     retry_delay: int = Field(default=5, ge=0, description="Delay between retries")
+
+    # Popular league IDs for API-Football
+    default_league_ids: list[int] = Field(
+        default=[39, 140, 135, 78, 61, 2, 3, 848, 886, 15],
+        description="Default league IDs to scrape (Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, Europa League, etc.)",
+    )
 
 
 class BacktestConfig(BaseSettings):
@@ -140,6 +165,7 @@ class AlgobetConfig(BaseSettings):
     # Sub-configurations
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
+    api_football: APIFootballConfig = Field(default_factory=APIFootballConfig)
     scraping: ScrapingConfig = Field(default_factory=ScrapingConfig)
     backtest: BacktestConfig = Field(default_factory=BacktestConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
@@ -152,6 +178,7 @@ class AlgobetConfig(BaseSettings):
             "app_version": self.app_version,
             "database": self.database.model_dump(),
             "models": self.models.model_dump(),
+            "api_football": self.api_football.model_dump(exclude={"api_key"}),
             "scraping": self.scraping.model_dump(),
             "backtest": self.backtest.model_dump(),
             "logging": self.logging.model_dump(),

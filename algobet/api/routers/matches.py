@@ -150,11 +150,109 @@ def list_matches(
             )
         )
 
+        return PaginatedResponse(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+
+@router.get("/upcoming", response_model=PaginatedResponse[MatchDetailResponse])
+def get_upcoming_matches(
+    tournament_id: int | None = Query(None, description="Filter by tournament ID"),
+    limit: int = Query(100, ge=1, le=200, description="Maximum number of matches"),
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[MatchDetailResponse]:
+    """Get upcoming matches for today with team and tournament details.
+
+    Returns matches scheduled for the next 24 hours with odds available,
+    including team names and tournament info for the scraping UI.
+    """
+    from sqlalchemy.orm import joinedload
+
+    from algobet.models import Season, Team, Tournament
+
+    now = datetime.now(timezone.utc)
+    tomorrow = datetime.fromtimestamp(now.timestamp() + 24 * 3600)
+
+    query = (
+        db.query(Match)
+        .options(
+            joinedload(Match.home_team),
+            joinedload(Match.away_team),
+            joinedload(Match.tournament),
+            joinedload(Match.season),
+        )
+        .filter(
+            and_(
+                Match.status == MatchStatus.SCHEDULED,
+                Match.match_date >= now,
+                Match.match_date <= tomorrow,
+                Match.odds_home.is_not(None),
+                Match.odds_draw.is_not(None),
+                Match.odds_away.is_not(None),
+            )
+        )
+    )
+
+    if tournament_id:
+        query = query.filter(Match.tournament_id == tournament_id)
+
+    total = query.count()
+    matches = query.order_by(Match.match_date).limit(limit).all()
+
+    items = []
+    for match in matches:
+        result_value = None
+        if (
+            match.status == MatchStatus.FINISHED
+            and match.home_score is not None
+            and match.away_score is not None
+        ):
+            if match.home_score > match.away_score:
+                result_value = "H"
+            elif match.home_score < match.away_score:
+                result_value = "A"
+            else:
+                result_value = "D"
+
+        items.append(
+            MatchDetailResponse(
+                id=match.id,
+                tournament_id=match.tournament_id,
+                season_id=match.season_id,
+                home_team_id=match.home_team_id,
+                away_team_id=match.away_team_id,
+                match_date=match.match_date,
+                home_score=match.home_score,
+                away_score=match.away_score,
+                status=match.status,
+                odds_home=match.odds_home,
+                odds_draw=match.odds_draw,
+                odds_away=match.odds_away,
+                num_bookmakers=match.num_bookmakers,
+                created_at=match.created_at,
+                updated_at=match.updated_at,
+                result=result_value,
+                tournament=TournamentResponse.model_validate(match.tournament)
+                if match.tournament
+                else None,
+                season=SeasonResponse.model_validate(match.season)
+                if match.season
+                else None,
+                home_team=TeamResponse.model_validate(match.home_team),
+                away_team=TeamResponse.model_validate(match.away_team),
+                predictions=[],
+                h2h_matches=[],
+            )
+        )
+
     return PaginatedResponse(
         items=items,
         total=total,
         limit=limit,
-        offset=offset,
+        offset=0,
     )
 
 

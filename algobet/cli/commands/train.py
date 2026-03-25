@@ -6,7 +6,7 @@ import click
 
 from algobet.cli.error_handler import handle_errors
 from algobet.cli.logger import success
-from algobet.database import session_scope
+from algobet.infrastructure.database import session_scope
 
 
 @click.group(name="train")

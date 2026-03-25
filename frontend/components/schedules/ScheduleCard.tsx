@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +16,6 @@ import {
   ClockIcon,
   CheckCircleIcon,
   XCircleIcon,
-  MoreVerticalIcon,
   RefreshCwIcon,
 } from "lucide-react";
 import type { ScheduledTask, TaskExecution } from "@/lib/api/schedules";

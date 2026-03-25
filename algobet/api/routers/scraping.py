@@ -20,7 +20,10 @@ from algobet.api.schemas.scraping import (
     ScrapingType,
 )
 from algobet.api.websockets import manager
-from algobet.services.scraping_service import ScrapingService
+from algobet.services.scraping_service import (
+    ScrapingProgress as ServiceScrapingProgress,
+    ScrapingService,
+)
 
 router = APIRouter(tags=["scraping"])
 
@@ -49,62 +52,100 @@ def update_job_status(job_id: str, update: ScrapingJobUpdate) -> None:
 
 
 async def run_scraping_job(
-    job_id: str, job_create: ScrapingJobCreate, db: Session
+    job_id: str,
+    job_create: ScrapingJobCreate,
+    db: Session,
 ) -> None:
-    """Execute scraping job with progress updates."""
+    """Execute scraping job with progress updates using API-Football."""
     try:
+        started_at = datetime.now(timezone.utc)
+
         # Update job status to running
         update_job_status(
             job_id,
             ScrapingJobUpdate(
                 status=ScrapingJobStatus.RUNNING,
                 progress=0.0,
-                message="Starting scraping operation...",
+                message="Starting API-Football fetch...",
                 matches_scraped=0,
                 errors=[],
+                started_at=started_at,
             ),
         )
 
-        # Initialize scraping service with database session
-        service = ScrapingService(db)
-
         # Define progress callback
-        def progress_callback(
-            progress: float, message: str, matches_scraped: int = 0
-        ) -> None:
+        def progress_callback(progress: ServiceScrapingProgress) -> None:
+            job_status = ScrapingJobStatus(progress.status.value)
+            completed_at = (
+                progress.completed_at.replace(tzinfo=timezone.utc)
+                if progress.completed_at and progress.completed_at.tzinfo is None
+                else progress.completed_at
+            )
+            service_started_at = (
+                progress.started_at.replace(tzinfo=timezone.utc)
+                if progress.started_at and progress.started_at.tzinfo is None
+                else progress.started_at
+            )
+            error_list = [progress.error] if progress.error else []
+
             update_job_status(
                 job_id,
                 ScrapingJobUpdate(
-                    status=None,
-                    progress=progress,
-                    message=message,
-                    matches_scraped=matches_scraped,
-                    errors=[],
+                    status=job_status,
+                    progress=progress.progress,
+                    message=progress.message,
+                    matches_scraped=progress.matches_scraped,
+                    errors=error_list,
+                    started_at=service_started_at,
+                    completed_at=completed_at,
                 ),
             )
 
             # Broadcast progress via WebSocket
             progress_data = ScrapingProgress(
                 job_id=job_id,
-                progress=progress,
-                message=message,
-                matches_scraped=matches_scraped,
+                status=job_status,
+                progress=progress.progress,
+                message=progress.message,
+                matches_scraped=progress.matches_scraped,
+                matches_saved=progress.matches_saved,
+                current_page=progress.current_page or None,
+                total_pages=progress.total_pages or None,
+                started_at=service_started_at,
+                completed_at=completed_at,
+                error=progress.error,
             )
             asyncio.create_task(manager.broadcast_progress(progress_data))
 
+        # Initialize scraping service with database session
+        service = ScrapingService(db, progress_callback=progress_callback)
+
+        # Determine league IDs to use
+        league_ids = job_create.league_ids
+        if job_create.league_id and not league_ids:
+            league_ids = [job_create.league_id]
+
         # Execute scraping based on type
         if job_create.scraping_type == ScrapingType.UPCOMING:
-            if not job_create.tournament_url:
-                # Scrape all upcoming matches
-                result = service.scrape_upcoming()
-            else:
-                # Scrape specific tournament
-                result = service.scrape_upcoming(url=str(job_create.tournament_url))
+            result = service.scrape_upcoming(league_ids=league_ids)
         elif job_create.scraping_type == ScrapingType.RESULTS:
-            if not job_create.tournament_url:
-                raise ValueError("Tournament URL is required for results scraping")
-
-            result = service.scrape_results(url=str(job_create.tournament_url))
+            result = service.scrape_results(
+                league_id=job_create.league_id,
+                max_pages=job_create.max_results,
+            )
+        elif job_create.scraping_type == ScrapingType.BY_DATE:
+            # Extract date from job (stored in tournament_url as workaround)
+            date_str = None
+            if job_create.tournament_url:
+                url_str = str(job_create.tournament_url)
+                if "date/" in url_str:
+                    date_str = url_str.split("date/")[-1]
+                    if date_str == "today":
+                        date_str = None
+            result = service.scrape_by_date(
+                date=date_str,
+                league_id=job_create.league_id,
+            )
         else:
             raise ValueError(f"Unsupported scraping type: {job_create.scraping_type}")
 
@@ -114,18 +155,12 @@ async def run_scraping_job(
             ScrapingJobUpdate(
                 status=ScrapingJobStatus.COMPLETED,
                 progress=100.0,
-                message=(
-                    f"Scraping completed successfully. "
-                    f"{result.matches_saved} matches processed."
-                ),
+                message=result.message,
                 matches_scraped=result.matches_saved,
                 errors=[],
+                completed_at=datetime.now(timezone.utc),
             ),
         )
-
-        # Update the completed_at timestamp directly on the job
-        if job_id in scraping_jobs:
-            scraping_jobs[job_id].completed_at = datetime.now(timezone.utc)
 
     except Exception as e:
         # Update job status to failed
@@ -137,28 +172,99 @@ async def run_scraping_job(
             job_id,
             ScrapingJobUpdate(
                 status=ScrapingJobStatus.FAILED,
-                progress=0.0,  # or current progress if available
+                progress=0.0,
                 message=f"Scraping failed: {str(e)}",
-                matches_scraped=0,  # or current count if available
+                matches_scraped=0,
                 errors=errors,
+                completed_at=datetime.now(timezone.utc),
             ),
         )
-
-        # Update the completed_at timestamp directly on the job
-        if job_id in scraping_jobs:
-            scraping_jobs[job_id].completed_at = datetime.now(timezone.utc)
 
 
 @router.post("/upcoming", response_model=ScrapingJobResponse)
 async def scrape_upcoming(
     background_tasks: BackgroundTasks,
     tournament_url: str | None = None,
+    league_ids: str | None = None,
     db: Session = Depends(get_db),
 ) -> ScrapingJobResponse:
-    """Start scraping upcoming matches.
+    """Start scraping upcoming matches using API-Football.
 
     Args:
-        tournament_url: Optional URL of specific tournament to scrape
+        tournament_url: [Legacy] Optional URL (ignored - API-Football uses league IDs)
+        league_ids: Comma-separated API-Football league IDs (e.g., "39,140,135")
+        db: Database session
+
+    Returns:
+        Scraping job response with job details
+
+    Raises:
+        HTTPException: If scraping job cannot be created
+    """
+    try:
+        # Parse league IDs from string
+        parsed_league_ids: list[int] | None = None
+        if league_ids:
+            try:
+                parsed_league_ids = [int(lid.strip()) for lid in league_ids.split(",")]
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid league_ids format. Expected comma-separated integers.",
+                )
+
+        # Create scraping job
+        job_create = ScrapingJobCreate(
+            scraping_type=ScrapingType.UPCOMING,
+            tournament_url=HttpUrl(tournament_url) if tournament_url else None,
+            tournament_name=None,
+            season=None,
+            start_date=None,
+            end_date=None,
+            league_ids=parsed_league_ids,
+        )
+
+        job_id = str(uuid.uuid4())
+        job = ScrapingJobResponse(
+            id=job_id,
+            status=ScrapingJobStatus.PENDING,
+            progress=0.0,
+            message="Job created and queued",
+            created_at=datetime.now(timezone.utc),
+            **job_create.model_dump(),
+        )
+
+        # Store job
+        scraping_jobs[job_id] = job
+
+        # Add to background tasks
+        background_tasks.add_task(run_scraping_job, job_id, job_create, db)
+
+        return job
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create scraping job: {str(e)}",
+        ) from e
+
+
+@router.post("/results", response_model=ScrapingJobResponse)
+async def scrape_results(
+    background_tasks: BackgroundTasks,
+    tournament_url: str | None = None,
+    league_id: int | None = None,
+    max_results: int | None = None,
+    db: Session = Depends(get_db),
+) -> ScrapingJobResponse:
+    """Start scraping match results using API-Football.
+
+    Args:
+        tournament_url: [Legacy] Optional URL (ignored - API-Football uses league ID)
+        league_id: API-Football league ID (e.g., 39 for Premier League)
+        max_results: Maximum number of results to fetch
         db: Database session
 
     Returns:
@@ -170,12 +276,14 @@ async def scrape_upcoming(
     try:
         # Create scraping job
         job_create = ScrapingJobCreate(
-            scraping_type=ScrapingType.UPCOMING,
+            scraping_type=ScrapingType.RESULTS,
             tournament_url=HttpUrl(tournament_url) if tournament_url else None,
             tournament_name=None,
             season=None,
             start_date=None,
             end_date=None,
+            league_id=league_id,
+            max_results=max_results or 20,
         )
 
         job_id = str(uuid.uuid4())
@@ -203,39 +311,61 @@ async def scrape_upcoming(
         ) from e
 
 
-@router.post("/results", response_model=ScrapingJobResponse)
-async def scrape_results(
+@router.post("/by-date", response_model=ScrapingJobResponse)
+async def scrape_by_date(
     background_tasks: BackgroundTasks,
-    tournament_url: str,
-    season: str | None = None,
-    start_date: datetime | None = None,
-    end_date: datetime | None = None,
+    date: str | None = None,
+    league_id: int | None = None,
     db: Session = Depends(get_db),
 ) -> ScrapingJobResponse:
-    """Start scraping match results.
+    """Fetch ALL matches for a specific date across all leagues.
+
+    This is the equivalent of scraping all matches from OddsPortal's main page.
+    Uses only 1 API request regardless of how many leagues have matches.
 
     Args:
-        tournament_url: URL of tournament to scrape results from
-        season: Optional season to scrape (e.g., '2023-2024')
-        start_date: Optional start date for results
-        end_date: Optional end date for results
+        date: Date in YYYY-MM-DD format (defaults to today)
+        league_id: Optional filter by specific league ID
         db: Database session
 
     Returns:
         Scraping job response with job details
 
-    Raises:
-        HTTPException: If scraping job cannot be created
+    Example:
+        # Get all matches today
+        POST /api/v1/scraping/by-date
+
+        # Get all matches on a specific date
+        POST /api/v1/scraping/by-date?date=2026-03-25
+
+        # Get only Premier League matches
+        POST /api/v1/scraping/by-date?date=2026-03-25&league_id=39
     """
     try:
+        # Validate date format if provided
+        if date:
+            try:
+                from datetime import date as dt_date
+
+                dt_date.fromisoformat(date)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid date format. Use YYYY-MM-DD.",
+                ) from None
+
+        # Store date in tournament_url field as workaround
+        date_url = f"https://api-football.io/date/{date or 'today'}"
+
         # Create scraping job
         job_create = ScrapingJobCreate(
-            scraping_type=ScrapingType.RESULTS,
-            tournament_url=HttpUrl(tournament_url),
+            scraping_type=ScrapingType.BY_DATE,
+            tournament_url=HttpUrl(date_url),
             tournament_name=None,
-            season=season,
-            start_date=start_date,
-            end_date=end_date,
+            season=None,
+            start_date=None,
+            end_date=None,
+            league_id=league_id,
         )
 
         job_id = str(uuid.uuid4())
@@ -243,7 +373,7 @@ async def scrape_results(
             id=job_id,
             status=ScrapingJobStatus.PENDING,
             progress=0.0,
-            message="Job created and queued",
+            message=f"Fetching all matches for {date or 'today'}",
             created_at=datetime.now(timezone.utc),
             **job_create.model_dump(),
         )
@@ -256,6 +386,8 @@ async def scrape_results(
 
         return job
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

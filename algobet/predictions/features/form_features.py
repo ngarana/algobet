@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from algobet.models import Match
+from algobet.matches.models import Match
 from algobet.predictions.data.queries import MatchRepository
 
 

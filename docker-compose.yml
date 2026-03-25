@@ -40,6 +40,10 @@ services:
       - API_ENV=development
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
       - LOG_LEVEL=info
+      - ALGOBET_API_FOOTBALL__API_KEY=${ALGOBET_API_FOOTBALL__API_KEY:-your_api_key_here}
+      - ALGOBET_API_FOOTBALL__BASE_URL=https://v3.football.api-sports.io
+      - ALGOBET_API_FOOTBALL__RATE_LIMIT_PER_DAY=100
+      - ALGOBET_API_FOOTBALL__TIMEOUT=30
 
   scraper:
     build:
@@ -61,6 +65,8 @@ services:
       - POSTGRES_HOST=localhost
       - POSTGRES_PORT=5432
       - LOG_LEVEL=info
+      - ALGOBET_API_FOOTBALL__API_KEY=${ALGOBET_API_FOOTBALL__API_KEY:-your_api_key_here}
+      - ALGOBET_API_FOOTBALL__BASE_URL=https://v3.football.api-sports.io
     restart: unless-stopped
 
 volumes:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from algobet.database import create_db_engine
+from algobet.infrastructure.database import create_db_engine
 from algobet.exceptions import (
     DatabaseConnectionError,
     DatabaseError,
@@ -18,7 +18,6 @@ from algobet.exceptions import (
 )
 from algobet.logging_config import get_logger
 from algobet.models import (
-    Base,
     Match,
     ModelVersion,
     ScheduledTask,
@@ -26,6 +25,7 @@ from algobet.models import (
     Team,
     Tournament,
 )
+from algobet.infrastructure.models import Base
 from algobet.services.base import BaseService
 from algobet.services.dto import (
     DatabaseInitRequest,

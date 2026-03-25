@@ -38,7 +38,7 @@ function BacktestForm({
   isLoading: boolean;
 }) {
   const { data: activeModel } = useActiveModel();
-  const { data: modelsData } = useModels();
+  useModels();
 
   // Default dates
   const today = new Date();

@@ -17,6 +17,7 @@ import {
 
 const matchArraySchema = createPaginatedResponseSchema(MatchSchema);
 const matchDetailSchema = MatchDetailSchema;
+const matchDetailArraySchema = createPaginatedResponseSchema(MatchDetailSchema);
 
 export async function getMatches(
   filters?: MatchFilters
@@ -39,4 +40,13 @@ export async function getMatchPredictions(id: number): Promise<MatchDetail> {
 
 export async function getMatchH2H(id: number): Promise<PaginatedResponse<Match>> {
   return apiGet(`/matches/${id}/h2h`, matchArraySchema);
+}
+
+export async function getUpcomingMatches(
+  tournamentId?: number
+): Promise<PaginatedResponse<MatchDetail>> {
+  const queryString = tournamentId
+    ? buildQueryString({ tournament_id: tournamentId })
+    : "";
+  return apiGet(`/matches/upcoming${queryString}`, matchDetailArraySchema);
 }

@@ -4,7 +4,7 @@ from collections.abc import Generator
 
 from sqlalchemy.orm import Session
 
-from algobet.database import session_scope
+from algobet.infrastructure.database import session_scope
 
 
 def get_db() -> Generator[Session, None, None]:

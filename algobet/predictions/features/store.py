@@ -12,7 +12,8 @@ from sqlalchemy import and_, delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from algobet.models import Match, ModelFeature
+from algobet.matches.models import Match
+from algobet.predictions.models.base import ModelFeature
 
 
 class FeatureStore:

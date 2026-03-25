@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { usePredictions } from "@/lib/queries/use-predictions";
 import { useValueBets } from "@/lib/queries/use-value-bets";
 import { useModels } from "@/lib/queries/use-models";
-import type { Prediction, ValueBet, ModelVersion } from "@/lib/types/api";
+import type { Prediction, ModelVersion } from "@/lib/types/api";
 
 interface ActivityItem {
   id: string;
@@ -89,11 +89,12 @@ export function RecentActivityFeed() {
       .filter((p: Prediction) => p.actual_roi !== null && p.actual_roi > 0)
       .slice(0, 3);
     for (const pred of profitable) {
+      const roi = pred.actual_roi ?? 0;
       items.push({
         id: `profit-${pred.id}`,
         type: "profit",
         title: "Profit Recorded",
-        description: `+$${pred.actual_roi!.toFixed(2)} from Match #${pred.match_id}`,
+        description: `+$${roi.toFixed(2)} from Match #${pred.match_id}`,
         timestamp: new Date(pred.predicted_at),
         color: "bg-yellow-500",
       });

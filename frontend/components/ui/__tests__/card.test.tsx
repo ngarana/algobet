@@ -191,7 +191,7 @@ describe("Card composition", () => {
   });
 
   it("should maintain proper hierarchy", () => {
-    const { container } = render(
+    render(
       <Card data-testid="card">
         <CardHeader data-testid="header">
           <CardTitle data-testid="title">Title</CardTitle>

@@ -26,9 +26,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Brain, RefreshCw, TrendingUp, Target, Calendar } from "lucide-react";
+import { Brain, RefreshCw, Target } from "lucide-react";
 import {
-  usePredictions,
   useUpcomingPredictions,
   usePredictionHistory,
 } from "@/lib/queries/use-predictions";

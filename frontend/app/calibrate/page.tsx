@@ -27,7 +27,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { useCalibrate } from "@/lib/queries/use-ml-operations";
-import { useActiveModel, useModels } from "@/lib/queries/use-models";
+import { useActiveModel } from "@/lib/queries/use-models";
 import type { CalibrateResult, CalibrationMetrics } from "@/lib/types/ml-operations";
 
 function CalibrateForm({

@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import Session, sessionmaker
 
-from algobet.models import Base
+from algobet.infrastructure.models import Base
 
 # Load environment variables
 load_dotenv()

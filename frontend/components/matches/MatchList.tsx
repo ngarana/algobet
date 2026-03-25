@@ -22,13 +22,13 @@ export function MatchList({ initialFilters }: MatchListProps) {
     ...initialFilters,
     status: (searchParams.get("status") as MatchFilters["status"]) || undefined,
     tournament_id: searchParams.get("tournament_id")
-      ? parseInt(searchParams.get("tournament_id")!)
+      ? parseInt(searchParams.get("tournament_id") ?? "0")
       : undefined,
     team_id: searchParams.get("team_id")
-      ? parseInt(searchParams.get("team_id")!)
+      ? parseInt(searchParams.get("team_id") ?? "0")
       : undefined,
     days_ahead: searchParams.get("days_ahead")
-      ? parseInt(searchParams.get("days_ahead")!)
+      ? parseInt(searchParams.get("days_ahead") ?? "0")
       : undefined,
     limit,
     offset,

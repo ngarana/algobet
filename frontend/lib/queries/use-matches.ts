@@ -3,7 +3,13 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getMatches, getMatch, getMatchPreview, getMatchH2H } from "@/lib/api/matches";
+import {
+  getMatches,
+  getMatch,
+  getMatchPreview,
+  getMatchH2H,
+  getUpcomingMatches,
+} from "@/lib/api/matches";
 import type { MatchFilters } from "@/lib/types/api";
 
 export const matchKeys = {
@@ -57,4 +63,35 @@ export function useInvalidateMatches() {
     invalidateDetail: (id: number) =>
       queryClient.invalidateQueries({ queryKey: matchKeys.detail(id) }),
   };
+}
+
+export interface UpcomingMatchesFilters {
+  tournament_id?: number;
+  limit?: number;
+}
+
+export function useUpcomingMatches(filters?: UpcomingMatchesFilters) {
+  return useQuery({
+    queryKey: matchKeys.list({
+      status: "SCHEDULED",
+      tournament_id: filters?.tournament_id,
+      limit: filters?.limit ?? 100,
+    }),
+    queryFn: () => getUpcomingMatches(filters?.tournament_id),
+    staleTime: 60 * 1000,
+  });
+}
+
+export const upcomingKeys = {
+  all: ["upcoming-matches"] as const,
+  list: (tournamentId?: number) =>
+    [...upcomingKeys.all, "list", tournamentId] as const,
+};
+
+export function useUpcomingMatchesWithTeams(tournamentId?: number) {
+  return useQuery({
+    queryKey: upcomingKeys.list(tournamentId),
+    queryFn: () => getUpcomingMatches(tournamentId),
+    staleTime: 60 * 1000,
+  });
 }
