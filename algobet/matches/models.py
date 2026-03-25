@@ -76,6 +76,12 @@ class Match(Base):
         back_populates="away_matches",
         foreign_keys=[away_team_id],
     )
+    predictions: Mapped[list["Prediction"]] = relationship(
+        "Prediction", back_populates="match", cascade="all, delete-orphan"
+    )
+    model_features: Mapped[list["ModelFeature"]] = relationship(
+        "ModelFeature", back_populates="match", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         UniqueConstraint(
