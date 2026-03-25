@@ -21,9 +21,8 @@ services:
       context: .
       dockerfile: Dockerfile.api
     container_name: algobet-api
-    command: uvicorn algobet.api.main:app --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - "8001:8000"
+    command: uvicorn algobet.api.main:app --host 0.0.0.0 --port 8001 --reload
+    network_mode: host
     volumes:
       - ./algobet:/app/algobet
       - ./data:/app/data
@@ -34,10 +33,10 @@ services:
       - POSTGRES_USER=algobet
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=football
-      - POSTGRES_HOST=db
+      - POSTGRES_HOST=localhost
       - POSTGRES_PORT=5432
       - API_HOST=0.0.0.0
-      - API_PORT=8000
+      - API_PORT=8001
       - API_ENV=development
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
       - LOG_LEVEL=info
@@ -48,6 +47,7 @@ services:
       dockerfile: Dockerfile.api
     container_name: algobet-scraper
     command: python -m algobet.cli.dev_tools scheduler run --interval 60
+    network_mode: host
     volumes:
       - ./algobet:/app/algobet
       - ./data:/app/data
@@ -58,7 +58,7 @@ services:
       - POSTGRES_USER=algobet
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=football
-      - POSTGRES_HOST=db
+      - POSTGRES_HOST=localhost
       - POSTGRES_PORT=5432
       - LOG_LEVEL=info
     restart: unless-stopped
