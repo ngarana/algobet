@@ -661,6 +661,107 @@ class APIFootballClient:
             return responses[0]
         return None
 
+    def get_odds(
+        self,
+        fixture_id: int | None = None,
+        league_id: int | None = None,
+        date: str | None = None,
+        season: int | None = None,
+    ) -> dict[int, APIFootballOdds]:
+        """Get odds data for fixtures.
+
+        Odds are NOT included in the fixtures endpoint response. This method
+        fetches odds from the dedicated /odds endpoint and returns them mapped
+        by fixture ID.
+
+        Args:
+            fixture_id: Filter by specific fixture ID
+            league_id: Filter by league ID
+            date: Filter by date (YYYY-MM-DD)
+            season: Filter by season year
+
+        Returns:
+            Dict mapping fixture IDs to APIFootballOdds (first bookmaker's Match Winner)
+
+        Example:
+            odds_map = client.get_odds(date="2026-03-26")
+            # odds_map[fixture_id] contains odds for that fixture
+        """
+        params: dict[str, Any] = {}
+        if fixture_id:
+            params["fixture"] = fixture_id
+        if league_id:
+            params["league"] = league_id
+        if date:
+            params["date"] = date
+        if season:
+            params["season"] = season
+
+        data = self._request("/odds", params)
+        response_list = data.get("response", [])
+
+        odds_by_fixture: dict[int, APIFootballOdds] = {}
+        for item in response_list:
+            fixture_id = item.get("fixture", {}).get("id")
+            if not fixture_id:
+                continue
+
+            bookmakers = item.get("bookmakers", [])
+            if not bookmakers:
+                continue
+
+            first_bookmaker = bookmakers[0]
+            for bet in first_bookmaker.get("bets", []):
+                if bet.get("name") == "Match Winner":
+                    odds_by_fixture[fixture_id] = APIFootballOdds(
+                        id=first_bookmaker.get("id", 0),
+                        name=first_bookmaker.get("name", "Unknown"),
+                        values=bet.get("values", []),
+                    )
+                    break
+
+        return odds_by_fixture
+
+    def enrich_fixtures_with_odds(
+        self,
+        fixtures: list[APIFootballFixture],
+        league_id: int | None = None,
+    ) -> list[APIFootballFixture]:
+        """Enrich fixture list with odds data from the dedicated odds endpoint.
+
+        Since odds are NOT returned by the fixtures endpoint, this makes an
+        additional API call to fetch odds and attaches them to fixtures.
+
+        Args:
+            fixtures: List of fixtures to enrich
+            league_id: Optional league filter for odds request
+
+        Returns:
+            Same fixtures list with odds populated
+
+        Note:
+            This uses 1 additional API request. Consider batching by date
+            rather than calling for each fixture individually.
+        """
+        if not fixtures:
+            return fixtures
+
+        dates = {f.date.strftime("%Y-%m-%d") for f in fixtures}
+        all_odds: dict[int, APIFootballOdds] = {}
+
+        for date_str in dates:
+            try:
+                odds_map = self.get_odds(date=date_str, league_id=league_id)
+                all_odds.update(odds_map)
+            except Exception:
+                continue
+
+        for fixture in fixtures:
+            if fixture.id in all_odds:
+                fixture.odds = [all_odds[fixture.id]]
+
+        return fixtures
+
     @property
     def requests_remaining(self) -> int:
         """Get estimated remaining requests for today."""
