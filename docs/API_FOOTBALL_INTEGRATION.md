@@ -50,7 +50,8 @@ Could not start the upcoming scrape. Double-check the URL and try again.
 ### API-Football Free Tier
 - **100 requests/day**
 - **900+ leagues covered**
-- **Fixtures, results, odds included**
+- **Fixtures, results included**
+- **Odds available via separate endpoint**
 - **No credit card required**
 
 Register at: https://dashboard.api-football.com/register
@@ -360,7 +361,7 @@ The migration from OddsPortal web scraping to API-Football was successful. The n
 
 - ✅ Is reliable and won't break with page changes
 - ✅ Fetches all matches in 1 API request (~1 second)
-- ✅ Includes odds data
+- ✅ Fetches odds via separate endpoint (1 additional request per date)
 - ✅ Has a clean JSON response format
 - ✅ Never gets blocked or CAPTCHA'd
 - ✅ Supports 900+ leagues

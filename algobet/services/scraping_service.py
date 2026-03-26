@@ -305,15 +305,36 @@ class ScrapingService(BaseService[Any]):
             progress.message = "Fetching fixtures by date from API-Football..."
             self._emit_progress(progress)
 
-            # Fetch ALL fixtures for the date (only 1 API request!)
+            # Fetch ALL fixtures for the date (1 API request)
             response = client.get_fixtures_by_date(date=date, league_id=league_id)
             fixtures = response.fixtures
+            requests_made = response.requests_made
 
-            progress.progress = 50.0
+            progress.progress = 30.0
             progress.matches_scraped = len(fixtures)
             progress.message = (
                 f"Found {len(fixtures)} matches across "
-                f"{len(set(f.league.name for f in fixtures))} leagues. Saving..."
+                f"{len(set(f.league.name for f in fixtures))} leagues. Fetching odds..."
+            )
+            self._emit_progress(progress)
+
+            # Enrich fixtures with odds (1 additional API request)
+            if fixtures:
+                try:
+                    fixtures = client.enrich_fixtures_with_odds(
+                        fixtures, league_id=league_id
+                    )
+                    # Count fixtures that now have odds
+                    odds_count = sum(1 for f in fixtures if f.odds)
+                    requests_made += 1  # One request per date
+                except Exception as odds_error:
+                    # Odds fetch failed, continue without odds
+                    print(f"Warning: Failed to fetch odds: {odds_error}")
+                    odds_count = 0
+
+            progress.progress = 60.0
+            progress.message = (
+                f"Found {len(fixtures)} matches, {odds_count} with odds. Saving..."
             )
             self._emit_progress(progress)
 
@@ -325,8 +346,8 @@ class ScrapingService(BaseService[Any]):
             progress.status = JobStatus.COMPLETED
             progress.completed_at = datetime.now()
             progress.message = (
-                f"Completed! Fetched {len(fixtures)} matches from "
-                f"{response.requests_made} API request(s), saved {saved_count}."
+                f"Completed! Fetched {len(fixtures)} matches ({odds_count} with odds) "
+                f"from {requests_made} API request(s), saved {saved_count}."
             )
 
         except ValueError as e:
