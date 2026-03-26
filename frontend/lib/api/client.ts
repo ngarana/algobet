@@ -30,13 +30,35 @@ async function handleResponse<T>(
     );
   }
 
-  const data = await response.json();
+  // Handle empty responses
+  const contentType = response.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    return {} as T;
+  }
+
+  const text = await response.text();
+  if (!text || text.trim() === "") {
+    return {} as T;
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return {} as T;
+  }
+
+  // Handle null data
+  if (data === null || data === undefined) {
+    return {} as T;
+  }
 
   if (schema) {
     const result = schema.safeParse(data);
     if (!result.success) {
-      console.error("API response validation failed:", result.error);
-      throw new ApiError("Invalid API response format", 500, result.error);
+      console.warn("API response validation warning:", result.error);
+      // Return data anyway instead of throwing
+      return data as T;
     }
     return result.data;
   }

@@ -34,7 +34,7 @@ export function useScrapingJob(jobId: string | null) {
   return useQuery({
     queryKey: scrapingKeys.job(jobId ?? ""),
     queryFn: () => getScrapingJob(jobId ?? ""),
-    enabled: jobId !== null,
+    enabled: jobId !== null && jobId !== "",
     refetchInterval: 3000,
   });
 }
