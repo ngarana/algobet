@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -116,7 +116,7 @@ class APIFootballFixture:
         return self.status in (
             MatchStatus.NOT_STARTED,
             MatchStatus.TBD,
-            MatchStatus.POSTPONED,
+            MatchStatus.MATCH_POSTPONED,
         )
 
     @property
