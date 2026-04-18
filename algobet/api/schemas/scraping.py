@@ -2,8 +2,9 @@
 
 from datetime import datetime
 from enum import Enum
+from typing import Generic, TypeVar
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 
 class ScrapingJobStatus(str, Enum):
@@ -31,6 +32,9 @@ class ScrapingJobBase(BaseModel):
     tournament_url: HttpUrl | None = Field(
         None, description="URL of tournament to scrape"
     )
+    tournament_id: int | None = Field(
+        None, description="Tournament ID to resolve URL from database"
+    )
     tournament_name: str | None = Field(
         None, description="Name of tournament to scrape"
     )
@@ -39,6 +43,12 @@ class ScrapingJobBase(BaseModel):
         None, description="Start date for results scraping"
     )
     end_date: datetime | None = Field(None, description="End date for results scraping")
+    scope: str = Field("all", description="Scope of scrape: 'all' or 'league'")
+    country: str | None = Field(None, description="Country name")
+    league_name: str | None = Field(None, description="League name")
+    period: str | None = Field(
+        None, description="Period/date (e.g., '2023/2024' or '2023-2024')"
+    )
 
 
 class ScrapingJobCreate(ScrapingJobBase):
@@ -58,6 +68,7 @@ class ScrapingJobResponse(ScrapingJobBase):
     started_at: datetime | None = Field(None, description="Job start timestamp")
     completed_at: datetime | None = Field(None, description="Job completion timestamp")
     matches_scraped: int = Field(0, description="Number of matches scraped")
+    matches_saved: int = Field(0, description="Number of matches saved")
     errors: list[str] = Field(
         default_factory=list, description="List of error messages"
     )
@@ -70,14 +81,17 @@ class ScrapingJobUpdate(BaseModel):
     progress: float | None = Field(None, description="Updated progress percentage")
     message: str | None = Field(None, description="Updated status message")
     matches_scraped: int | None = Field(None, description="Updated match count")
+    matches_saved: int | None = Field(None, description="Updated matches saved count")
     errors: list[str] | None = Field(None, description="Updated error list")
+    started_at: datetime | None = Field(None, description="Job start timestamp")
+    completed_at: datetime | None = Field(None, description="Job completion timestamp")
 
 
 class ScrapingProgress(BaseModel):
     """Schema for scraping progress updates."""
 
     job_id: str = Field(..., description="Job identifier")
-    status: ScrapingJobStatus = Field(..., description="Current job status")
+    status: ScrapingJobStatus | None = Field(None, description="Current job status")
     progress: float = Field(..., description="Progress percentage (0-100)")
     message: str = Field(..., description="Progress message")
     matches_scraped: int = Field(0, description="Number of matches scraped so far")
@@ -92,19 +106,10 @@ class ScrapingProgress(BaseModel):
     )
 
 
-class ScrapingJobList(BaseModel):
-    """Schema for listing scraping jobs."""
-
-    jobs: list[ScrapingJobResponse] = Field(..., description="List of scraping jobs")
-    total: int = Field(..., description="Total number of jobs")
-    page: int = Field(1, description="Current page number")
-    page_size: int = Field(10, description="Number of jobs per page")
-
-
 class ScrapingStats(BaseModel):
     """Schema for scraping statistics."""
 
-    total_jobs: int = Field(..., description="Total number of scraping jobs")
+    total_jobs: int = Field(..., description="Total number of jobs")
     completed_jobs: int = Field(..., description="Number of completed jobs")
     failed_jobs: int = Field(..., description="Number of failed jobs")
     running_jobs: int = Field(..., description="Number of currently running jobs")
@@ -115,3 +120,17 @@ class ScrapingStats(BaseModel):
         None, description="Average job duration in seconds"
     )
     success_rate: float = Field(..., description="Success rate percentage")
+
+
+F = TypeVar("F", bound=ScrapingJobResponse)
+
+
+class PaginatedResponse(BaseModel, Generic[F]):
+    """Paginated response for scraping jobs."""
+
+    items: list[F] = Field(default_factory=list, description="List of items")
+    total: int = Field(0, description="Total number of items")
+    limit: int = Field(50, description="Page size limit")
+    offset: int = Field(0, description="Offset into results")
+
+    model_config = ConfigDict(from_attributes=True)
