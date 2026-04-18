@@ -23,14 +23,17 @@ export const dashboardKeys = {
   stats: () => [...dashboardKeys.all, "stats"] as const,
 };
 
+// Stable filter objects to prevent unnecessary refetching
+const dashboardValueBetsFilters = { max_matches: 100 } as const;
+
 export function useDashboardStats() {
   // Get all predictions (both upcoming and historical)
   const { data: allPredictionsData, isLoading: predictionsLoading } = usePredictions();
   const { data: upcomingPredictionsData, isLoading: upcomingLoading } =
     useUpcomingPredictions();
-  const { data: valueBetsData, isLoading: valueBetsLoading } = useValueBets({
-    max_matches: 100,
-  });
+  const { data: valueBetsData, isLoading: valueBetsLoading } = useValueBets(
+    dashboardValueBetsFilters
+  );
   const { data: activeModelData, isLoading: modelLoading } = useActiveModel();
 
   const allPredictions = allPredictionsData?.items || [];

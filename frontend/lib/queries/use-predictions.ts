@@ -14,7 +14,8 @@ import type { PredictionFilters } from "@/lib/types/api";
 export const predictionKeys = {
   all: ["predictions"] as const,
   lists: () => [...predictionKeys.all, "list"] as const,
-  list: (filters: PredictionFilters) => [...predictionKeys.lists(), filters] as const,
+  list: (filters: PredictionFilters | undefined) =>
+    [...predictionKeys.lists(), filters] as const,
   upcoming: () => [...predictionKeys.all, "upcoming"] as const,
   history: () => [...predictionKeys.all, "history"] as const,
   detail: (id: number) => [...predictionKeys.all, "detail", id] as const,
@@ -22,7 +23,7 @@ export const predictionKeys = {
 
 export function usePredictions(filters?: PredictionFilters) {
   return useQuery({
-    queryKey: predictionKeys.list(filters ?? {}),
+    queryKey: predictionKeys.list(filters),
     queryFn: () => getPredictions(filters),
   });
 }
