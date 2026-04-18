@@ -1,0 +1,125 @@
+"use client";
+
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Progress, ProgressValue } from "@/components/ui/progress";
+import { CheckCircleIcon, XCircleIcon, ClockIcon, Loader2Icon } from "lucide-react";
+
+export interface FetchProgressData {
+  job_id: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  progress: number;
+  matches_fetched: number;
+  message: string;
+  error?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+interface FetchProgressProps {
+  progress: FetchProgressData | null;
+  url?: string;
+}
+
+function getStatusIcon(status: string) {
+  switch (status) {
+    case "pending":
+      return <ClockIcon className="h-5 w-5 text-muted-foreground" />;
+    case "running":
+      return <Loader2Icon className="h-5 w-5 animate-spin text-primary" />;
+    case "completed":
+      return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
+    case "failed":
+      return <XCircleIcon className="h-5 w-5 text-destructive" />;
+    default:
+      return <ClockIcon className="h-5 w-5 text-muted-foreground" />;
+  }
+}
+
+export function FetchProgress({ progress, url }: FetchProgressProps) {
+  if (!progress) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Fetch Progress</CardTitle>
+          <CardDescription>Waiting for fetch to start...</CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          {getStatusIcon(progress.status)}
+          <div>
+            <CardTitle>Fetch Progress</CardTitle>
+            {url && (
+              <CardDescription className="max-w-md truncate">{url}</CardDescription>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Badge variant={progress.status === "running" ? "default" : "secondary"}>
+            {progress.status.toUpperCase()}
+          </Badge>
+          <span className="text-sm text-muted-foreground">
+            Job ID: {progress.job_id}
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span>Overall Progress</span>
+            <span className="font-medium">{progress.progress.toFixed(1)}%</span>
+          </div>
+          <Progress>
+            <ProgressValue value={progress.progress} />
+          </Progress>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4">
+          <div className="rounded-lg bg-muted/50 p-3">
+            <p className="text-sm text-muted-foreground">Matches Fetched</p>
+            <p className="text-2xl font-bold">{progress.matches_fetched}</p>
+          </div>
+        </div>
+
+        {progress.message && (
+          <div className="rounded-lg bg-muted/30 p-3">
+            <p className="text-sm">{progress.message}</p>
+          </div>
+        )}
+
+        {progress.error && (
+          <div className="rounded-lg bg-destructive/10 p-3 text-destructive">
+            <p className="text-sm font-medium">Error</p>
+            <p className="text-sm">{progress.error}</p>
+          </div>
+        )}
+
+        <div className="space-y-1 text-xs text-muted-foreground">
+          {progress.started_at && (
+            <p>Started: {new Date(progress.started_at).toLocaleString()}</p>
+          )}
+          {progress.completed_at && (
+            <p>Completed: {new Date(progress.completed_at).toLocaleString()}</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Backward compatibility alias
+export const ScrapingProgress = FetchProgress;
+export type ScrapingProgressData = FetchProgressData;
