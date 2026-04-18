@@ -12,9 +12,6 @@ class Tournament(Base):
     __tablename__ = "tournaments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    api_football_id: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, unique=True, index=True
-    )  # API-Football league ID for deduplication
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     country: Mapped[str] = mapped_column(String(100), nullable=False)
     url_slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
@@ -69,9 +66,6 @@ class Team(Base):
     __tablename__ = "teams"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    api_football_id: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, unique=True, index=True
-    )  # API-Football team ID for deduplication
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
 
     # Relationships

@@ -1,10 +1,8 @@
 """Match-related database models."""
 
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import (
-    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -13,7 +11,6 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from algobet.infrastructure.models import Base
@@ -25,9 +22,6 @@ class Match(Base):
     __tablename__ = "matches"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    api_football_id: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, unique=True, index=True
-    )  # API-Football fixture ID for deduplication
     tournament_id: Mapped[int | None] = mapped_column(
         ForeignKey("tournaments.id"), nullable=True
     )
@@ -182,5 +176,5 @@ Match.statistics = relationship(
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from algobet.teams.models import Tournament, Season, Team
-    from algobet.predictions.models.base import Prediction, ModelFeature
+    from algobet.predictions.models.base import ModelFeature, Prediction
+    from algobet.teams.models import Season, Team, Tournament
