@@ -50,6 +50,8 @@ def list_predictions(
     min_confidence: float | None = Query(
         None, ge=0, le=1, description="Minimum confidence score"
     ),
+    limit: int = Query(50, ge=1, le=1000, description="Maximum number of records"),
+    offset: int = Query(0, ge=0, description="Number of records to skip"),
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[PredictionResponse]:
     """List predictions with filtering.
@@ -90,7 +92,9 @@ def list_predictions(
         query = query.filter(Prediction.confidence >= min_confidence)
 
     total = query.count()
-    predictions = query.order_by(Prediction.predicted_at.desc()).all()
+    predictions = (
+        query.order_by(Prediction.predicted_at.desc()).offset(offset).limit(limit).all()
+    )
 
     items = []
     for pred in predictions:
@@ -113,8 +117,8 @@ def list_predictions(
     return PaginatedResponse(
         items=items,
         total=total,
-        limit=50,  # Default limit if not specified
-        offset=0,
+        limit=limit,
+        offset=offset,
     )
 
 
