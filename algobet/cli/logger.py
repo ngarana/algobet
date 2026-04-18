@@ -12,7 +12,7 @@ from typing import Any, TypeVar
 
 import click
 
-from algobet.config import get_config
+from algobet.infrastructure.config import get_config
 from algobet.logging_config import LogContext, get_logger, setup_logging
 
 F = TypeVar("F", bound=Callable[..., Any])

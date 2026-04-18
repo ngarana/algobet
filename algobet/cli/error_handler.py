@@ -18,8 +18,8 @@ from typing import Any, TypeVar
 import click
 
 from algobet.cli.logger import debug, error
-from algobet.config import get_config
 from algobet.exceptions import AlgoBetError, get_exit_code_description
+from algobet.infrastructure.config import get_config
 
 F = TypeVar("F", bound=Callable[..., Any])
 
