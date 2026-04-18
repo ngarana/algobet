@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U algobet -d football" ]
       interval: 5s
@@ -17,11 +17,11 @@ services:
       retries: 5
 
   api:
-    build:
+    build: &shared-build
       context: .
       dockerfile: Dockerfile.api
     container_name: algobet-api
-    command: uvicorn algobet.api.main:app --host 0.0.0.0 --port 8001 --reload
+    command: uvicorn algobet.api.main:app --host 0.0.0.0 --port 8010 --reload
     network_mode: host
     volumes:
       - ./algobet:/app/algobet
@@ -29,6 +29,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8010/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     environment:
       - POSTGRES_USER=algobet
       - POSTGRES_PASSWORD=password
@@ -36,20 +42,14 @@ services:
       - POSTGRES_HOST=localhost
       - POSTGRES_PORT=5432
       - API_HOST=0.0.0.0
-      - API_PORT=8001
+      - API_PORT=8010
       - API_ENV=development
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
       - LOG_LEVEL=info
-      - ALGOBET_API_FOOTBALL__API_KEY=${ALGOBET_API_FOOTBALL__API_KEY:-your_api_key_here}
-      - ALGOBET_API_FOOTBALL__BASE_URL=https://v3.football.api-sports.io
-      - ALGOBET_API_FOOTBALL__RATE_LIMIT_PER_DAY=100
-      - ALGOBET_API_FOOTBALL__TIMEOUT=30
 
-  scraper:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    container_name: algobet-scraper
+  scheduler-worker:
+    build: *shared-build
+    container_name: algobet-scheduler-worker
     command: python -m algobet.cli.dev_tools scheduler run --interval 60
     network_mode: host
     volumes:
@@ -58,6 +58,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U algobet -d football -h localhost || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
       - POSTGRES_USER=algobet
       - POSTGRES_PASSWORD=password
@@ -65,8 +71,6 @@ services:
       - POSTGRES_HOST=localhost
       - POSTGRES_PORT=5432
       - LOG_LEVEL=info
-      - ALGOBET_API_FOOTBALL__API_KEY=${ALGOBET_API_FOOTBALL__API_KEY:-your_api_key_here}
-      - ALGOBET_API_FOOTBALL__BASE_URL=https://v3.football.api-sports.io
     restart: unless-stopped
 
 volumes:
