@@ -9,8 +9,8 @@ from pydantic import HttpUrl
 from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
-from algobet.api.schemas import PaginatedResponse
 from algobet.api.schemas.scraping import (
+    PaginatedResponse,
     ScrapingJobCreate,
     ScrapingJobResponse,
     ScrapingJobStatus,
@@ -81,7 +81,10 @@ def run_scraping_job(job_id: str, job_create: ScrapingJobCreate) -> None:
                 progress=0.0,
                 message="Starting scraping operation...",
                 matches_scraped=0,
+                matches_saved=0,
                 errors=[],
+                started_at=datetime.now(timezone.utc),
+                completed_at=None,
             ),
         )
         logger.info(f"[BG TASK] Job {job_id} status updated to RUNNING")
@@ -102,7 +105,7 @@ def run_scraping_job(job_id: str, job_create: ScrapingJobCreate) -> None:
                     # Scrape all upcoming matches
                     logger.info("[BG TASK] Calling service.scrape_upcoming()")
                     result = service.scrape_upcoming()
-                    logger.info(f"[BG TASK]  returned: {result.matches_saved} matches")
+                    logger.info(f"[BG TASK] returned: {result.matches_saved} matches")
                 else:
                     # Scrape specific tournament
                     result = service.scrape_upcoming(url=str(job_create.tournament_url))
@@ -112,7 +115,7 @@ def run_scraping_job(job_id: str, job_create: ScrapingJobCreate) -> None:
 
                 result = service.scrape_results(url=str(job_create.tournament_url))
             elif job_create.scraping_type == ScrapingType.BY_DATE:
-                # By-date scraping uses the same logic as upcoming but for a specific date
+                # By-date scraping uses same logic as upcoming for a specific date
                 if job_create.tournament_url:
                     result = service.scrape_upcoming(url=str(job_create.tournament_url))
                 else:
@@ -126,6 +129,8 @@ def run_scraping_job(job_id: str, job_create: ScrapingJobCreate) -> None:
 
         # Update job status to completed
         matches_saved = result.matches_saved if result else 0
+        job_obj = scraping_jobs.get(job_id)
+        started = job_obj.started_at if job_obj else datetime.now(timezone.utc)
         update_job_status(
             job_id,
             ScrapingJobUpdate(
@@ -136,7 +141,10 @@ def run_scraping_job(job_id: str, job_create: ScrapingJobCreate) -> None:
                     f"{matches_saved} matches processed."
                 ),
                 matches_scraped=matches_saved,
+                matches_saved=matches_saved,
                 errors=[],
+                started_at=started,
+                completed_at=datetime.now(timezone.utc),
             ),
         )
         logger.info(f"[BG TASK] Job {job_id} completed with {matches_saved} matches")
@@ -155,6 +163,10 @@ def run_scraping_job(job_id: str, job_create: ScrapingJobCreate) -> None:
         current_job = scraping_jobs.get(job_id)
         errors = current_job.errors if current_job else []
         errors.append(str(e))
+        job_obj_failed = scraping_jobs.get(job_id)
+        started_failed = (
+            job_obj_failed.started_at if job_obj_failed else datetime.now(timezone.utc)
+        )
 
         update_job_status(
             job_id,
@@ -163,7 +175,10 @@ def run_scraping_job(job_id: str, job_create: ScrapingJobCreate) -> None:
                 progress=0.0,  # or current progress if available
                 message=f"Scraping failed: {str(e)}",
                 matches_scraped=0,  # or current count if available
+                matches_saved=0,
                 errors=errors,
+                started_at=started_failed,
+                completed_at=datetime.now(timezone.utc),
             ),
         )
 
@@ -195,10 +210,15 @@ async def scrape_upcoming(
         job_create = ScrapingJobCreate(
             scraping_type=ScrapingType.UPCOMING,
             tournament_url=HttpUrl(tournament_url) if tournament_url else None,
+            tournament_id=None,
             tournament_name=None,
             season=None,
             start_date=None,
             end_date=None,
+            scope="all",
+            country=None,
+            league_name=None,
+            period=None,
         )
 
         job_id = str(uuid.uuid4())
@@ -255,10 +275,15 @@ async def scrape_results(
         job_create = ScrapingJobCreate(
             scraping_type=ScrapingType.RESULTS,
             tournament_url=HttpUrl(tournament_url),
+            tournament_id=None,
             tournament_name=None,
             season=season,
             start_date=start_date,
             end_date=end_date,
+            scope="all",
+            country=None,
+            league_name=None,
+            period=None,
         )
 
         job_id = str(uuid.uuid4())
@@ -316,11 +341,11 @@ async def scrape_by_date(
                 from datetime import date as dt_date
 
                 dt_date.fromisoformat(date)
-            except ValueError:
+            except ValueError as err:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Invalid date format. Use YYYY-MM-DD.",
-                ) from None
+                ) from err
 
         # Use default URL if not provided
         url = tournament_url or "https://www.oddsportal.com/matches/football/"
@@ -330,10 +355,15 @@ async def scrape_by_date(
         job_create = ScrapingJobCreate(
             scraping_type=ScrapingType.BY_DATE,
             tournament_url=HttpUrl(url),
+            tournament_id=None,
             tournament_name=None,
             season=date,
             start_date=None,
             end_date=None,
+            scope="all",
+            country=None,
+            league_name=None,
+            period=None,
         )
 
         job_id = str(uuid.uuid4())
