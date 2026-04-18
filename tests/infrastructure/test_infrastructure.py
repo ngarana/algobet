@@ -291,7 +291,7 @@ class TestScrapingService:
 
     @pytest.fixture
     def mock_client(self):
-        """Create mock API-Football client."""
+        """Create mock client."""
         return MagicMock()
 
     @pytest.fixture
@@ -380,32 +380,24 @@ class TestScrapingService:
         from algobet.services.scraping_service import ScrapingService
 
         service = ScrapingService(session=mock_session)
-        # Mock the client to avoid actual API calls
-        service.api_football_client = MagicMock()
-        service.api_football_client.get_results.return_value = MagicMock(fixtures=[])
 
         service.create_job("results", "http://example.com")
 
         # Should not raise
         with contextlib.suppress(Exception):
-            service.scrape_results(league_id=39)
+            service.scrape_results(url="http://example.com")
 
     def test_scrape_upcoming_exists(self, mock_session):
         """Test scrape_upcoming method exists and runs."""
         from algobet.services.scraping_service import ScrapingService
 
         service = ScrapingService(session=mock_session)
-        # Mock the client to avoid actual API calls
-        service.api_football_client = MagicMock()
-        service.api_football_client.get_upcoming_fixtures.return_value = MagicMock(
-            fixtures=[]
-        )
 
         service.create_job("upcoming", "http://example.com")
 
         # Should not raise
         with contextlib.suppress(Exception):
-            service.scrape_upcoming(league_ids=[39])
+            service.scrape_upcoming()
 
     def test_emit_progress_calls_callback(self, mock_session):
         """Test emit_progress calls callback."""
