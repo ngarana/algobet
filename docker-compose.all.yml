@@ -1,0 +1,87 @@
+services:
+  # Database
+  main-db:
+    image: postgres:18-alpine
+    container_name: algobet-db
+    environment:
+      POSTGRES_USER: algobet
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: football
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U algobet -d football" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - algobet-net
+
+  # API
+  api:
+    build: &shared-build
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: algobet-api
+    command: uvicorn algobet.api.main:app --host 0.0.0.0 --port 8010 --reload
+    network_mode: host
+    volumes:
+      - ./algobet:/app/algobet
+      - ./data:/app/data
+    depends_on:
+      main-db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8010/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    environment:
+      - POSTGRES_USER=algobet
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=football
+      - POSTGRES_HOST=localhost
+      - POSTGRES_PORT=5432
+      - API_HOST=0.0.0.0
+      - API_PORT=8010
+      - API_ENV=development
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - LOG_LEVEL=info
+
+  # Scheduler Worker (formerly scraper)
+  scheduler-worker:
+    build: *shared-build
+    container_name: algobet-scheduler-worker
+    command: python -m algobet.cli.dev_tools scheduler run --interval 60
+    network_mode: host
+    volumes:
+      - ./algobet:/app/algobet
+      - ./data:/app/data
+    depends_on:
+      main-db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U algobet -d football -h localhost || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      - POSTGRES_USER=algobet
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=football
+      - POSTGRES_HOST=localhost
+      - POSTGRES_PORT=5432
+      - LOG_LEVEL=info
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+
+networks:
+  algobet-net:
+    driver: bridge
