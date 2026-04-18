@@ -15,6 +15,9 @@ interface ActivityItem {
   color: string;
 }
 
+// Stable filter objects to prevent unnecessary refetching
+const activityValueBetsFilters = { max_matches: 50 } as const;
+
 function formatRelativeTime(date: Date): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -44,9 +47,9 @@ function getOutcomeLabel(outcome: string): string {
 
 export function RecentActivityFeed() {
   const { data: predictionsData, isLoading: predictionsLoading } = usePredictions();
-  const { data: valueBetsData, isLoading: valueBetsLoading } = useValueBets({
-    max_matches: 50,
-  });
+  const { data: valueBetsData, isLoading: valueBetsLoading } = useValueBets(
+    activityValueBetsFilters
+  );
   const { data: modelsData, isLoading: modelsLoading } = useModels();
 
   const isLoading = predictionsLoading || valueBetsLoading || modelsLoading;
