@@ -522,8 +522,8 @@ class MatchDataProvider:
 | Historical analysis (30+ seasons) | Football-Data.co.uk |
 | Model training data | Football-Data.co.uk |
 | Backtesting strategies | Football-Data.co.uk |
-| Live/upcoming matches | OddsPortal (or API) |
-| Real-time odds | OddsPortal (or API) |
+| Live/upcoming matches | OddsPortal |
+| Real-time odds | OddsPortal |
 
 ---
 
@@ -531,17 +531,12 @@ class MatchDataProvider:
 
 ### Free APIs
 
-1. **API-Football** (https://www.api-football.com/)
-   - Free tier: 100 requests/day
-   - Covers 100+ leagues
-   - Real-time data available
-
-2. **Football-Data.org** (https://www.football-data.org/)
+1. **Football-Data.org** (https://www.football-data.org/)
    - Free tier: 10 requests/minute
    - European leagues focus
    - Good API structure
 
-3. **TheSportsDB** (https://www.thesportsdb.com/)
+2. **TheSportsDB** (https://www.thesportsdb.com/)
    - Free, community-maintained
    - Multiple sports
    - Less reliable for odds
