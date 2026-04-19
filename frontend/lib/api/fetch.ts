@@ -1,189 +1,202 @@
 /**
- * API client functions for scraping operations (OddsPortal web scraping)
+ * API client functions for scraping operations.
  */
 
-import { apiGet, apiPost, buildQueryString } from "./client";
 import { z } from "zod";
-import { createPaginatedResponseSchema } from "@/lib/types/schemas";
+import { apiGet, apiPost } from "./client";
 import type { PaginatedResponse } from "@/lib/types/api";
 
-// Zod schemas for runtime validation
+const JobStatusSchema = z.enum([
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+const FetchTypeSchema = z.enum(["upcoming", "results", "by-date"]);
+const FetchScopeSchema = z.enum(["all", "league"]);
+
 export const FetchProgressSchema = z.object({
   job_id: z.string(),
   progress: z.number(),
   message: z.string(),
   matches_fetched: z.number().default(0),
-  matches_saved: z.number().optional(),
+  matches_saved: z.number().default(0),
   current_page: z.number().optional(),
   total_pages: z.number().optional(),
   started_at: z.string().optional().nullable(),
   completed_at: z.string().optional().nullable(),
   error: z.string().optional().nullable(),
-  status: z.enum(["pending", "running", "completed", "failed", "cancelled"]).optional(),
+  status: JobStatusSchema.optional(),
   timestamp: z.string(),
 });
 
 export const FetchJobSchema = z.object({
   id: z.string(),
-  fetch_type: z.enum(["upcoming", "results", "by-date"]),
+  fetch_type: FetchTypeSchema,
+  scraping_type: FetchTypeSchema,
   tournament_url: z.string().nullable(),
+  tournament_id: z.number().nullable().optional(),
   tournament_name: z.string().nullable(),
   season: z.string().nullable(),
-  status: z.enum(["pending", "running", "completed", "failed", "cancelled"]),
+  scope: FetchScopeSchema,
+  country: z.string().nullable().optional(),
+  league_name: z.string().nullable().optional(),
+  period: z.string().nullable().optional(),
+  status: JobStatusSchema,
   progress: z.number(),
   message: z.string().nullable(),
   created_at: z.string(),
   started_at: z.string().nullable(),
   completed_at: z.string().nullable(),
   matches_fetched: z.number().default(0),
+  matches_saved: z.number().default(0),
   errors: z.array(z.string()),
 });
 
-export const fetchJobArraySchema = createPaginatedResponseSchema(FetchJobSchema);
-
-export const FetchUpcomingRequestSchema = z.object({
-  tournament_url: z.string().optional(),
-});
-
-export const FetchResultsRequestSchema = z.object({
-  tournament_url: z.string().optional(),
-});
-
-export const FetchByDateRequestSchema = z.object({
-  date: z.string().optional(), // YYYY-MM-DD format
-});
-
-// Types derived from schemas
-export type FetchProgress = z.infer<typeof FetchProgressSchema>;
-export type FetchJob = z.infer<typeof FetchJobSchema>;
-export type FetchUpcomingRequest = z.infer<typeof FetchUpcomingRequestSchema>;
-export type FetchResultsRequest = z.infer<typeof FetchResultsRequestSchema>;
-export type FetchByDateRequest = z.infer<typeof FetchByDateRequestSchema>;
-
-/**
- * Transform backend response to frontend FetchJob type
- */
-function transformJobResponse(data: Record<string, unknown>): FetchJob {
-  return {
-    id: data.id as string,
-    fetch_type: (data.scraping_type || data.fetch_type) as FetchJob["fetch_type"],
-    tournament_url: data.tournament_url as string | null,
-    tournament_name: data.tournament_name as string | null,
-    season: data.season as string | null,
-    status: data.status as FetchJob["status"],
-    progress: data.progress as number,
-    message: data.message as string | null,
-    created_at: data.created_at as string,
-    started_at: data.started_at as string | null,
-    completed_at: data.completed_at as string | null,
-    matches_fetched: (data.matches_scraped || data.matches_fetched || 0) as number,
-    errors: (data.errors || []) as string[],
-  };
+export interface FetchUpcomingRequest {
+  tournament_id?: number;
+  tournament_url?: string;
+  scope?: "all" | "league";
 }
 
-/**
- * Scrape upcoming matches from OddsPortal
- */
+export interface FetchResultsRequest {
+  tournament_id?: number;
+  tournament_url?: string;
+  period?: string;
+  max_pages?: number;
+}
+
+export interface FetchByDateRequest {
+  tournament_id?: number;
+  tournament_url?: string;
+  date?: string;
+  scope?: "all" | "league";
+}
+
+export type FetchProgress = z.infer<typeof FetchProgressSchema>;
+export type FetchJob = z.infer<typeof FetchJobSchema>;
+
+function normalizeJob(data: Record<string, unknown>): FetchJob {
+  const scrapingType = (data.scraping_type ||
+    data.fetch_type) as FetchJob["fetch_type"];
+  const normalized = {
+    id: data.id as string,
+    fetch_type: scrapingType,
+    scraping_type: scrapingType,
+    tournament_url: (data.tournament_url as string | null | undefined) ?? null,
+    tournament_id: (data.tournament_id as number | null | undefined) ?? null,
+    tournament_name: (data.tournament_name as string | null | undefined) ?? null,
+    season: (data.season as string | null | undefined) ?? null,
+    scope: ((data.scope as FetchJob["scope"] | undefined) ??
+      "all") as FetchJob["scope"],
+    country: (data.country as string | null | undefined) ?? null,
+    league_name: (data.league_name as string | null | undefined) ?? null,
+    period: (data.period as string | null | undefined) ?? null,
+    status: data.status as FetchJob["status"],
+    progress: (data.progress as number | undefined) ?? 0,
+    message: (data.message as string | null | undefined) ?? null,
+    created_at: data.created_at as string,
+    started_at: (data.started_at as string | null | undefined) ?? null,
+    completed_at: (data.completed_at as string | null | undefined) ?? null,
+    matches_fetched:
+      (data.matches_scraped as number | undefined) ??
+      (data.matches_fetched as number | undefined) ??
+      0,
+    matches_saved: (data.matches_saved as number | undefined) ?? 0,
+    errors: ((data.errors as string[] | undefined) ?? []).filter(Boolean),
+  };
+
+  return FetchJobSchema.parse(normalized);
+}
+
 export async function fetchUpcomingMatches(
   request: FetchUpcomingRequest = {}
 ): Promise<FetchJob> {
-  const params: Record<string, unknown> = {};
-  if (request.tournament_url) {
-    params.tournament_url = request.tournament_url;
-  }
-  const queryString = buildQueryString(params);
   const response = await apiPost(
-    `/scraping/upcoming${queryString}`,
-    {},
+    "/scraping/upcoming",
+    {
+      tournament_id: request.tournament_id,
+      tournament_url: request.tournament_url,
+      scope: request.scope ?? "all",
+    },
     z.record(z.unknown())
   );
-  return transformJobResponse(response);
+  return normalizeJob(response);
 }
 
-/**
- * Scrape historical results from OddsPortal
- */
 export async function fetchResults(
   request: FetchResultsRequest = {}
 ): Promise<FetchJob> {
-  const params: Record<string, unknown> = {};
-  if (request.tournament_url) {
-    params.tournament_url = request.tournament_url;
-  }
-  const queryString = buildQueryString(params);
   const response = await apiPost(
-    `/scraping/results${queryString}`,
-    {},
+    "/scraping/results",
+    {
+      tournament_id: request.tournament_id,
+      tournament_url: request.tournament_url,
+      period: request.period,
+      max_pages: request.max_pages,
+    },
     z.record(z.unknown())
   );
-  return transformJobResponse(response);
+  return normalizeJob(response);
 }
 
-/**
- * Scrape all matches for a specific date from OddsPortal
- */
 export async function fetchByDate(request: FetchByDateRequest = {}): Promise<FetchJob> {
-  const params: Record<string, unknown> = {};
-  if (request.date) {
-    params.date = request.date;
-  }
-  const queryString = buildQueryString(params);
   const response = await apiPost(
-    `/scraping/by-date${queryString}`,
-    {},
+    "/scraping/by-date",
+    {
+      date: request.date,
+      tournament_id: request.tournament_id,
+      tournament_url: request.tournament_url,
+      scope: request.scope ?? "all",
+    },
     z.record(z.unknown())
   );
-  return transformJobResponse(response);
+  return normalizeJob(response);
 }
 
-/**
- * Get all fetch jobs
- */
 export async function getFetchJobs(
   status?: string
 ): Promise<PaginatedResponse<FetchJob>> {
-  const params: Record<string, unknown> = {};
-  if (status) params.status_filter = status;
-
-  const queryString = buildQueryString(params);
-  const response = await apiGet(`/scraping/jobs${queryString}`, z.record(z.unknown()));
-
-  const items = ((response.items || []) as Record<string, unknown>[]).map(
-    transformJobResponse
+  const response = await apiGet("/scraping/jobs", z.record(z.unknown()));
+  const rawItems = ((response.items || []) as Record<string, unknown>[]).filter(
+    Boolean
   );
+  const items = status
+    ? rawItems.map(normalizeJob).filter((job) => job.status === status)
+    : rawItems.map(normalizeJob);
 
   return {
     items,
-    total: response.total as number,
-    limit: response.limit as number,
-    offset: response.offset as number,
+    total: status
+      ? items.length
+      : ((response.total as number | undefined) ?? items.length),
+    limit: (response.limit as number | undefined) ?? items.length,
+    offset: (response.offset as number | undefined) ?? 0,
   };
 }
 
-/**
- * Get a specific fetch job by ID
- */
 export async function getFetchJob(jobId: string): Promise<FetchJob> {
   const response = await apiGet(`/scraping/jobs/${jobId}`, z.record(z.unknown()));
-  return transformJobResponse(response);
+  return normalizeJob(response);
 }
 
-/**
- * Get fetch statistics
- */
 export async function getFetchStats(): Promise<FetchStats> {
   const response = await apiGet("/scraping/stats", z.record(z.unknown()));
-  return {
-    total_jobs: response.total_jobs as number,
-    completed_jobs: response.completed_jobs as number,
-    failed_jobs: response.failed_jobs as number,
-    running_jobs: response.running_jobs as number,
-    total_matches_fetched: (response.total_matches_scraped ||
-      response.total_matches_fetched ||
-      0) as number,
-    average_duration_seconds: response.average_duration_seconds as number | null,
-    success_rate: response.success_rate as number,
-  };
+  return FetchStatsSchema.parse({
+    total_jobs: response.total_jobs,
+    completed_jobs: response.completed_jobs,
+    failed_jobs: response.failed_jobs,
+    running_jobs: response.running_jobs,
+    total_matches_fetched:
+      (response.total_matches_scraped as number | undefined) ??
+      (response.total_matches_fetched as number | undefined) ??
+      0,
+    average_duration_seconds:
+      (response.average_duration_seconds as number | null | undefined) ?? null,
+    success_rate: response.success_rate,
+  });
 }
 
 export const FetchStatsSchema = z.object({

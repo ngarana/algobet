@@ -68,5 +68,5 @@ export const FETCH_DIALOG_CONFIG = {
 /** Error messages */
 export const ERROR_MESSAGES = {
   FETCH_FAILED: "Failed to start fetch operation. Check that the scraper is running.",
-  TOURNAMENT_URL_REQUIRED: "Tournament URL is required for results scraping",
+  TOURNAMENT_URL_REQUIRED: "Select a league before starting historical scraping",
 } as const;
