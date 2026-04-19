@@ -1,10 +1,10 @@
 """Pydantic schemas for scraping operations."""
 
-from datetime import datetime
+from datetime import date as date_cls, datetime
 from enum import Enum
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class ScrapingJobStatus(str, Enum):
@@ -25,6 +25,13 @@ class ScrapingType(str, Enum):
     BY_DATE = "by-date"
 
 
+class ScrapeScope(str, Enum):
+    """Scope of a scraping request."""
+
+    ALL = "all"
+    LEAGUE = "league"
+
+
 class ScrapingJobBase(BaseModel):
     """Base schema for scraping job."""
 
@@ -43,7 +50,9 @@ class ScrapingJobBase(BaseModel):
         None, description="Start date for results scraping"
     )
     end_date: datetime | None = Field(None, description="End date for results scraping")
-    scope: str = Field("all", description="Scope of scrape: 'all' or 'league'")
+    scope: ScrapeScope = Field(
+        ScrapeScope.ALL, description="Scope of scrape: 'all' or 'league'"
+    )
     country: str | None = Field(None, description="Country name")
     league_name: str | None = Field(None, description="League name")
     period: str | None = Field(
@@ -55,6 +64,87 @@ class ScrapingJobCreate(ScrapingJobBase):
     """Schema for creating a scraping job."""
 
     pass
+
+
+class UpcomingScrapeRequest(BaseModel):
+    """Request schema for upcoming match scraping."""
+
+    tournament_id: int | None = Field(
+        None, description="Tournament ID to resolve from database"
+    )
+    tournament_url: HttpUrl | None = Field(
+        None, description="Optional manual OddsPortal URL override"
+    )
+    scope: ScrapeScope = Field(
+        ScrapeScope.ALL, description="Scrape all leagues or a specific league"
+    )
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "UpcomingScrapeRequest":
+        """Require a league target when scope is league."""
+        if (
+            self.scope == ScrapeScope.LEAGUE
+            and self.tournament_id is None
+            and self.tournament_url is None
+        ):
+            raise ValueError(
+                "tournament_id or tournament_url is required when scope='league'"
+            )
+        return self
+
+
+class ResultsScrapeRequest(BaseModel):
+    """Request schema for historical results scraping."""
+
+    tournament_id: int | None = Field(
+        None, description="Tournament ID to resolve from database"
+    )
+    tournament_url: HttpUrl | None = Field(
+        None, description="Optional manual OddsPortal URL override"
+    )
+    period: str | None = Field(
+        None, description="Season label such as '2023/2024' or '2023-2024'"
+    )
+    max_pages: int | None = Field(
+        None, ge=1, description="Optional page limit for historical scraping"
+    )
+
+    @model_validator(mode="after")
+    def validate_target(self) -> "ResultsScrapeRequest":
+        """Require a tournament target."""
+        if self.tournament_id is None and self.tournament_url is None:
+            raise ValueError("tournament_id or tournament_url is required")
+        return self
+
+
+class ByDateScrapeRequest(BaseModel):
+    """Request schema for daily match scraping."""
+
+    date: date_cls | None = Field(
+        None, description="Date to scrape in YYYY-MM-DD format"
+    )
+    tournament_id: int | None = Field(
+        None, description="Tournament ID to resolve from database"
+    )
+    tournament_url: HttpUrl | None = Field(
+        None, description="Optional manual OddsPortal URL override"
+    )
+    scope: ScrapeScope = Field(
+        ScrapeScope.ALL, description="Scrape all leagues or a specific league"
+    )
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "ByDateScrapeRequest":
+        """Require a league target when scope is league."""
+        if (
+            self.scope == ScrapeScope.LEAGUE
+            and self.tournament_id is None
+            and self.tournament_url is None
+        ):
+            raise ValueError(
+                "tournament_id or tournament_url is required when scope='league'"
+            )
+        return self
 
 
 class ScrapingJobResponse(ScrapingJobBase):

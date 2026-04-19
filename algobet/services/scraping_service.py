@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date as date_cls, datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
@@ -31,6 +31,7 @@ class ScrapingProgress:
 
     job_id: UUID
     status: JobStatus
+    progress: float = 0.0
     current_page: int = 0
     total_pages: int = 0
     matches_scraped: int = 0
@@ -50,7 +51,7 @@ class ScrapingJob:
     url: str = ""
     status: JobStatus = JobStatus.PENDING
     progress: ScrapingProgress | None = None
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ScrapingService(BaseService[Any]):
@@ -183,7 +184,8 @@ class ScrapingService(BaseService[Any]):
         progress = ScrapingProgress(
             job_id=job.id,
             status=JobStatus.RUNNING,
-            started_at=datetime.now(),
+            progress=5.0,
+            started_at=datetime.now(timezone.utc),
             message="Starting upcoming matches scrape...",
         )
         self._emit_progress(progress)
@@ -192,18 +194,25 @@ class ScrapingService(BaseService[Any]):
             with OddsPortalScraper(headless=headless) as scraper:
                 scraper.navigate_to_upcoming(url)
 
+                progress.progress = 25.0
+                progress.current_page = 1
+                progress.total_pages = 1
                 progress.message = "Scraping upcoming matches..."
                 self._emit_progress(progress)
 
                 matches_data = scraper.scrape_upcoming_matches()
                 progress.matches_scraped = len(matches_data)
+                progress.progress = 75.0
+                progress.message = f"Found {len(matches_data)} matches. Saving..."
+                self._emit_progress(progress)
 
                 # Save matches
                 saved_count = self._save_upcoming_matches(matches_data)
                 progress.matches_saved = saved_count
 
                 progress.status = JobStatus.COMPLETED
-                progress.completed_at = datetime.now()
+                progress.progress = 100.0
+                progress.completed_at = datetime.now(timezone.utc)
                 progress.message = (
                     f"Completed! Scraped {len(matches_data)} matches, "
                     f"saved {saved_count}."
@@ -211,9 +220,91 @@ class ScrapingService(BaseService[Any]):
 
         except Exception as e:
             progress.status = JobStatus.FAILED
+            progress.progress = 100.0
             progress.error = str(e)
             progress.message = f"Failed: {e}"
-            progress.completed_at = datetime.now()
+            progress.completed_at = datetime.now(timezone.utc)
+
+        self._emit_progress(progress)
+        job.status = progress.status
+        job.progress = progress
+
+        return progress
+
+    def scrape_matches_by_date(
+        self,
+        target_date: date_cls,
+        url: str | None = None,
+        headless: bool = True,
+    ) -> ScrapingProgress:
+        """Scrape matches scheduled for a specific calendar date.
+
+        Args:
+            target_date: Calendar date to scrape
+            url: Optional pre-resolved OddsPortal URL to scrape
+            headless: Run browser in headless mode
+
+        Returns:
+            Final progress update
+        """
+        target_url = url or self._matches_url_for_date(target_date)
+        job = self.create_job("by-date", target_url)
+        progress = ScrapingProgress(
+            job_id=job.id,
+            status=JobStatus.RUNNING,
+            progress=5.0,
+            started_at=datetime.now(timezone.utc),
+            message=f"Starting scrape for {target_date.isoformat()}...",
+        )
+        self._emit_progress(progress)
+
+        try:
+            with OddsPortalScraper(headless=headless) as scraper:
+                scraper.navigate_to_upcoming(target_url)
+
+                progress.progress = 25.0
+                progress.current_page = 1
+                progress.total_pages = 1
+                progress.message = (
+                    f"Loaded matches board for {target_date.isoformat()}. Scraping..."
+                )
+                self._emit_progress(progress)
+
+                matches_data = scraper.scrape_upcoming_matches(
+                    only_future_matches=False,
+                    buffer_minutes=0,
+                )
+                progress.matches_scraped = len(matches_data)
+
+                filtered_matches = self._filter_matches_by_date(
+                    matches_data,
+                    target_date,
+                )
+                progress.progress = 75.0
+                progress.matches_scraped = len(filtered_matches)
+                progress.message = (
+                    f"Found {len(filtered_matches)} matches for "
+                    f"{target_date.isoformat()}. Saving..."
+                )
+                self._emit_progress(progress)
+
+                saved_count = self._save_upcoming_matches(filtered_matches)
+                progress.matches_saved = saved_count
+
+                progress.status = JobStatus.COMPLETED
+                progress.progress = 100.0
+                progress.completed_at = datetime.now(timezone.utc)
+                progress.message = (
+                    f"Completed! Scraped {len(filtered_matches)} matches for "
+                    f"{target_date.isoformat()}, saved {saved_count}."
+                )
+
+        except Exception as e:
+            progress.status = JobStatus.FAILED
+            progress.progress = 100.0
+            progress.error = str(e)
+            progress.message = f"Failed: {e}"
+            progress.completed_at = datetime.now(timezone.utc)
 
         self._emit_progress(progress)
         job.status = progress.status
@@ -241,7 +332,8 @@ class ScrapingService(BaseService[Any]):
         progress = ScrapingProgress(
             job_id=job.id,
             status=JobStatus.RUNNING,
-            started_at=datetime.now(),
+            progress=5.0,
+            started_at=datetime.now(timezone.utc),
             message="Starting results scrape...",
         )
         self._emit_progress(progress)
@@ -255,6 +347,8 @@ class ScrapingService(BaseService[Any]):
                 if max_pages:
                     total_pages = min(total_pages, max_pages)
                 progress.total_pages = total_pages
+                progress.message = f"Loaded results board with {total_pages} pages."
+                self._emit_progress(progress)
 
                 # Parse league info from URL
                 country, league_name, slug = self._parse_league_info(url)
@@ -265,7 +359,6 @@ class ScrapingService(BaseService[Any]):
                 for page_num in range(1, total_pages + 1):
                     progress.current_page = page_num
                     progress.message = f"Scraping page {page_num}/{total_pages}..."
-                    self._emit_progress(progress)
 
                     if page_num > 1:
                         scraper.go_to_page(page_num)
@@ -273,13 +366,23 @@ class ScrapingService(BaseService[Any]):
                     matches = scraper.scrape_current_page()
                     all_matches.extend(matches)
                     progress.matches_scraped = len(all_matches)
+                    progress.progress = min(
+                        90.0, 5.0 + (page_num / max(total_pages, 1)) * 85.0
+                    )
+                    self._emit_progress(progress)
 
                 # Save all matches
+                progress.progress = 95.0
+                progress.message = (
+                    f"Saving {len(all_matches)} matches from {total_pages} pages..."
+                )
+                self._emit_progress(progress)
                 saved_count = self._save_result_matches(all_matches, tournament)
                 progress.matches_saved = saved_count
 
                 progress.status = JobStatus.COMPLETED
-                progress.completed_at = datetime.now()
+                progress.progress = 100.0
+                progress.completed_at = datetime.now(timezone.utc)
                 progress.message = (
                     f"Completed! Scraped {len(all_matches)} matches from "
                     f"{total_pages} pages, saved {saved_count}."
@@ -287,9 +390,10 @@ class ScrapingService(BaseService[Any]):
 
         except Exception as e:
             progress.status = JobStatus.FAILED
+            progress.progress = 100.0
             progress.error = str(e)
             progress.message = f"Failed: {e}"
-            progress.completed_at = datetime.now()
+            progress.completed_at = datetime.now(timezone.utc)
 
         self._emit_progress(progress)
         job.status = progress.status
@@ -317,6 +421,26 @@ class ScrapingService(BaseService[Any]):
         league_name = slug.replace("-", " ").title()
 
         return country, league_name, slug
+
+    def _matches_url_for_date(self, target_date: date_cls) -> str:
+        """Build the OddsPortal daily matches URL for a specific date."""
+        return (
+            "https://www.oddsportal.com/matches/football/"
+            f"{target_date.strftime('%Y%m%d')}/"
+        )
+
+    def _filter_matches_by_date(
+        self,
+        matches_data: list[dict[str, Any]],
+        target_date: date_cls,
+    ) -> list[dict[str, Any]]:
+        """Keep only matches whose parsed kickoff falls on the target date."""
+        return [
+            match_data
+            for match_data in matches_data
+            if match_data.get("match_date")
+            and match_data["match_date"].date() == target_date
+        ]
 
     def _save_upcoming_matches(self, matches_data: list[dict[str, Any]]) -> int:
         """Save upcoming matches to database.
