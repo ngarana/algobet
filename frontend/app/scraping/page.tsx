@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { useLiveLog } from "@/hooks/useLiveLog";
-import { useJobFocus, isActiveJob } from "@/hooks/useJobFocus";
+import { useJobFocus } from "@/hooks/useJobFocus";
 import { useJobOperations } from "@/hooks/useJobOperations";
+import { useFetchJob } from "@/lib/queries/use-fetch";
 import {
-  ArrowUpIcon,
   CheckCircleIcon,
   DatabaseIcon,
   PlayIcon,
@@ -22,6 +22,7 @@ import {
   LiveStreamPanel,
   NextScheduledCard,
   FetchDialog,
+  FetchLiveMonitor,
 } from "@/components/scraping";
 import {
   FetchDialogType,
@@ -65,6 +66,8 @@ export default function FetchDataPage() {
   const { focusedJobId, focusedJob, activeJobs, liveSocketJobId, setFocusedJobId } =
     useJobFocus({ jobs });
 
+  const { data: liveJobDetails } = useFetchJob(liveSocketJobId ?? null);
+
   // WebSocket progress tracking
   const { isConnected, currentProgress } = useFetchProgress({
     jobId: liveSocketJobId,
@@ -95,8 +98,15 @@ export default function FetchDataPage() {
     },
   });
 
+  const monitoredJob =
+    liveJobDetails && focusedJob && liveJobDetails.id === focusedJob.id
+      ? liveJobDetails
+      : focusedJob;
+
   const focusedProgress =
-    focusedJob && currentProgress?.job_id === focusedJob.id ? currentProgress : null;
+    monitoredJob && currentProgress?.job_id === monitoredJob.id
+      ? currentProgress
+      : null;
 
   // Calculate metrics
   const totalJobs = jobs.length;
@@ -105,18 +115,42 @@ export default function FetchDataPage() {
 
   // Dialog handlers
   const handleDialogConfirm = useCallback(
-    (data: { tournamentUrl?: string; date?: string }) => {
-      if (!dialogType) return;
-
-      if (dialogType === FetchDialogType.UPCOMING) {
-        void fetchUpcoming(data.tournamentUrl);
-      } else if (dialogType === FetchDialogType.RESULTS) {
-        void fetchResults(data.tournamentUrl ?? "");
-      } else if (dialogType === FetchDialogType.BY_DATE) {
-        void fetchByDate(data.date);
+    (
+      data:
+        | { type: "upcoming"; scope: "all" | "league"; tournament_id?: number }
+        | {
+            type: "results";
+            tournament_id: number;
+            period?: string;
+            max_pages?: number;
+          }
+        | {
+            type: "by-date";
+            scope: "all" | "league";
+            date?: string;
+            tournament_id?: number;
+          }
+    ) => {
+      if (data.type === "upcoming") {
+        void fetchUpcoming({
+          tournament_id: data.tournament_id,
+          scope: data.scope,
+        });
+      } else if (data.type === "results") {
+        void fetchResults({
+          tournament_id: data.tournament_id,
+          period: data.period,
+          max_pages: data.max_pages,
+        });
+      } else if (data.type === "by-date") {
+        void fetchByDate({
+          date: data.date,
+          tournament_id: data.tournament_id,
+          scope: data.scope,
+        });
       }
     },
-    [dialogType, fetchUpcoming, fetchResults, fetchByDate]
+    [fetchUpcoming, fetchResults, fetchByDate]
   );
 
   // Auto-dismiss error after 6 seconds
@@ -213,7 +247,7 @@ export default function FetchDataPage() {
             <MetricCard
               label="TOTAL JOBS"
               value={totalJobs.toLocaleString()}
-              icon={<ArrowUpIcon className="h-5 w-5 text-[#444c5e]" />}
+              icon={<PlayIcon className="h-5 w-5 text-[#444c5e]" />}
               valueColor="#e0e6f0"
             />
             <MetricCard
@@ -236,50 +270,15 @@ export default function FetchDataPage() {
             />
           </div>
 
-          {/* Current Job Progress */}
-          {focusedProgress && (
-            <Card className="border-[#252a37] bg-[#12151d]">
-              <CardContent className="p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="text-xs uppercase tracking-wider text-[#9ca3af]">
-                    Active Job Progress
-                  </span>
-                  <div
-                    className={cn(
-                      "flex items-center gap-1.5 text-xs",
-                      isConnected ? "text-[#4ade80]" : "text-[#f59e0b]"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "h-2 w-2 rounded-full",
-                        isConnected ? "bg-[#4ade80]" : "bg-[#f59e0b]"
-                      )}
-                    />
-                    {isConnected ? "Live" : "Polling"}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-[#e0e6f0]">Matches Fetched</span>
-                    <span className="text-[#9ca3af]">
-                      {focusedProgress.matches_fetched ?? 0}
-                    </span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-[#252a37]">
-                    <div
-                      className="h-full bg-gradient-to-r from-[#4ade80] to-[#22c55e] transition-all duration-300"
-                      style={{
-                        width: focusedProgress.progress
-                          ? `${focusedProgress.progress}%`
-                          : "0%",
-                      }}
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          <FetchLiveMonitor
+            job={monitoredJob}
+            progress={focusedProgress}
+            isConnected={isConnected}
+            onRefresh={() => {
+              void refreshAll();
+            }}
+            isRefreshing={isRefreshing}
+          />
 
           {/* Execution Logs Table */}
           <ExecutionLogsTable
