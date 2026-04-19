@@ -1,6 +1,6 @@
 """Focused tests for router-side scraping progress wiring."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -105,3 +105,44 @@ def test_upcoming_endpoint_sets_started_at_and_broadcasts_incremental_progress()
         assert progress_payload.matches_scraped == 8
         assert progress_payload.current_page == 2
         assert progress_payload.total_pages == 5
+
+
+def test_by_date_endpoint_builds_date_url_and_forwards_target_date() -> None:
+    client = TestClient(app)
+
+    with (
+        patch(
+            "algobet.api.routers.scraping.manager.broadcast_progress",
+            new=AsyncMock(),
+        ),
+        patch(
+            "algobet.api.routers.scraping.manager.broadcast_job_status",
+            new=AsyncMock(),
+        ),
+        patch("algobet.api.routers.scraping.ScrapingService") as mock_service_class,
+    ):
+        mock_service = MagicMock()
+        mock_service_class.return_value = mock_service
+        mock_service.scrape_matches_by_date.return_value = MagicMock(
+            matches_saved=4,
+            matches_scraped=4,
+        )
+
+        response = client.post(
+            "/api/v1/scraping/by-date",
+            json={"date": "2026-04-21", "scope": "all"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+
+        assert (
+            payload["tournament_url"]
+            == "https://www.oddsportal.com/matches/football/20260421/"
+        )
+        assert payload["period"] == "2026-04-21"
+
+        mock_service.scrape_matches_by_date.assert_called_once_with(
+            url="https://www.oddsportal.com/matches/football/20260421/",
+            target_date=date(2026, 4, 21),
+        )
