@@ -113,6 +113,14 @@ function formatDuration(
 }
 
 function formatJobLabel(job: FetchJob) {
+  if (job.country && job.league_name) {
+    return `${job.country} / ${job.league_name}`;
+  }
+
+  if (job.league_name) {
+    return job.league_name;
+  }
+
   if (job.tournament_url) {
     const segments = job.tournament_url.split("/").filter(Boolean);
     const normalizedSegments =
@@ -122,6 +130,16 @@ function formatJobLabel(job: FetchJob) {
   }
 
   return "All leagues";
+}
+
+function formatTypeLabel(job: FetchJob) {
+  if (job.fetch_type === "upcoming") {
+    return "Upcoming";
+  }
+  if (job.fetch_type === "by-date") {
+    return job.period ? `Daily · ${job.period}` : "Daily";
+  }
+  return job.period ? `Results · ${job.period}` : "Results";
 }
 
 export function FetchLiveMonitor({
@@ -161,7 +179,7 @@ export function FetchLiveMonitor({
   const matchesFetched = progress?.matches_fetched ?? job.matches_fetched;
   const matchesSaved =
     progress?.matches_saved ??
-    (job.status === "completed" ? job.matches_fetched : undefined);
+    (job.status === "completed" ? job.matches_saved : undefined);
   const startedAt = progress?.started_at ?? job.started_at;
   const completedAt = progress?.completed_at ?? job.completed_at;
   const message = progress?.message ?? job.message ?? "Waiting for updates...";
@@ -187,11 +205,7 @@ export function FetchLiveMonitor({
                 {config.label}
               </Badge>
               <Badge variant="outline" className="border-border/60 bg-background/70">
-                {job.fetch_type === "upcoming"
-                  ? "Upcoming"
-                  : job.fetch_type === "by-date"
-                    ? "By Date"
-                    : "Results"}
+                {formatTypeLabel(job)}
               </Badge>
               <Badge variant="outline" className="border-border/60 bg-background/70">
                 {formatJobLabel(job)}

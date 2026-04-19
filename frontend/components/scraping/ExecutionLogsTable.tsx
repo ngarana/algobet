@@ -20,6 +20,21 @@ export function ExecutionLogsTable({
   onSelectJob,
   maxRows = 10,
 }: ExecutionLogsTableProps) {
+  const describeJob = (job: FetchJob) => {
+    const label =
+      job.country && job.league_name
+        ? `${job.country} / ${job.league_name}`
+        : job.league_name || "All leagues";
+
+    if (job.fetch_type === "results") {
+      return job.period ? `Results · ${label} · ${job.period}` : `Results · ${label}`;
+    }
+    if (job.fetch_type === "by-date") {
+      return job.period ? `Daily · ${label} · ${job.period}` : `Daily · ${label}`;
+    }
+    return `Upcoming · ${label}`;
+  };
+
   return (
     <Card className="overflow-hidden border-[#252a37] bg-[#12151d]">
       <div className="flex items-center justify-between border-b border-[#252a37] p-4">
@@ -88,11 +103,7 @@ export function ExecutionLogsTable({
                         )}
                       />
                       <span className="max-w-[200px] truncate font-mono text-sm text-[#e0e6f0]">
-                        {job.fetch_type === "upcoming"
-                          ? "GET /v3/fixtures/upcoming"
-                          : job.fetch_type === "results"
-                            ? "GET /v3/fixtures/results"
-                            : "GET /v3/fixtures/by-date"}
+                        {describeJob(job)}
                       </span>
                     </div>
                   </td>
@@ -105,9 +116,11 @@ export function ExecutionLogsTable({
                       : "—"}
                   </td>
                   <td className="px-4 py-3 font-mono text-sm text-[#9ca3af]">
-                    {job.matches_fetched
-                      ? `${(job.matches_fetched * 0.05).toFixed(1)} MB`
-                      : "—"}
+                    {job.matches_saved
+                      ? `${job.matches_saved.toLocaleString()} saved`
+                      : job.matches_fetched
+                        ? `${job.matches_fetched.toLocaleString()} fetched`
+                        : "—"}
                   </td>
                   <td className="px-4 py-3 font-mono text-sm text-[#9ca3af]">
                     {new Date(job.created_at).toLocaleTimeString("en-US", {
