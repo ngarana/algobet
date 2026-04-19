@@ -20,9 +20,20 @@ interface UseJobOperationsOptions {
 }
 
 interface UseJobOperationsReturn {
-  fetchUpcoming: (tournamentUrl?: string) => Promise<void>;
-  fetchResults: (tournamentUrl: string) => Promise<void>;
-  fetchByDate: (date?: string) => Promise<void>;
+  fetchUpcoming: (request?: {
+    tournament_id?: number;
+    scope?: "all" | "league";
+  }) => Promise<void>;
+  fetchResults: (request: {
+    tournament_id: number;
+    period?: string;
+    max_pages?: number;
+  }) => Promise<void>;
+  fetchByDate: (request?: {
+    date?: string;
+    tournament_id?: number;
+    scope?: "all" | "league";
+  }) => Promise<void>;
   refreshAll: () => Promise<void>;
   isPending: boolean;
   isRefreshing: boolean;
@@ -98,10 +109,16 @@ export function useJobOperations(
    * Fetch upcoming matches
    */
   const fetchUpcoming = useCallback(
-    async (tournamentUrl?: string) => {
+    async (request?: { tournament_id?: number; scope?: "all" | "league" }) => {
       await executeMutation(
-        () => fetchUpcomingMutation.mutateAsync({ tournament_url: tournamentUrl }),
-        `${FetchDialogType.UPCOMING} fixtures fetch${tournamentUrl ? " for tournament" : ""}`
+        () =>
+          fetchUpcomingMutation.mutateAsync({
+            tournament_id: request?.tournament_id,
+            scope: request?.scope ?? "all",
+          }),
+        `${FetchDialogType.UPCOMING} fixtures fetch${
+          request?.scope === "league" ? " for selected league" : ""
+        }`
       );
     },
     [executeMutation, fetchUpcomingMutation]
@@ -111,15 +128,20 @@ export function useJobOperations(
    * Fetch results for a tournament
    */
   const fetchResults = useCallback(
-    async (tournamentUrl: string) => {
-      if (!tournamentUrl) {
-        addLog("ERR", "Tournament URL is required");
+    async (request: { tournament_id: number; period?: string; max_pages?: number }) => {
+      if (!request.tournament_id) {
+        addLog("ERR", "League selection is required");
         onError?.(ERROR_MESSAGES.TOURNAMENT_URL_REQUIRED);
         return;
       }
       await executeMutation(
-        () => fetchResultsMutation.mutateAsync({ tournament_url: tournamentUrl }),
-        `${FetchDialogType.RESULTS} fetch for tournament`
+        () =>
+          fetchResultsMutation.mutateAsync({
+            tournament_id: request.tournament_id,
+            period: request.period,
+            max_pages: request.max_pages,
+          }),
+        `${FetchDialogType.RESULTS} fetch for selected league`
       );
     },
     [executeMutation, fetchResultsMutation, addLog, onError]
@@ -129,10 +151,19 @@ export function useJobOperations(
    * Fetch matches by date
    */
   const fetchByDate = useCallback(
-    async (date?: string) => {
+    async (request?: {
+      date?: string;
+      tournament_id?: number;
+      scope?: "all" | "league";
+    }) => {
       await executeMutation(
-        () => fetchByDateMutation.mutateAsync({ date }),
-        `date fetch for ${date || "today"}`
+        () =>
+          fetchByDateMutation.mutateAsync({
+            date: request?.date,
+            tournament_id: request?.tournament_id,
+            scope: request?.scope ?? "all",
+          }),
+        `date fetch for ${request?.date || "today"}`
       );
     },
     [executeMutation, fetchByDateMutation]

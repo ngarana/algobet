@@ -35,11 +35,21 @@ export interface UseFetchProgressOptions {
  * Transform backend progress message to frontend FetchProgress type
  */
 function transformProgress(data: Record<string, unknown>): FetchProgress {
+  const rawStatus = data.status;
+  const normalizedStatus =
+    rawStatus === "pending" ||
+    rawStatus === "running" ||
+    rawStatus === "completed" ||
+    rawStatus === "failed" ||
+    rawStatus === "cancelled"
+      ? rawStatus
+      : undefined;
+
   return {
     type: data.type as FetchProgress["type"],
     job_id: data.job_id as string,
     progress: data.progress as number | undefined,
-    status: data.status as FetchProgress["status"] | undefined,
+    status: normalizedStatus,
     matches_fetched: (data.matches_scraped || data.matches_fetched) as
       | number
       | undefined,
@@ -67,10 +77,21 @@ export function useFetchProgress(options: UseFetchProgressOptions = {}) {
   const [isConnected, setIsConnected] = useState(false);
   const [currentProgress, setCurrentProgress] = useState<FetchProgress | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const onProgressRef = useRef(onProgress);
+  const onErrorRef = useRef(onError);
+  const onConnectedRef = useRef(onConnected);
+  const onDisconnectedRef = useRef(onDisconnected);
   const reconnectAttemptsRef = useRef(0);
   const shouldReconnectRef = useRef(true);
   const maxReconnectAttempts = 5;
   const reconnectDelay = 3000;
+
+  useEffect(() => {
+    onProgressRef.current = onProgress;
+    onErrorRef.current = onError;
+    onConnectedRef.current = onConnected;
+    onDisconnectedRef.current = onDisconnected;
+  }, [onProgress, onError, onConnected, onDisconnected]);
 
   const connect = useCallback(() => {
     if (!jobId || !enabled) return;
@@ -83,7 +104,7 @@ export function useFetchProgress(options: UseFetchProgressOptions = {}) {
     ws.onopen = () => {
       setIsConnected(true);
       reconnectAttemptsRef.current = 0;
-      onConnected?.();
+      onConnectedRef.current?.();
     };
 
     ws.onmessage = (event) => {
@@ -91,7 +112,7 @@ export function useFetchProgress(options: UseFetchProgressOptions = {}) {
         const rawData = JSON.parse(event.data);
         const progress = transformProgress(rawData);
         setCurrentProgress(progress);
-        onProgress?.(progress);
+        onProgressRef.current?.(progress);
       } catch (error) {
         console.error("Error parsing WebSocket message:", error);
       }
@@ -99,12 +120,12 @@ export function useFetchProgress(options: UseFetchProgressOptions = {}) {
 
     ws.onerror = (error) => {
       console.error("WebSocket error:", error);
-      onError?.(error);
+      onErrorRef.current?.(error);
     };
 
     ws.onclose = () => {
       setIsConnected(false);
-      onDisconnected?.();
+      onDisconnectedRef.current?.();
 
       // Attempt to reconnect if not intentionally closed
       if (
@@ -115,7 +136,7 @@ export function useFetchProgress(options: UseFetchProgressOptions = {}) {
         setTimeout(connect, reconnectDelay);
       }
     };
-  }, [jobId, enabled, onProgress, onError, onConnected, onDisconnected]);
+  }, [jobId, enabled]);
 
   const disconnect = useCallback(() => {
     shouldReconnectRef.current = false;
