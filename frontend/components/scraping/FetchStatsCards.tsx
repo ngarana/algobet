@@ -2,20 +2,20 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ScrapingStats } from "@/lib/api/scraping";
+import type { FetchStats } from "@/lib/api/fetch";
 import { ActivityIcon, GaugeIcon, Layers3Icon, ShieldCheckIcon } from "lucide-react";
 
-interface ScrapingStatsCardsProps {
-  stats: ScrapingStats | undefined;
+interface FetchStatsCardsProps {
+  stats: FetchStats | undefined;
   isLoading?: boolean;
 }
 
-const EMPTY_STATS: ScrapingStats = {
+const EMPTY_STATS: FetchStats = {
   total_jobs: 0,
   completed_jobs: 0,
   failed_jobs: 0,
   running_jobs: 0,
-  total_matches_scraped: 0,
+  total_matches_fetched: 0,
   average_duration_seconds: null,
   success_rate: 0,
 };
@@ -30,10 +30,7 @@ function formatDuration(seconds: number | null) {
   return `${minutes}m ${remainingSeconds}s avg duration`;
 }
 
-export function ScrapingStatsCards({
-  stats,
-  isLoading = false,
-}: ScrapingStatsCardsProps) {
+export function FetchStatsCards({ stats, isLoading = false }: FetchStatsCardsProps) {
   if (isLoading) {
     return (
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -60,8 +57,8 @@ export function ScrapingStatsCards({
       icon: Layers3Icon,
     },
     {
-      label: "Matches scraped",
-      value: safeStats.total_matches_scraped.toLocaleString(),
+      label: "Matches fetched",
+      value: safeStats.total_matches_fetched.toLocaleString(),
       helper: formatDuration(safeStats.average_duration_seconds),
       icon: ActivityIcon,
     },
@@ -115,7 +112,7 @@ export function ScrapingStatsCards({
   );
 }
 
-export function ScrapingStatsSummary({ stats }: { stats: ScrapingStats | undefined }) {
+export function FetchStatsSummary({ stats }: { stats: FetchStats | undefined }) {
   const safeStats = stats ?? EMPTY_STATS;
 
   return (

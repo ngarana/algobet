@@ -93,7 +93,7 @@ class TestScrapingUpcomingEndpoint:
 
         # The API may return 500 if URL validation causes an internal error
         assert response.status_code in [
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             status.HTTP_500_INTERNAL_SERVER_ERROR,
         ]
 
@@ -145,11 +145,11 @@ class TestScrapingResultsEndpoint:
         assert data["end_date"] is not None
 
     def test_scrape_results_missing_url(self, client):
-        """Test scraping results without required URL."""
+        """Test scraping results without required URL or ID."""
         response = client.post("/api/v1/scraping/results")
 
-        # Should return 422 for missing required tournament_url
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        # Should return 422 for missing required tournament (URL or ID)
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_scrape_results_invalid_dates(self, client):
         """Test scraping results with invalid date format."""
@@ -158,7 +158,7 @@ class TestScrapingResultsEndpoint:
             f"/api/v1/scraping/results?tournament_url={url}&start_date=invalid-date"
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 class TestListJobsEndpoint:
@@ -174,10 +174,10 @@ class TestListJobsEndpoint:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
 
-        assert data["jobs"] == []
+        assert data["items"] == []
         assert data["total"] == 0
-        assert data["page"] == 1
-        assert data["page_size"] == 50
+        assert data["limit"] == 50
+        assert data["offset"] == 0
 
     def test_list_jobs_with_data(self, client, sample_job):
         """Test listing jobs with existing data."""
@@ -190,9 +190,9 @@ class TestListJobsEndpoint:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
 
-        assert len(data["jobs"]) == 1
+        assert len(data["items"]) == 1
         assert data["total"] == 1
-        assert data["jobs"][0]["id"] == sample_job.id
+        assert data["items"][0]["id"] == sample_job.id
 
     def test_list_jobs_with_status_filter(self, client, sample_job):
         """Test filtering jobs by status."""
@@ -205,8 +205,8 @@ class TestListJobsEndpoint:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
 
-        assert len(data["jobs"]) == 1
-        assert data["jobs"][0]["status"] == "completed"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["status"] == "completed"
 
     def test_list_jobs_with_pagination(self, client):
         """Test pagination of job listing."""
@@ -229,17 +229,17 @@ class TestListJobsEndpoint:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
 
-        assert len(data["jobs"]) == 5
+        assert len(data["items"]) == 5
         assert data["total"] == 10
-        assert data["page"] == 1
-        assert data["page_size"] == 5
+        assert data["limit"] == 5
+        assert data["offset"] == 0
 
     def test_list_jobs_invalid_status_filter(self, client):
         """Test filtering with invalid status."""
         response = client.get("/api/v1/scraping/jobs?status_filter=invalid-status")
 
         # Should return 422 for invalid status value
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 class TestGetJobEndpoint:
@@ -440,7 +440,7 @@ class TestErrorHandling:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
 
-        assert len(data["jobs"]) == 50
+        assert len(data["items"]) == 50
         assert data["total"] == 100
 
 

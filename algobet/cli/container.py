@@ -22,7 +22,7 @@ from collections.abc import Iterator
 from dependency_injector import containers, providers
 from sqlalchemy.orm import Session, sessionmaker
 
-from algobet.config import get_config
+from algobet.infrastructure.config import get_config
 from algobet.infrastructure.database import create_db_engine, session_scope
 from algobet.services.analysis_service import AnalysisService
 from algobet.services.database_service import DatabaseService

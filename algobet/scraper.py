@@ -1,12 +1,15 @@
 """Playwright-based web scraper for OddsPortal football match data."""
 
 import contextlib
+import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -91,8 +94,8 @@ class OddsPortalScraper:
         try:
             self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=120000)
         except Exception:
-            print(
-                "Warning: Timeout waiting for game-row selector in navigate_to_results"
+            logger.warning(
+                "Timeout waiting for game-row selector in navigate_to_results"
             )
 
     def get_available_seasons(self) -> list[SeasonInfo]:
@@ -168,9 +171,8 @@ class OddsPortalScraper:
                 'div[data-testid="odd-container-default"]', timeout=10000
             )
         except Exception:
-            print(
-                "Warning: Timeout waiting for game rows or odds, "
-                "attempting to scrape anyway..."
+            logger.warning(
+                "Timeout waiting for game rows or odds in scrape_current_page, attempting to scrape anyway..."
             )
 
         # Use JavaScript to extract all match data with proper date association
@@ -284,7 +286,7 @@ class OddsPortalScraper:
                 )
                 matches.append(match)
             except Exception as e:
-                print(f"Error parsing match: {e}")
+                logger.error(f"Error parsing match: {e}")
                 continue
 
         return matches
@@ -306,15 +308,21 @@ class OddsPortalScraper:
         try:
             self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=120000)
         except Exception:
-            print(
-                "Warning: Timeout waiting for game-row selector in navigate_to_upcoming"
+            logger.warning(
+                "Timeout waiting for game-row selector in navigate_to_upcoming"
             )
 
-    def scrape_upcoming_matches(self) -> list[dict[str, Any]]:
+    def scrape_upcoming_matches(
+        self, only_future_matches: bool = True, buffer_minutes: int = 30
+    ) -> list[dict[str, Any]]:
         """Scrape upcoming matches from the current page.
 
+        Args:
+            only_future_matches: If True, only return matches that haven't started yet
+            buffer_minutes: Minutes to add to current time as buffer (avoid scraping matches in progress)
+
         Returns:
-            List of dictionaries with match data (including tournament info).
+            List of dictionaries with match data that have odds available.
         """
         if self._page is None:
             raise RuntimeError("Browser not started. Call start() first.")
@@ -326,9 +334,8 @@ class OddsPortalScraper:
                 'div[data-testid="odd-container-default"]', timeout=10000
             )
         except Exception:
-            print(
-                "Warning: Timeout waiting for game rows or odds, "
-                "attempting to scrape anyway..."
+            logger.warning(
+                "Timeout waiting for game rows or odds in scrape_upcoming_matches, attempting to scrape anyway..."
             )
 
         # Use JavaScript to extract match data with context (Date and Tournament)
@@ -343,7 +350,6 @@ class OddsPortalScraper:
                 let currentDate = null;
                 let currentTournament = null;
                 let currentCountry = null;
-                let currentSlug = null;
 
                 // Select all relevant elements in document order
                 const elements = Array.from(document.querySelectorAll(
@@ -425,17 +431,10 @@ class OddsPortalScraper:
         )
 
         parsed_matches = []
-        for data in match_data:
-            # DEBUG: Print found odds
-            if not data.get("oddsHome"):
-                print(
-                    f"DEBUG: No odds for {data['homeTeam']} vs {data['awayTeam']} ({data.get('country')} - {data.get('tournament')})"
-                )
-            else:
-                print(
-                    f"DEBUG: Found odds for {data['homeTeam']}: {data['oddsHome']} ({data.get('country')} - {data.get('tournament')})"
-                )
+        matches_without_odds = 0
+        matches_already_started = 0
 
+        for data in match_data:
             try:
                 # Parse Date
                 match_date = datetime.now()
@@ -453,6 +452,25 @@ class OddsPortalScraper:
                     except ValueError:
                         pass  # Keep default
 
+                # Skip matches that have already started (with buffer)
+                if only_future_matches:
+                    cutoff_time = datetime.now() + timedelta(minutes=buffer_minutes)
+                    if match_date < cutoff_time:
+                        matches_already_started += 1
+                        logger.debug(
+                            f"Skipping {data['homeTeam']} vs {data['awayTeam']} - "
+                            f"match already started or too close ({match_date})"
+                        )
+                        continue
+
+                # Skip matches without odds
+                if not data.get("oddsHome"):
+                    matches_without_odds += 1
+                    logger.debug(
+                        f"Skipping {data['homeTeam']} vs {data['awayTeam']} - no odds available"
+                    )
+                    continue
+
                 parsed_matches.append(
                     {
                         "tournament_name": data.get("tournament")
@@ -469,8 +487,28 @@ class OddsPortalScraper:
                     }
                 )
             except Exception as e:
-                print(f"Error parsing upcoming match: {e}")
+                logger.error(
+                    f"Error parsing upcoming match {data.get('homeTeam')} vs {data.get('away_team')}: {e}"
+                )
                 continue
+
+        # Log summary
+        total_processed = (
+            len(parsed_matches) + matches_without_odds + matches_already_started
+        )
+        if matches_already_started > 0:
+            logger.info(
+                f"Scraped {total_processed} matches total: "
+                f"{matches_already_started} already started (skipped), "
+                f"{matches_without_odds} without odds (skipped), "
+                f"{len(parsed_matches)} future matches with odds (kept)"
+            )
+        else:
+            logger.info(
+                f"Scraped {total_processed} matches, "
+                f"filtered out {matches_without_odds} without odds, "
+                f"keeping {len(parsed_matches)} with odds"
+            )
 
         return parsed_matches
 
@@ -516,7 +554,7 @@ class OddsPortalScraper:
                     self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=10000)
                 return True
         except Exception as e:
-            print(f"Error navigating to page {page_num}: {e}")
+            logger.error(f"Error navigating to page {page_num}: {e}")
 
         return False
 
@@ -534,7 +572,7 @@ class OddsPortalScraper:
         # Scrape first page
         matches = self.scrape_current_page()
         all_matches.extend(matches)
-        print(f"Page 1: scraped {len(matches)} matches")
+        logger.info(f"Page 1: scraped {len(matches)} matches")
 
         # Get total pages
         total_pages = self.get_page_count()
@@ -545,9 +583,9 @@ class OddsPortalScraper:
             if self.go_to_page(page_num):
                 matches = self.scrape_current_page()
                 all_matches.extend(matches)
-                print(f"Page {page_num}: scraped {len(matches)} matches")
+                logger.info(f"Page {page_num}: scraped {len(matches)} matches")
             else:
-                print(f"Failed to navigate to page {page_num}")
+                logger.error(f"Failed to navigate to page {page_num}")
                 break
 
         return all_matches

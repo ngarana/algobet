@@ -5,25 +5,25 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getTeams, getTeam, getTeamForm, getTeamMatches } from "@/lib/api/teams";
 
-export const teamKeys = {
-  all: ["teams"] as const,
-  lists: () => [...teamKeys.all, "list"] as const,
-  list: (filters: Record<string, unknown>) => [...teamKeys.lists(), filters] as const,
-  detail: (id: number) => [...teamKeys.all, "detail", id] as const,
-  form: (id: number) => [...teamKeys.detail(id), "form"] as const,
-  matches: (id: number) => [...teamKeys.detail(id), "matches"] as const,
-};
-
-interface TeamFilters {
+export interface TeamFilters {
   search?: string;
   tournament_id?: number;
   limit?: number;
   offset?: number;
 }
 
+export const teamKeys = {
+  all: ["teams"] as const,
+  lists: () => [...teamKeys.all, "list"] as const,
+  list: (filters: TeamFilters | undefined) => [...teamKeys.lists(), filters] as const,
+  detail: (id: number) => [...teamKeys.all, "detail", id] as const,
+  form: (id: number) => [...teamKeys.detail(id), "form"] as const,
+  matches: (id: number) => [...teamKeys.detail(id), "matches"] as const,
+};
+
 export function useTeams(filters?: TeamFilters) {
   return useQuery({
-    queryKey: teamKeys.list(filters ? { ...filters } : {}),
+    queryKey: teamKeys.list(filters),
     queryFn: () => getTeams(filters),
   });
 }

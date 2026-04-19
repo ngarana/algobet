@@ -1,9 +1,10 @@
 """Pydantic schemas for scraping operations."""
 
-from datetime import datetime
+from datetime import date as date_cls, datetime
 from enum import Enum
+from typing import Generic, TypeVar
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class ScrapingJobStatus(str, Enum):
@@ -21,16 +22,25 @@ class ScrapingType(str, Enum):
 
     UPCOMING = "upcoming"
     RESULTS = "results"
-    BY_DATE = "by-date"  # Fetch all matches for a specific date
+    BY_DATE = "by-date"
+
+
+class ScrapeScope(str, Enum):
+    """Scope of a scraping request."""
+
+    ALL = "all"
+    LEAGUE = "league"
 
 
 class ScrapingJobBase(BaseModel):
     """Base schema for scraping job."""
 
     scraping_type: ScrapingType = Field(..., description="Type of scraping operation")
-    # Legacy URL support (optional - API-Football uses league IDs)
     tournament_url: HttpUrl | None = Field(
-        None, description="[Legacy] URL of tournament to scrape"
+        None, description="URL of tournament to scrape"
+    )
+    tournament_id: int | None = Field(
+        None, description="Tournament ID to resolve URL from database"
     )
     tournament_name: str | None = Field(
         None, description="Name of tournament to scrape"
@@ -40,17 +50,13 @@ class ScrapingJobBase(BaseModel):
         None, description="Start date for results scraping"
     )
     end_date: datetime | None = Field(None, description="End date for results scraping")
-    # API-Football fields
-    league_ids: list[int] | None = Field(
-        None,
-        description="List of API-Football league IDs to scrape (e.g., [39] for Premier League)",
+    scope: ScrapeScope = Field(
+        ScrapeScope.ALL, description="Scope of scrape: 'all' or 'league'"
     )
-    league_id: int | None = Field(
-        None,
-        description="Single API-Football league ID (shorthand for league_ids=[id])",
-    )
-    max_results: int | None = Field(
-        None, ge=1, le=100, description="Maximum number of results to fetch per league"
+    country: str | None = Field(None, description="Country name")
+    league_name: str | None = Field(None, description="League name")
+    period: str | None = Field(
+        None, description="Period/date (e.g., '2023/2024' or '2023-2024')"
     )
 
 
@@ -58,6 +64,87 @@ class ScrapingJobCreate(ScrapingJobBase):
     """Schema for creating a scraping job."""
 
     pass
+
+
+class UpcomingScrapeRequest(BaseModel):
+    """Request schema for upcoming match scraping."""
+
+    tournament_id: int | None = Field(
+        None, description="Tournament ID to resolve from database"
+    )
+    tournament_url: HttpUrl | None = Field(
+        None, description="Optional manual OddsPortal URL override"
+    )
+    scope: ScrapeScope = Field(
+        ScrapeScope.ALL, description="Scrape all leagues or a specific league"
+    )
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "UpcomingScrapeRequest":
+        """Require a league target when scope is league."""
+        if (
+            self.scope == ScrapeScope.LEAGUE
+            and self.tournament_id is None
+            and self.tournament_url is None
+        ):
+            raise ValueError(
+                "tournament_id or tournament_url is required when scope='league'"
+            )
+        return self
+
+
+class ResultsScrapeRequest(BaseModel):
+    """Request schema for historical results scraping."""
+
+    tournament_id: int | None = Field(
+        None, description="Tournament ID to resolve from database"
+    )
+    tournament_url: HttpUrl | None = Field(
+        None, description="Optional manual OddsPortal URL override"
+    )
+    period: str | None = Field(
+        None, description="Season label such as '2023/2024' or '2023-2024'"
+    )
+    max_pages: int | None = Field(
+        None, ge=1, description="Optional page limit for historical scraping"
+    )
+
+    @model_validator(mode="after")
+    def validate_target(self) -> "ResultsScrapeRequest":
+        """Require a tournament target."""
+        if self.tournament_id is None and self.tournament_url is None:
+            raise ValueError("tournament_id or tournament_url is required")
+        return self
+
+
+class ByDateScrapeRequest(BaseModel):
+    """Request schema for daily match scraping."""
+
+    date: date_cls | None = Field(
+        None, description="Date to scrape in YYYY-MM-DD format"
+    )
+    tournament_id: int | None = Field(
+        None, description="Tournament ID to resolve from database"
+    )
+    tournament_url: HttpUrl | None = Field(
+        None, description="Optional manual OddsPortal URL override"
+    )
+    scope: ScrapeScope = Field(
+        ScrapeScope.ALL, description="Scrape all leagues or a specific league"
+    )
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "ByDateScrapeRequest":
+        """Require a league target when scope is league."""
+        if (
+            self.scope == ScrapeScope.LEAGUE
+            and self.tournament_id is None
+            and self.tournament_url is None
+        ):
+            raise ValueError(
+                "tournament_id or tournament_url is required when scope='league'"
+            )
+        return self
 
 
 class ScrapingJobResponse(ScrapingJobBase):
@@ -71,6 +158,7 @@ class ScrapingJobResponse(ScrapingJobBase):
     started_at: datetime | None = Field(None, description="Job start timestamp")
     completed_at: datetime | None = Field(None, description="Job completion timestamp")
     matches_scraped: int = Field(0, description="Number of matches scraped")
+    matches_saved: int = Field(0, description="Number of matches saved")
     errors: list[str] = Field(
         default_factory=list, description="List of error messages"
     )
@@ -83,53 +171,35 @@ class ScrapingJobUpdate(BaseModel):
     progress: float | None = Field(None, description="Updated progress percentage")
     message: str | None = Field(None, description="Updated status message")
     matches_scraped: int | None = Field(None, description="Updated match count")
+    matches_saved: int | None = Field(None, description="Updated matches saved count")
     errors: list[str] | None = Field(None, description="Updated error list")
-    started_at: datetime | None = Field(None, description="Updated job start timestamp")
-    completed_at: datetime | None = Field(
-        None, description="Updated job completion timestamp"
-    )
+    started_at: datetime | None = Field(None, description="Job start timestamp")
+    completed_at: datetime | None = Field(None, description="Job completion timestamp")
 
 
 class ScrapingProgress(BaseModel):
     """Schema for scraping progress updates."""
 
     job_id: str = Field(..., description="Job identifier")
+    status: ScrapingJobStatus | None = Field(None, description="Current job status")
     progress: float = Field(..., description="Progress percentage (0-100)")
     message: str = Field(..., description="Progress message")
     matches_scraped: int = Field(0, description="Number of matches scraped so far")
-    matches_saved: int | None = Field(
-        None, description="Number of matches saved so far"
-    )
-    status: ScrapingJobStatus | None = Field(
-        None, description="Current job status during progress updates"
-    )
+    matches_saved: int = Field(0, description="Number of matches saved")
     current_page: int | None = Field(None, description="Current page being scraped")
     total_pages: int | None = Field(None, description="Total pages to scrape")
-    started_at: datetime | None = Field(
-        None, description="Timestamp when the scraping job started"
-    )
-    completed_at: datetime | None = Field(
-        None, description="Timestamp when the scraping job completed"
-    )
-    error: str | None = Field(None, description="Current error message, if any")
+    started_at: datetime | None = Field(None, description="Job start timestamp")
+    completed_at: datetime | None = Field(None, description="Job completion timestamp")
+    error: str | None = Field(None, description="Error message if failed")
     timestamp: datetime = Field(
         default_factory=datetime.utcnow, description="Progress timestamp"
     )
 
 
-class ScrapingJobList(BaseModel):
-    """Schema for listing scraping jobs."""
-
-    jobs: list[ScrapingJobResponse] = Field(..., description="List of scraping jobs")
-    total: int = Field(..., description="Total number of jobs")
-    page: int = Field(1, description="Current page number")
-    page_size: int = Field(10, description="Number of jobs per page")
-
-
 class ScrapingStats(BaseModel):
     """Schema for scraping statistics."""
 
-    total_jobs: int = Field(..., description="Total number of scraping jobs")
+    total_jobs: int = Field(..., description="Total number of jobs")
     completed_jobs: int = Field(..., description="Number of completed jobs")
     failed_jobs: int = Field(..., description="Number of failed jobs")
     running_jobs: int = Field(..., description="Number of currently running jobs")
@@ -140,3 +210,17 @@ class ScrapingStats(BaseModel):
         None, description="Average job duration in seconds"
     )
     success_rate: float = Field(..., description="Success rate percentage")
+
+
+F = TypeVar("F", bound=ScrapingJobResponse)
+
+
+class PaginatedResponse(BaseModel, Generic[F]):
+    """Paginated response for scraping jobs."""
+
+    items: list[F] = Field(default_factory=list, description="List of items")
+    total: int = Field(0, description="Total number of items")
+    limit: int = Field(50, description="Page size limit")
+    offset: int = Field(0, description="Offset into results")
+
+    model_config = ConfigDict(from_attributes=True)

@@ -1,12 +1,8 @@
-"""Scraping service for orchestrating data collection from API-Football.
-
-This service uses the API-Football client instead of web scraping to fetch
-match data, fixtures, and results reliably.
-"""
+"""Scraping service for orchestrating data collection from OddsPortal."""
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date as date_cls, datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
@@ -15,10 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from algobet.models import Match, Team, Tournament
-from algobet.infrastructure.api_football_client import (
-    APIFootballClient,
-    APIFootballFixture,
-)
+from algobet.scraper import OddsPortalScraper, ScrapedMatch
 from algobet.services.base import BaseService
 
 
@@ -58,11 +51,11 @@ class ScrapingJob:
     url: str = ""
     status: JobStatus = JobStatus.PENDING
     progress: ScrapingProgress | None = None
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ScrapingService(BaseService[Any]):
-    """Service for managing scraping operations using API-Football."""
+    """Service for managing scraping operations."""
 
     # In-memory job storage (replace with Redis/DB for production)
     _jobs: dict[UUID, ScrapingJob] = {}
@@ -130,7 +123,7 @@ class ScrapingService(BaseService[Any]):
         return sorted(jobs, key=lambda j: j.created_at, reverse=True)
 
     def get_or_create_tournament(
-        self, country: str, name: str, slug: str, api_football_id: int | None = None
+        self, country: str, name: str, slug: str
     ) -> Tournament:
         """Get or create a tournament.
 
@@ -138,59 +131,36 @@ class ScrapingService(BaseService[Any]):
             country: Country name
             name: Tournament name
             slug: URL slug for the tournament
-            api_football_id: API-Football league ID
 
         Returns:
             Tournament instance
         """
-        # Try to find by API-Football ID first, then by slug
-        if api_football_id:
-            tournament = self.session.execute(
-                select(Tournament).where(Tournament.api_football_id == api_football_id)
-            ).scalar_one_or_none()
-            if tournament:
-                return tournament
-
         tournament = self.session.execute(
             select(Tournament).where(Tournament.url_slug == slug)
         ).scalar_one_or_none()
 
         if not tournament:
-            tournament = Tournament(
-                name=name,
-                country=country,
-                url_slug=slug,
-                api_football_id=api_football_id,
-            )
+            tournament = Tournament(name=name, country=country, url_slug=slug)
             self.session.add(tournament)
             self.session.flush()
 
         return tournament
 
-    def get_or_create_team(self, name: str, api_football_id: int | None = None) -> Team:
+    def get_or_create_team(self, name: str) -> Team:
         """Get or create a team.
 
         Args:
             name: Team name
-            api_football_id: API-Football team ID
 
         Returns:
             Team instance
         """
-        # Try to find by API-Football ID first, then by name
-        if api_football_id:
-            team = self.session.execute(
-                select(Team).where(Team.api_football_id == api_football_id)
-            ).scalar_one_or_none()
-            if team:
-                return team
-
         team = self.session.execute(
             select(Team).where(Team.name == name)
         ).scalar_one_or_none()
 
         if not team:
-            team = Team(name=name, api_football_id=api_football_id)
+            team = Team(name=name)
             self.session.add(team)
             self.session.flush()
 
@@ -198,71 +168,62 @@ class ScrapingService(BaseService[Any]):
 
     def scrape_upcoming(
         self,
-        url: str = "",
+        url: str = "https://www.oddsportal.com/matches/football/",
         headless: bool = True,
-        league_ids: list[int] | None = None,
     ) -> ScrapingProgress:
-        """Fetch upcoming matches from API-Football.
+        """Scrape upcoming matches.
 
         Args:
-            url: Legacy parameter (ignored - uses API-Football)
-            headless: Legacy parameter (ignored - no browser needed)
-            league_ids: List of league IDs to fetch (defaults to config)
+            url: URL to scrape upcoming matches from
+            headless: Run browser in headless mode
 
         Returns:
             Final progress update
         """
-        job = self.create_job("upcoming", url or "api-football://upcoming")
+        job = self.create_job("upcoming", url)
         progress = ScrapingProgress(
             job_id=job.id,
             status=JobStatus.RUNNING,
             progress=5.0,
-            started_at=datetime.now(),
-            message="Starting upcoming matches fetch from API-Football...",
+            started_at=datetime.now(timezone.utc),
+            message="Starting upcoming matches scrape...",
         )
         self._emit_progress(progress)
 
         try:
-            client = APIFootballClient()
+            with OddsPortalScraper(headless=headless) as scraper:
+                scraper.navigate_to_upcoming(url)
 
-            progress.progress = 10.0
-            progress.message = "Fetching upcoming fixtures from API-Football..."
-            self._emit_progress(progress)
+                progress.progress = 25.0
+                progress.current_page = 1
+                progress.total_pages = 1
+                progress.message = "Scraping upcoming matches..."
+                self._emit_progress(progress)
 
-            # Fetch upcoming fixtures for all configured leagues
-            response = client.get_all_upcoming(league_ids=league_ids, next=10)
-            fixtures = response.fixtures
+                matches_data = scraper.scrape_upcoming_matches()
+                progress.matches_scraped = len(matches_data)
+                progress.progress = 75.0
+                progress.message = f"Found {len(matches_data)} matches. Saving..."
+                self._emit_progress(progress)
 
-            progress.progress = 50.0
-            progress.matches_scraped = len(fixtures)
-            progress.message = f"Found {len(fixtures)} upcoming matches. Saving..."
-            self._emit_progress(progress)
+                # Save matches
+                saved_count = self._save_upcoming_matches(matches_data)
+                progress.matches_saved = saved_count
 
-            # Save matches to database
-            saved_count = self._save_api_fixtures(fixtures, is_upcoming=True)
-            progress.matches_saved = saved_count
+                progress.status = JobStatus.COMPLETED
+                progress.progress = 100.0
+                progress.completed_at = datetime.now(timezone.utc)
+                progress.message = (
+                    f"Completed! Scraped {len(matches_data)} matches, "
+                    f"saved {saved_count}."
+                )
 
-            progress.progress = 100.0
-            progress.status = JobStatus.COMPLETED
-            progress.completed_at = datetime.now()
-            progress.message = (
-                f"Completed! Fetched {len(fixtures)} upcoming matches from "
-                f"{response.requests_made} API requests, saved {saved_count}."
-            )
-
-        except ValueError as e:
-            # API key not configured
-            progress.status = JobStatus.FAILED
-            progress.progress = 0.0
-            progress.error = str(e)
-            progress.message = f"Configuration error: {e}"
-            progress.completed_at = datetime.now()
         except Exception as e:
             progress.status = JobStatus.FAILED
-            progress.progress = 0.0
+            progress.progress = 100.0
             progress.error = str(e)
             progress.message = f"Failed: {e}"
-            progress.completed_at = datetime.now()
+            progress.completed_at = datetime.now(timezone.utc)
 
         self._emit_progress(progress)
         job.status = progress.status
@@ -270,99 +231,80 @@ class ScrapingService(BaseService[Any]):
 
         return progress
 
-    def scrape_by_date(
+    def scrape_matches_by_date(
         self,
-        date: str | None = None,
-        league_id: int | None = None,
+        target_date: date_cls,
+        url: str | None = None,
+        headless: bool = True,
     ) -> ScrapingProgress:
-        """Fetch ALL matches for a specific date across all leagues.
-
-        This is the closest equivalent to scraping all matches from
-        OddsPortal's main page - it returns every football match
-        scheduled for a given date.
+        """Scrape matches scheduled for a specific calendar date.
 
         Args:
-            date: Date in YYYY-MM-DD format (defaults to today)
-            league_id: Optional filter by specific league ID
+            target_date: Calendar date to scrape
+            url: Optional pre-resolved OddsPortal URL to scrape
+            headless: Run browser in headless mode
 
         Returns:
             Final progress update
         """
-        job = self.create_job("by-date", f"api-football://date/{date or 'today'}")
+        target_url = url or self._matches_url_for_date(target_date)
+        job = self.create_job("by-date", target_url)
         progress = ScrapingProgress(
             job_id=job.id,
             status=JobStatus.RUNNING,
             progress=5.0,
-            started_at=datetime.now(),
-            message=f"Fetching all matches for {date or 'today'} from API-Football...",
+            started_at=datetime.now(timezone.utc),
+            message=f"Starting scrape for {target_date.isoformat()}...",
         )
         self._emit_progress(progress)
 
         try:
-            client = APIFootballClient()
+            with OddsPortalScraper(headless=headless) as scraper:
+                scraper.navigate_to_upcoming(target_url)
 
-            progress.progress = 10.0
-            progress.message = "Fetching fixtures by date from API-Football..."
-            self._emit_progress(progress)
+                progress.progress = 25.0
+                progress.current_page = 1
+                progress.total_pages = 1
+                progress.message = (
+                    f"Loaded matches board for {target_date.isoformat()}. Scraping..."
+                )
+                self._emit_progress(progress)
 
-            # Fetch ALL fixtures for the date (1 API request)
-            response = client.get_fixtures_by_date(date=date, league_id=league_id)
-            fixtures = response.fixtures
-            requests_made = response.requests_made
+                matches_data = scraper.scrape_upcoming_matches(
+                    only_future_matches=False,
+                    buffer_minutes=0,
+                )
+                progress.matches_scraped = len(matches_data)
 
-            progress.progress = 30.0
-            progress.matches_scraped = len(fixtures)
-            progress.message = (
-                f"Found {len(fixtures)} matches across "
-                f"{len(set(f.league.name for f in fixtures))} leagues. Fetching odds..."
-            )
-            self._emit_progress(progress)
+                filtered_matches = self._filter_matches_by_date(
+                    matches_data,
+                    target_date,
+                )
+                progress.progress = 75.0
+                progress.matches_scraped = len(filtered_matches)
+                progress.message = (
+                    f"Found {len(filtered_matches)} matches for "
+                    f"{target_date.isoformat()}. Saving..."
+                )
+                self._emit_progress(progress)
 
-            # Enrich fixtures with odds (1 additional API request)
-            if fixtures:
-                try:
-                    fixtures = client.enrich_fixtures_with_odds(
-                        fixtures, league_id=league_id
-                    )
-                    # Count fixtures that now have odds
-                    odds_count = sum(1 for f in fixtures if f.odds)
-                    requests_made += 1  # One request per date
-                except Exception as odds_error:
-                    # Odds fetch failed, continue without odds
-                    print(f"Warning: Failed to fetch odds: {odds_error}")
-                    odds_count = 0
+                saved_count = self._save_upcoming_matches(filtered_matches)
+                progress.matches_saved = saved_count
 
-            progress.progress = 60.0
-            progress.message = (
-                f"Found {len(fixtures)} matches, {odds_count} with odds. Saving..."
-            )
-            self._emit_progress(progress)
+                progress.status = JobStatus.COMPLETED
+                progress.progress = 100.0
+                progress.completed_at = datetime.now(timezone.utc)
+                progress.message = (
+                    f"Completed! Scraped {len(filtered_matches)} matches for "
+                    f"{target_date.isoformat()}, saved {saved_count}."
+                )
 
-            # Save matches to database
-            saved_count = self._save_api_fixtures(fixtures, is_upcoming=False)
-            progress.matches_saved = saved_count
-
-            progress.progress = 100.0
-            progress.status = JobStatus.COMPLETED
-            progress.completed_at = datetime.now()
-            progress.message = (
-                f"Completed! Fetched {len(fixtures)} matches ({odds_count} with odds) "
-                f"from {requests_made} API request(s), saved {saved_count}."
-            )
-
-        except ValueError as e:
-            # API key not configured
-            progress.status = JobStatus.FAILED
-            progress.progress = 0.0
-            progress.error = str(e)
-            progress.message = f"Configuration error: {e}"
-            progress.completed_at = datetime.now()
         except Exception as e:
             progress.status = JobStatus.FAILED
-            progress.progress = 0.0
+            progress.progress = 100.0
             progress.error = str(e)
             progress.message = f"Failed: {e}"
-            progress.completed_at = datetime.now()
+            progress.completed_at = datetime.now(timezone.utc)
 
         self._emit_progress(progress)
         job.status = progress.status
@@ -372,97 +314,86 @@ class ScrapingService(BaseService[Any]):
 
     def scrape_results(
         self,
-        url: str = "",
+        url: str,
         max_pages: int | None = None,
         headless: bool = True,
-        league_id: int | None = None,
-        season: int | None = None,
     ) -> ScrapingProgress:
-        """Fetch match results from API-Football.
+        """Scrape historical results.
 
         Args:
-            url: Legacy parameter (ignored - uses API-Football)
-            max_pages: Number of results to fetch per league
-            headless: Legacy parameter (ignored - no browser needed)
-            league_id: Specific league ID to fetch results for
-            season: Season year to fetch results for
+            url: OddsPortal results URL
+            max_pages: Maximum pages to scrape (None for all)
+            headless: Run browser in headless mode
 
         Returns:
             Final progress update
         """
-        job = self.create_job("results", url or "api-football://results")
+        job = self.create_job("results", url)
         progress = ScrapingProgress(
             job_id=job.id,
             status=JobStatus.RUNNING,
             progress=5.0,
-            started_at=datetime.now(),
-            message="Starting results fetch from API-Football...",
+            started_at=datetime.now(timezone.utc),
+            message="Starting results scrape...",
         )
         self._emit_progress(progress)
 
         try:
-            client = APIFootballClient()
+            with OddsPortalScraper(headless=headless) as scraper:
+                scraper.navigate_to_results(url)
 
-            progress.progress = 10.0
-            progress.message = "Fetching match results from API-Football..."
-            self._emit_progress(progress)
+                # Get total pages
+                total_pages = scraper.get_page_count()
+                if max_pages:
+                    total_pages = min(total_pages, max_pages)
+                progress.total_pages = total_pages
+                progress.message = f"Loaded results board with {total_pages} pages."
+                self._emit_progress(progress)
 
-            # Determine how many results to fetch
-            last_count = max_pages if max_pages else 20
+                # Parse league info from URL
+                country, league_name, slug = self._parse_league_info(url)
+                tournament = self.get_or_create_tournament(country, league_name, slug)
 
-            if league_id:
-                # Fetch results for specific league
-                response = client.get_results(league_id=league_id, last=last_count)
-                fixtures = response.fixtures
-                requests_made = response.requests_made
-            else:
-                # Fetch results for all configured leagues
-                from algobet.infrastructure.config import get_config
+                # Scrape each page
+                all_matches = []
+                for page_num in range(1, total_pages + 1):
+                    progress.current_page = page_num
+                    progress.message = f"Scraping page {page_num}/{total_pages}..."
 
-                config = get_config()
-                league_ids = config.scraping.default_league_ids
+                    if page_num > 1:
+                        scraper.go_to_page(page_num)
 
-                fixtures = []
-                requests_made = 0
-                for lid in league_ids:
-                    try:
-                        resp = client.get_results(league_id=lid, last=last_count)
-                        fixtures.extend(resp.fixtures)
-                        requests_made += resp.requests_made
-                    except Exception as e:
-                        print(f"Warning: Failed to fetch results for league {lid}: {e}")
-                        continue
+                    matches = scraper.scrape_current_page()
+                    all_matches.extend(matches)
+                    progress.matches_scraped = len(all_matches)
+                    progress.progress = min(
+                        90.0, 5.0 + (page_num / max(total_pages, 1)) * 85.0
+                    )
+                    self._emit_progress(progress)
 
-            progress.progress = 50.0
-            progress.matches_scraped = len(fixtures)
-            progress.message = f"Found {len(fixtures)} match results. Saving..."
-            self._emit_progress(progress)
+                # Save all matches
+                progress.progress = 95.0
+                progress.message = (
+                    f"Saving {len(all_matches)} matches from {total_pages} pages..."
+                )
+                self._emit_progress(progress)
+                saved_count = self._save_result_matches(all_matches, tournament)
+                progress.matches_saved = saved_count
 
-            # Save matches to database
-            saved_count = self._save_api_fixtures(fixtures, is_upcoming=False)
-            progress.matches_saved = saved_count
+                progress.status = JobStatus.COMPLETED
+                progress.progress = 100.0
+                progress.completed_at = datetime.now(timezone.utc)
+                progress.message = (
+                    f"Completed! Scraped {len(all_matches)} matches from "
+                    f"{total_pages} pages, saved {saved_count}."
+                )
 
-            progress.progress = 100.0
-            progress.status = JobStatus.COMPLETED
-            progress.completed_at = datetime.now()
-            progress.message = (
-                f"Completed! Fetched {len(fixtures)} results from "
-                f"{requests_made} API requests, saved {saved_count}."
-            )
-
-        except ValueError as e:
-            # API key not configured
-            progress.status = JobStatus.FAILED
-            progress.progress = 0.0
-            progress.error = str(e)
-            progress.message = f"Configuration error: {e}"
-            progress.completed_at = datetime.now()
         except Exception as e:
             progress.status = JobStatus.FAILED
-            progress.progress = 0.0
+            progress.progress = 100.0
             progress.error = str(e)
             progress.message = f"Failed: {e}"
-            progress.completed_at = datetime.now()
+            progress.completed_at = datetime.now(timezone.utc)
 
         self._emit_progress(progress)
         job.status = progress.status
@@ -470,81 +401,148 @@ class ScrapingService(BaseService[Any]):
 
         return progress
 
-    def _save_api_fixtures(
-        self, fixtures: list[APIFootballFixture], is_upcoming: bool = True
-    ) -> int:
-        """Save fixtures from API-Football to database.
+    def _parse_league_info(self, url: str) -> tuple[str, str, str]:
+        """Extract country, league name, and slug from URL.
 
         Args:
-            fixtures: List of APIFootballFixture objects
-            is_upcoming: Whether these are upcoming matches or results
+            url: OddsPortal results URL
+
+        Returns:
+            Tuple of (country, league_name, slug)
+        """
+        import re
+
+        match = re.search(r"/football/([^/]+)/([^/]+?)(?:-\d{4}-\d{4})?/results/", url)
+        if not match:
+            raise ValueError(f"Cannot parse league info from URL: {url}")
+
+        country = match.group(1).replace("-", " ").title()
+        slug = match.group(2)
+        league_name = slug.replace("-", " ").title()
+
+        return country, league_name, slug
+
+    def _matches_url_for_date(self, target_date: date_cls) -> str:
+        """Build the OddsPortal daily matches URL for a specific date."""
+        return (
+            "https://www.oddsportal.com/matches/football/"
+            f"{target_date.strftime('%Y%m%d')}/"
+        )
+
+    def _filter_matches_by_date(
+        self,
+        matches_data: list[dict[str, Any]],
+        target_date: date_cls,
+    ) -> list[dict[str, Any]]:
+        """Keep only matches whose parsed kickoff falls on the target date."""
+        return [
+            match_data
+            for match_data in matches_data
+            if match_data.get("match_date")
+            and match_data["match_date"].date() == target_date
+        ]
+
+    def _save_upcoming_matches(self, matches_data: list[dict[str, Any]]) -> int:
+        """Save upcoming matches to database.
+
+        Args:
+            matches_data: List of match data dictionaries
 
         Returns:
             Number of matches saved
         """
         saved = 0
-        for fixture in fixtures:
+        for match_data in matches_data:
             # Get or create teams
-            home_team = self.get_or_create_team(
-                fixture.home_team.name,
-                api_football_id=fixture.home_team.id,
-            )
-            away_team = self.get_or_create_team(
-                fixture.away_team.name,
-                api_football_id=fixture.away_team.id,
-            )
+            home_team = self.get_or_create_team(match_data["home_team"])
+            away_team = self.get_or_create_team(match_data["away_team"])
 
-            # Get or create tournament
-            tournament = self.get_or_create_tournament(
-                country=fixture.league.country,
-                name=fixture.league.name,
-                slug=fixture.league.name.lower().replace(" ", "-"),
-                api_football_id=fixture.league.id,
-            )
+            # Get or create tournament (if available)
+            tournament = None
+            if match_data.get("tournament_slug"):
+                tournament = self.get_or_create_tournament(
+                    country=match_data.get("country", "Unknown"),
+                    name=match_data.get("tournament_name", "Unknown"),
+                    slug=match_data["tournament_slug"],
+                )
 
             # Check for existing match
             existing = self.session.execute(
                 select(Match).where(
                     Match.home_team_id == home_team.id,
                     Match.away_team_id == away_team.id,
-                    Match.match_date == fixture.date,
+                    Match.match_date == match_data["match_date"],
                 )
             ).scalar_one_or_none()
 
             if existing:
                 # Update odds if available
-                if fixture.odds_home:
-                    existing.odds_home = fixture.odds_home
-                    existing.odds_draw = fixture.odds_draw
-                    existing.odds_away = fixture.odds_away
+                if match_data.get("odds_home"):
+                    existing.odds_home = match_data["odds_home"]
+                    existing.odds_draw = match_data.get("odds_draw")
+                    existing.odds_away = match_data.get("odds_away")
 
-                # Update scores for finished matches
-                if fixture.is_finished:
-                    existing.home_score = fixture.goals.home
-                    existing.away_score = fixture.goals.away
-                    existing.status = "FINISHED"
+                # Update tournament if missing
+                if existing.tournament_id is None and tournament:
+                    existing.tournament_id = tournament.id
             else:
-                # Determine status
-                if fixture.is_finished:
-                    status = "FINISHED"
-                elif fixture.is_live:
-                    status = "LIVE"
-                else:
-                    status = "SCHEDULED"
-
                 # Create new match
+                match = Match(
+                    tournament_id=tournament.id if tournament else None,
+                    home_team_id=home_team.id,
+                    away_team_id=away_team.id,
+                    match_date=match_data["match_date"],
+                    status="SCHEDULED",
+                    odds_home=match_data.get("odds_home"),
+                    odds_draw=match_data.get("odds_draw"),
+                    odds_away=match_data.get("odds_away"),
+                )
+                self.session.add(match)
+                saved += 1
+
+        self.session.flush()
+        return saved
+
+    def _save_result_matches(
+        self, matches: list[ScrapedMatch], tournament: Tournament
+    ) -> int:
+        """Save result matches to database.
+
+        Args:
+            matches: List of ScrapedMatch objects
+            tournament: Tournament instance
+
+        Returns:
+            Number of matches saved
+        """
+        saved = 0
+        for scraped in matches:
+            home_team = self.get_or_create_team(scraped.home_team)
+            away_team = self.get_or_create_team(scraped.away_team)
+
+            # Check for existing match
+            existing = self.session.execute(
+                select(Match).where(
+                    Match.tournament_id == tournament.id,
+                    Match.home_team_id == home_team.id,
+                    Match.away_team_id == away_team.id,
+                    Match.match_date == scraped.match_date,
+                )
+            ).scalar_one_or_none()
+
+            if not existing:
                 match = Match(
                     tournament_id=tournament.id,
                     home_team_id=home_team.id,
                     away_team_id=away_team.id,
-                    match_date=fixture.date,
-                    status=status,
-                    home_score=fixture.goals.home if fixture.is_finished else None,
-                    away_score=fixture.goals.away if fixture.is_finished else None,
-                    odds_home=fixture.odds_home,
-                    odds_draw=fixture.odds_draw,
-                    odds_away=fixture.odds_away,
-                    api_football_id=fixture.id,
+                    match_date=scraped.match_date,
+                    home_score=scraped.home_score,
+                    away_score=scraped.away_score,
+                    status="FINISHED",
+                    odds_home=scraped.odds_home,
+                    odds_draw=scraped.odds_draw,
+                    odds_away=scraped.odds_away,
+                    num_bookmakers=scraped.num_bookmakers,
                 )
                 self.session.add(match)
                 saved += 1

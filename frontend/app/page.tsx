@@ -85,8 +85,11 @@ function ActiveModelCard() {
   );
 }
 
+// Stable filter objects to prevent unnecessary refetching
+const pageValueBetsFilters = { max_matches: 100 } as const;
+
 function ValueBetsCard() {
-  const { data, isLoading } = useValueBets({ max_matches: 100 });
+  const { data, isLoading } = useValueBets(pageValueBetsFilters);
   const count = data?.length ?? 0;
 
   return (
@@ -242,10 +245,8 @@ function RecentActivityCard() {
 }
 
 export default function DashboardPage() {
-  const [refreshKey, setRefreshKey] = useState(0);
-
   const handleRefresh = () => {
-    setRefreshKey((prev) => prev + 1);
+    window.location.reload();
   };
 
   return (
@@ -265,12 +266,12 @@ export default function DashboardPage() {
 
       {/* Top Row - Key Metrics */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
-        <UpcomingMatchesCard key={`upcoming-${refreshKey}`} />
-        <ActiveModelCard key={`active-model-${refreshKey}`} />
-        <ValueBetsCard key={`value-bets-${refreshKey}`} />
-        <PredictionAccuracyCard key={`accuracy-${refreshKey}`} />
-        <ProfitLossCard key={`profit-loss-${refreshKey}`} />
-        <WinRateCard key={`win-rate-${refreshKey}`} />
+        <UpcomingMatchesCard />
+        <ActiveModelCard />
+        <ValueBetsCard />
+        <PredictionAccuracyCard />
+        <ProfitLossCard />
+        <WinRateCard />
       </div>
 
       {/* Charts and Quick Actions Row */}

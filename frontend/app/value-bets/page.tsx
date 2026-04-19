@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -36,6 +36,7 @@ import type { ValueBet } from "@/lib/types/api";
 function ValueBetsFilters({
   filters,
   onFilterChange,
+  isLoading,
 }: {
   filters: {
     minEv: number;
@@ -43,6 +44,7 @@ function ValueBetsFilters({
     days: number;
   };
   onFilterChange: (filters: { minEv: number; maxOdds: number; days: number }) => void;
+  isLoading?: boolean;
 }) {
   return (
     <Card>
@@ -67,6 +69,7 @@ function ValueBetsFilters({
                   minEv: parseFloat(e.target.value) / 100 || 0,
                 })
               }
+              disabled={isLoading}
             />
           </div>
           <div className="space-y-2">
@@ -82,6 +85,7 @@ function ValueBetsFilters({
                   maxOdds: parseFloat(e.target.value) || 10,
                 })
               }
+              disabled={isLoading}
             />
           </div>
           <div className="space-y-2">
@@ -89,6 +93,7 @@ function ValueBetsFilters({
             <Select
               value={filters.days.toString()}
               onValueChange={(v) => onFilterChange({ ...filters, days: parseInt(v) })}
+              disabled={isLoading}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -213,7 +218,7 @@ export default function ValueBetsPage() {
     days: 7,
   });
 
-  const { data, isLoading, refetch } = useValueBets({
+  const { data, isLoading, isRefetching, error, refetch } = useValueBets({
     min_ev: filters.minEv,
     max_odds: filters.maxOdds,
     days: filters.days,
@@ -221,6 +226,15 @@ export default function ValueBetsPage() {
   });
 
   const valueBets = data ?? [];
+
+  const handleRefresh = () => {
+    refetch();
+  };
+
+  // Refetch when filters change
+  useEffect(() => {
+    refetch();
+  }, [filters, refetch]);
 
   return (
     <div className="space-y-6">
@@ -241,14 +255,36 @@ export default function ValueBetsPage() {
               {activeModel.algorithm}
             </Badge>
           )}
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefetching}
+          >
+            <RefreshCw
+              className={`mr-2 h-4 w-4 ${isRefetching ? "animate-spin" : ""}`}
+            />
+            {isRefetching ? "Refreshing..." : "Refresh"}
           </Button>
         </div>
       </div>
 
-      <ValueBetsFilters filters={filters} onFilterChange={setFilters} />
+      <ValueBetsFilters
+        filters={filters}
+        onFilterChange={setFilters}
+        isLoading={isRefetching}
+      />
+
+      {error && (
+        <Card className="border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20">
+          <CardContent className="p-4">
+            <p className="text-sm text-red-600 dark:text-red-400">
+              Error loading value bets:{" "}
+              {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading ? (
         <div className="space-y-4">

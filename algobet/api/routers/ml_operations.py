@@ -254,7 +254,7 @@ def run_backtest(
     # Save backtest results to database
     if model_meta:
         backtest_record = BacktestHistory(
-            model_version_id=model_meta.id,
+            model_version_id=model_meta.model_id,
             min_matches=request.min_matches,
             start_date=start_date,
             end_date=end_date,
@@ -644,7 +644,6 @@ def get_backtest_detail(
     full_metrics = history.full_metrics or {}
     classification = full_metrics.get("classification", {})
     betting = full_metrics.get("betting")
-    calibration = full_metrics.get("calibration", {})
 
     return BacktestResultResponse(
         model_version=history.model_version.version
@@ -652,7 +651,7 @@ def get_backtest_detail(
         else "unknown",
         evaluated_at=history.evaluated_at.isoformat(),
         num_samples=history.num_samples,
-        date_range=(history.date_range_start, history.date_range_end)
+        date_range=(history.date_range_start, history.date_range_end or "")
         if history.date_range_start
         else None,
         classification=ClassificationMetricsResponse(
@@ -691,13 +690,19 @@ def get_backtest_detail(
                 losing_bets=int(
                     betting.get("total_bets", 0) * (1 - betting.get("win_rate", 0))
                 ),
-                total_stake=history.profit_loss / (history.roi_percent / 100)
-                if history.roi_percent and history.roi_percent != 0
-                else 0,
+                total_stake=(
+                    history.profit_loss / (history.roi_percent / 100)
+                    if history.profit_loss
+                    and history.roi_percent
+                    and history.roi_percent != 0
+                    else 0
+                ),
                 total_return=(history.profit_loss or 0)
                 + (
                     history.profit_loss / (history.roi_percent / 100)
-                    if history.roi_percent and history.roi_percent != 0
+                    if history.profit_loss
+                    and history.roi_percent
+                    and history.roi_percent != 0
                     else 0
                 ),
                 profit_loss=history.profit_loss or 0,

@@ -1,5 +1,6 @@
 """WebSocket connection manager for real-time progress updates."""
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -19,6 +20,7 @@ class ConnectionManager:
         """Initialize connection manager."""
         self.active_connections: dict[str, list[WebSocket]] = {}
         self.connection_metadata: dict[WebSocket, dict[str, Any]] = {}
+        self.event_loop: asyncio.AbstractEventLoop | None = None
 
     async def connect(self, websocket: WebSocket, job_id: str) -> None:
         """Accept a new WebSocket connection.
@@ -28,6 +30,7 @@ class ConnectionManager:
             job_id: Job ID to subscribe to specific updates
         """
         await websocket.accept()
+        self.event_loop = asyncio.get_running_loop()
 
         # Store connection metadata
         self.connection_metadata[websocket] = {
@@ -302,6 +305,32 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str) -> None:
         job_id: Job ID to subscribe to
     """
     await manager.connect(websocket, job_id)
+    try:
+        from algobet.api.routers.scraping import scraping_jobs
+
+        job = scraping_jobs.get(job_id)
+        if job is not None:
+            await manager.send_personal_message(
+                {
+                    "type": "progress",
+                    "job_id": job.id,
+                    "status": job.status,
+                    "progress": job.progress,
+                    "message": job.message or "Job connected",
+                    "matches_scraped": job.matches_scraped,
+                    "matches_saved": job.matches_saved,
+                    "started_at": (
+                        job.started_at.isoformat() if job.started_at else None
+                    ),
+                    "completed_at": (
+                        job.completed_at.isoformat() if job.completed_at else None
+                    ),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+                websocket,
+            )
+    except Exception as e:
+        logger.warning(f"Unable to send initial job snapshot for {job_id}: {e}")
 
     try:
         while True:

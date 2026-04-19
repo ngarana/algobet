@@ -15,7 +15,6 @@ from pydantic import ValidationError
 
 from algobet.infrastructure.config import (
     AlgobetConfig,
-    APIFootballConfig,
     BacktestConfig,
     CLIConfig,
     DatabaseConfig,
@@ -149,85 +148,6 @@ class TestModelsConfig:
 
 
 # =============================================================================
-# Test APIFootballConfig
-# =============================================================================
-
-
-class TestAPIFootballConfig:
-    """Test APIFootballConfig configuration."""
-
-    @pytest.fixture(autouse=True)
-    def clear_env(self):
-        """Clear API-Football environment variables before each test."""
-        # Save and clear environment variables
-        saved = {}
-        for key in list(os.environ.keys()):
-            if key.startswith("ALGOBET_API_FOOTBALL__"):
-                saved[key] = os.environ.pop(key)
-        yield
-        # Restore environment variables
-        os.environ.update(saved)
-
-    def test_default_values(self):
-        """Test APIFootballConfig uses default values."""
-        config = APIFootballConfig()
-
-        assert config.api_key == ""
-        assert config.base_url == "https://v3.football.api-sports.io"
-        assert config.rate_limit_per_day == 100
-        assert config.timeout == 30
-
-    def test_custom_values(self):
-        """Test APIFootballConfig accepts custom values."""
-        config = APIFootballConfig(
-            api_key="test_key_123",
-            base_url="https://custom.api.com",
-            rate_limit_per_day=500,
-            timeout=60,
-        )
-
-        assert config.api_key == "test_key_123"
-        assert config.base_url == "https://custom.api.com"
-        assert config.rate_limit_per_day == 500
-        assert config.timeout == 60
-
-    def test_rate_limit_minimum(self):
-        """Test rate_limit_per_day validation minimum value."""
-        with pytest.raises(ValidationError) as exc_info:
-            APIFootballConfig(rate_limit_per_day=0)
-
-        assert "rate_limit_per_day" in str(exc_info.value)
-
-    def test_timeout_minimum(self):
-        """Test timeout validation minimum value."""
-        with pytest.raises(ValidationError) as exc_info:
-            APIFootballConfig(timeout=0)
-
-        assert "timeout" in str(exc_info.value)
-
-    @patch.dict(os.environ, {"ALGOBET_API_FOOTBALL__API_KEY": "env_key_456"})
-    def test_api_key_from_environment(self):
-        """Test loading API key from environment variable."""
-        config = APIFootballConfig()
-
-        assert config.api_key == "env_key_456"
-
-    @patch.dict(
-        os.environ,
-        {
-            "ALGOBET_API_FOOTBALL__BASE_URL": "https://env.api.com",
-            "ALGOBET_API_FOOTBALL__TIMEOUT": "45",
-        },
-    )
-    def test_multiple_environment_variables(self):
-        """Test loading multiple environment variables."""
-        config = APIFootballConfig()
-
-        assert config.base_url == "https://env.api.com"
-        assert config.timeout == 45
-
-
-# =============================================================================
 # Test ScrapingConfig
 # =============================================================================
 
@@ -254,7 +174,6 @@ class TestScrapingConfig:
         assert config.headless is True
         assert config.max_retries == 3
         assert config.retry_delay == 5
-        assert config.default_league_ids == [39, 140, 135, 78, 61, 2, 3, 848, 886, 15]
 
     def test_custom_values(self):
         """Test ScrapingConfig accepts custom values."""
@@ -292,12 +211,6 @@ class TestScrapingConfig:
             ScrapingConfig(retry_delay=-5)
 
         assert "retry_delay" in str(exc_info.value)
-
-    def test_custom_league_ids(self):
-        """Test custom league IDs."""
-        config = ScrapingConfig(default_league_ids=[1, 2, 3])
-
-        assert config.default_league_ids == [1, 2, 3]
 
     @patch.dict(os.environ, {"ALGOBET_SCRAPING__HEADLESS": "false"})
     def test_boolean_environment_variable(self):
@@ -485,7 +398,6 @@ class TestAlgobetConfig:
         assert config.app_version == "0.1.0"
         assert isinstance(config.database, DatabaseConfig)
         assert isinstance(config.models, ModelsConfig)
-        assert isinstance(config.api_football, APIFootballConfig)
         assert isinstance(config.scraping, ScrapingConfig)
         assert isinstance(config.backtest, BacktestConfig)
         assert isinstance(config.logging, LoggingConfig)
@@ -497,24 +409,20 @@ class TestAlgobetConfig:
 
         # Database defaults
         assert config.database.pool_size == 10
-        # API-Football defaults
-        assert config.api_football.rate_limit_per_day == 100
         # Scraping defaults
         assert config.scraping.headless is True
         # Logging defaults
         assert config.logging.level == "INFO"
 
     def test_to_dict(self):
-        """Test to_dict method excludes sensitive data."""
+        """Test to_dict method."""
         config = AlgobetConfig()
 
         result = config.to_dict()
 
         assert "app_name" in result
         assert "database" in result
-        assert "api_football" in result
-        # API key should be excluded
-        assert "api_key" not in result.get("api_football", {})
+        assert "scraping" in result
 
     def test_to_dict_includes_nested_configs(self):
         """Test to_dict includes all nested configurations."""
@@ -524,7 +432,6 @@ class TestAlgobetConfig:
 
         assert "database" in result
         assert "models" in result
-        assert "api_football" in result
         assert "scraping" in result
         assert "backtest" in result
         assert "logging" in result
@@ -551,14 +458,11 @@ class TestAlgobetConfig:
     def test_custom_nested_config(self):
         """Test AlgobetConfig accepts custom nested configurations."""
         custom_db = DatabaseConfig(url="postgresql://custom/db", pool_size=50)
-        custom_api = APIFootballConfig(api_key="custom_key", timeout=60)
 
-        config = AlgobetConfig(database=custom_db, api_football=custom_api)
+        config = AlgobetConfig(database=custom_db)
 
         assert config.database.url == "postgresql://custom/db"
         assert config.database.pool_size == 50
-        assert config.api_football.api_key == "custom_key"
-        assert config.api_football.timeout == 60
 
 
 # =============================================================================
@@ -665,15 +569,12 @@ class TestEnvironmentIntegration:
             # Set test environment variables
             os.environ["ALGOBET_DATABASE__URL"] = "postgresql://test/envdb"
             os.environ["ALGOBET_DATABASE__POOL_SIZE"] = "50"
-            os.environ["ALGOBET_API_FOOTBALL__TIMEOUT"] = "60"
 
             # Create new config instances (should pick up env vars)
             db_config = DatabaseConfig()
-            api_config = APIFootballConfig()
 
             assert db_config.url == "postgresql://test/envdb"
             assert db_config.pool_size == 50
-            assert api_config.timeout == 60
 
         finally:
             # Restore original environment
@@ -701,15 +602,15 @@ class TestValidationEdgeCases:
         assert config.pool_size == 1
         assert config.max_overflow == 0
 
-    def test_api_football_config_boundary_values(self):
-        """Test APIFootballConfig with boundary values."""
-        config = APIFootballConfig(
-            rate_limit_per_day=1,  # Minimum
+    def test_scraping_config_boundary_values(self):
+        """Test ScrapingConfig with boundary values."""
+        config = ScrapingConfig(
             timeout=1,  # Minimum
+            max_retries=0,  # Minimum
         )
 
-        assert config.rate_limit_per_day == 1
         assert config.timeout == 1
+        assert config.max_retries == 0
 
     def test_backtest_config_boundary_values(self):
         """Test BacktestConfig with boundary values."""
@@ -771,11 +672,6 @@ class TestConfigMetadata:
     def test_models_config_has_description(self):
         """Test ModelsConfig fields have descriptions."""
         config = ModelsConfig()
-        assert config is not None
-
-    def test_api_football_config_has_description(self):
-        """Test APIFootballConfig fields have descriptions."""
-        config = APIFootballConfig()
         assert config is not None
 
     def test_scraping_config_has_description(self):

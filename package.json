@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "packageManager": "pnpm@10.29.3",
+  "scripts": {
+    "preinstall": "node -e \"if(process.env.npm_config_user_agent && !process.env.npm_config_user_agent.startsWith('pnpm')){console.error('Use pnpm instead of '+process.env.npm_config_user_agent.split('/')[0]);process.exit(1)}\""
+  }
+}

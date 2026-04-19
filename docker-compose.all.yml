@@ -1,5 +1,6 @@
 services:
-  db:
+  # Database
+  main-db:
     image: postgres:18-alpine
     container_name: algobet-db
     environment:
@@ -15,7 +16,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - algobet-net
 
+  # API
   api:
     build: &shared-build
       context: .
@@ -27,7 +31,7 @@ services:
       - ./algobet:/app/algobet
       - ./data:/app/data
     depends_on:
-      db:
+      main-db:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:8010/health || exit 1" ]
@@ -47,6 +51,7 @@ services:
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
       - LOG_LEVEL=info
 
+  # Scheduler Worker (formerly scraper)
   scheduler-worker:
     build: *shared-build
     container_name: algobet-scheduler-worker
@@ -56,7 +61,7 @@ services:
       - ./algobet:/app/algobet
       - ./data:/app/data
     depends_on:
-      db:
+      main-db:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U algobet -d football -h localhost || exit 1" ]
@@ -75,3 +80,8 @@ services:
 
 volumes:
   pgdata:
+
+
+networks:
+  algobet-net:
+    driver: bridge

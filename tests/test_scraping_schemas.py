@@ -45,13 +45,15 @@ class TestScrapingType:
         """Test that enum has correct values."""
         assert ScrapingType.UPCOMING == "upcoming"
         assert ScrapingType.RESULTS == "results"
+        assert ScrapingType.BY_DATE == "by-date"
 
     def test_enum_iteration(self):
         """Test that enum can be iterated."""
         types = list(ScrapingType)
-        assert len(types) == 2
+        assert len(types) == 3
         assert ScrapingType.UPCOMING in types
         assert ScrapingType.RESULTS in types
+        assert ScrapingType.BY_DATE in types
 
 
 class TestScrapingJobCreate:
@@ -64,10 +66,15 @@ class TestScrapingJobCreate:
         )
         assert job.scraping_type == ScrapingType.UPCOMING
         assert job.tournament_url is None
+        assert job.tournament_id is None
         assert job.tournament_name is None
         assert job.season is None
         assert job.start_date is None
         assert job.end_date is None
+        assert job.scope == "all"
+        assert job.country is None
+        assert job.league_name is None
+        assert job.period is None
 
     def test_valid_creation_with_url(self):
         """Test creation with tournament URL."""
@@ -79,7 +86,10 @@ class TestScrapingJobCreate:
         )
         assert job.scraping_type == ScrapingType.RESULTS
         assert str(job.tournament_url) == url
-        assert job.season == "2023-2024"
+        assert job.scope == "all"
+        assert job.country is None
+        assert job.league_name is None
+        assert job.period is None
 
     def test_valid_creation_with_dates(self):
         """Test creation with date range."""
@@ -130,6 +140,7 @@ class TestScrapingJobResponse:
         assert len(job.errors) == 2
         assert job.created_at is not None
         assert job.started_at is not None
+        assert job.completed_at is None
 
     def test_response_with_defaults(self):
         """Test response with default values."""
@@ -183,12 +194,16 @@ class TestScrapingJobUpdate:
             progress=100.0,
             message="Job finished",
             matches_scraped=50,
+            matches_saved=50,
             errors=["Final error"],
+            started_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
         )
         assert update.status == ScrapingJobStatus.COMPLETED
         assert update.progress == 100.0
         assert update.message == "Job finished"
         assert update.matches_scraped == 50
+        assert update.matches_saved == 50
         assert update.errors == ["Final error"]
 
     def test_update_partial_fields(self):
@@ -201,7 +216,10 @@ class TestScrapingJobUpdate:
         assert update.message == "75% complete"
         assert update.status is None
         assert update.matches_scraped is None
+        assert update.matches_saved is None
         assert update.errors is None
+        assert update.started_at is None
+        assert update.completed_at is None
 
     def test_update_empty(self):
         """Test empty update."""
@@ -210,7 +228,10 @@ class TestScrapingJobUpdate:
         assert update.progress is None
         assert update.message is None
         assert update.matches_scraped is None
+        assert update.matches_saved is None
         assert update.errors is None
+        assert update.started_at is None
+        assert update.completed_at is None
 
 
 class TestScrapingProgress:
@@ -223,11 +244,13 @@ class TestScrapingProgress:
             progress=50.0,
             message="Halfway done",
             matches_scraped=25,
+            matches_saved=20,
         )
         assert progress.job_id == "job-123"
         assert progress.progress == 50.0
         assert progress.message == "Halfway done"
         assert progress.matches_scraped == 25
+        assert progress.matches_saved == 20
         assert progress.timestamp is not None
 
     def test_progress_defaults(self):
@@ -238,6 +261,7 @@ class TestScrapingProgress:
             message="Complete",
         )
         assert progress.matches_scraped == 0
+        assert progress.matches_saved == 0
         assert isinstance(progress.timestamp, datetime)
 
 
@@ -279,7 +303,6 @@ class TestScrapingStats:
 
     def test_stats_calculation(self):
         """Test that stats can be calculated correctly."""
-        # This would test any calculated fields if they existed
         stats = ScrapingStats(
             total_jobs=100,
             completed_jobs=80,
@@ -288,12 +311,11 @@ class TestScrapingStats:
             total_matches_scraped=5000,
             success_rate=80.0,
         )
-        # Verify the stats are stored correctly
         assert stats.total_jobs == 100
         assert stats.completed_jobs == 80
         assert stats.failed_jobs == 15
         assert stats.running_jobs == 5
-        # success_rate is provided directly, not calculated
+        assert stats.total_matches_scraped == 5000
         assert stats.success_rate == 80.0
 
 
@@ -302,7 +324,6 @@ class TestSchemaValidation:
 
     def test_progress_percentage_validation(self):
         """Test that progress percentages are valid."""
-        # Valid percentages
         ScrapingJobResponse(
             id="test",
             scraping_type=ScrapingType.UPCOMING,
@@ -329,7 +350,6 @@ class TestSchemaValidation:
 
     def test_negative_progress(self):
         """Test that negative progress is handled."""
-        # This should work but might be considered invalid by business logic
         job = ScrapingJobResponse(
             id="test",
             scraping_type=ScrapingType.UPCOMING,
@@ -341,7 +361,6 @@ class TestSchemaValidation:
 
     def test_progress_over_100(self):
         """Test that progress over 100% is handled."""
-        # This should work but might be considered invalid by business logic
         job = ScrapingJobResponse(
             id="test",
             scraping_type=ScrapingType.UPCOMING,

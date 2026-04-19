@@ -11,19 +11,19 @@ import {
 import { Progress, ProgressValue } from "@/components/ui/progress";
 import { CheckCircleIcon, XCircleIcon, ClockIcon, Loader2Icon } from "lucide-react";
 
-export interface ScrapingProgressData {
+export interface FetchProgressData {
   job_id: string;
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   progress: number;
-  matches_scraped: number;
+  matches_fetched: number;
   message: string;
   error?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
 }
 
-interface ScrapingProgressProps {
-  progress: ScrapingProgressData | null;
+interface FetchProgressProps {
+  progress: FetchProgressData | null;
   url?: string;
 }
 
@@ -42,13 +42,13 @@ function getStatusIcon(status: string) {
   }
 }
 
-export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
+export function FetchProgress({ progress, url }: FetchProgressProps) {
   if (!progress) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Scraping Progress</CardTitle>
-          <CardDescription>Waiting for scraping to start...</CardDescription>
+          <CardTitle>Fetch Progress</CardTitle>
+          <CardDescription>Waiting for fetch to start...</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -60,7 +60,7 @@ export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
         <div className="flex items-center gap-2">
           {getStatusIcon(progress.status)}
           <div>
-            <CardTitle>Scraping Progress</CardTitle>
+            <CardTitle>Fetch Progress</CardTitle>
             {url && (
               <CardDescription className="max-w-md truncate">{url}</CardDescription>
             )}
@@ -89,8 +89,8 @@ export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
 
         <div className="grid grid-cols-1 gap-4">
           <div className="rounded-lg bg-muted/50 p-3">
-            <p className="text-sm text-muted-foreground">Matches Scraped</p>
-            <p className="text-2xl font-bold">{progress.matches_scraped}</p>
+            <p className="text-sm text-muted-foreground">Matches Fetched</p>
+            <p className="text-2xl font-bold">{progress.matches_fetched}</p>
           </div>
         </div>
 
@@ -119,3 +119,7 @@ export function ScrapingProgress({ progress, url }: ScrapingProgressProps) {
     </Card>
   );
 }
+
+// Backward compatibility alias
+export const ScrapingProgress = FetchProgress;
+export type ScrapingProgressData = FetchProgressData;

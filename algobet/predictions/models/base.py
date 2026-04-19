@@ -1,7 +1,7 @@
 """Prediction-related database models."""
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -17,6 +17,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from algobet.infrastructure.models import Base
+
+if TYPE_CHECKING:
+    from algobet.models import Match
 
 
 class ModelVersion(Base):

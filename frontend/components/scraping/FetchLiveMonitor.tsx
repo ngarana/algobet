@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Progress, ProgressValue } from "@/components/ui/progress";
-import type { ScrapingJob } from "@/lib/api/scraping";
+import type { FetchJob } from "@/lib/api/fetch";
 import {
   ActivityIcon,
   AlertTriangleIcon,
@@ -22,10 +22,10 @@ import {
   XCircleIcon,
 } from "lucide-react";
 
-interface LiveProgressMessage {
+interface FetchProgressMessage {
   job_id: string;
   progress?: number;
-  matches_scraped?: number;
+  matches_fetched?: number;
   matches_saved?: number;
   message?: string;
   current_page?: number;
@@ -33,12 +33,12 @@ interface LiveProgressMessage {
   started_at?: string | null;
   completed_at?: string | null;
   error?: string;
-  status?: ScrapingJob["status"];
+  status?: FetchJob["status"];
 }
 
-interface ScrapingLiveMonitorProps {
-  job: ScrapingJob | null;
-  progress: LiveProgressMessage | null;
+interface FetchLiveMonitorProps {
+  job: FetchJob | null;
+  progress: FetchProgressMessage | null;
   isConnected: boolean;
   connectionMessage?: string | null;
   onRefresh?: () => void;
@@ -112,42 +112,61 @@ function formatDuration(
   return `${minutes}m ${seconds}s`;
 }
 
-function formatLabelFromUrl(url: string | null) {
-  if (!url) {
-    return "No tournament URL";
+function formatJobLabel(job: FetchJob) {
+  if (job.country && job.league_name) {
+    return `${job.country} / ${job.league_name}`;
   }
 
-  const segments = url.split("/").filter(Boolean);
-  const normalizedSegments =
-    segments[segments.length - 1] === "results" ? segments.slice(0, -1) : segments;
-  const tail = normalizedSegments.slice(-2).join(" / ").replace(/-/g, " ");
-  return tail || url;
+  if (job.league_name) {
+    return job.league_name;
+  }
+
+  if (job.tournament_url) {
+    const segments = job.tournament_url.split("/").filter(Boolean);
+    const normalizedSegments =
+      segments[segments.length - 1] === "results" ? segments.slice(0, -1) : segments;
+    const tail = normalizedSegments.slice(-2).join(" / ").replace(/-/g, " ");
+    return tail || job.tournament_url;
+  }
+
+  return "All leagues";
 }
 
-export function ScrapingLiveMonitor({
+function formatTypeLabel(job: FetchJob) {
+  if (job.fetch_type === "upcoming") {
+    return "Upcoming";
+  }
+  if (job.fetch_type === "by-date") {
+    return job.period ? `Daily · ${job.period}` : "Daily";
+  }
+  return job.period ? `Results · ${job.period}` : "Results";
+}
+
+export function FetchLiveMonitor({
   job,
   progress,
   isConnected,
   connectionMessage,
   onRefresh,
   isRefreshing = false,
-}: ScrapingLiveMonitorProps) {
+}: FetchLiveMonitorProps) {
   if (!job) {
     return (
       <Card className="border-border/70 bg-card/90 shadow-[0_20px_50px_-34px_rgba(15,23,42,0.55)]">
         <CardHeader>
           <CardTitle>Live Job Monitor</CardTitle>
           <CardDescription>
-            Start a scraping run or select a recent job to inspect live progress here.
+            Start a fetch operation or select a recent job to inspect live progress
+            here.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex min-h-64 items-center justify-center rounded-b-2xl border-t border-dashed border-border/60 bg-muted/20">
           <div className="max-w-sm space-y-2 text-center text-muted-foreground">
             <ActivityIcon className="mx-auto h-10 w-10 text-muted-foreground/70" />
-            <p className="font-medium text-foreground">No focused scraping job</p>
+            <p className="font-medium text-foreground">No focused job</p>
             <p className="text-sm">
-              The operator console will surface live status, messages, page progress,
-              and failure details as soon as a job is queued.
+              The monitor will display live status, messages, progress, and details as
+              soon as a job is queued.
             </p>
           </div>
         </CardContent>
@@ -157,10 +176,10 @@ export function ScrapingLiveMonitor({
 
   const effectiveStatus = progress?.status ?? job.status;
   const currentProgress = progress?.progress ?? job.progress ?? 0;
-  const matchesScraped = progress?.matches_scraped ?? job.matches_scraped;
+  const matchesFetched = progress?.matches_fetched ?? job.matches_fetched;
   const matchesSaved =
     progress?.matches_saved ??
-    (job.status === "completed" ? job.matches_scraped : undefined);
+    (job.status === "completed" ? job.matches_saved : undefined);
   const startedAt = progress?.started_at ?? job.started_at;
   const completedAt = progress?.completed_at ?? job.completed_at;
   const message = progress?.message ?? job.message ?? "Waiting for updates...";
@@ -186,10 +205,10 @@ export function ScrapingLiveMonitor({
                 {config.label}
               </Badge>
               <Badge variant="outline" className="border-border/60 bg-background/70">
-                {job.scraping_type === "upcoming" ? "Upcoming" : "Results"}
+                {formatTypeLabel(job)}
               </Badge>
               <Badge variant="outline" className="border-border/60 bg-background/70">
-                {formatLabelFromUrl(job.tournament_url)}
+                {formatJobLabel(job)}
               </Badge>
             </div>
             <div>
@@ -263,10 +282,10 @@ export function ScrapingLiveMonitor({
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
             <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              Matches scraped
+              Matches fetched
             </p>
             <p className="mt-2 text-2xl font-semibold text-foreground">
-              {matchesScraped.toLocaleString()}
+              {matchesFetched?.toLocaleString() ?? "0"}
             </p>
           </div>
           <div className="rounded-2xl border border-border/60 bg-background/70 p-4">

@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from algobet.config import LoggingConfig
+    from algobet.infrastructure.config import LoggingConfig
 
 
 # Add custom SUCCESS log level between INFO and WARNING
@@ -180,7 +180,7 @@ def setup_logging(config: LoggingConfig | None = None) -> logging.Logger:
         logging.Logger: The configured root logger
     """
     if config is None:
-        from algobet.config import get_config
+        from algobet.infrastructure.config import get_config
 
         config = get_config().logging
 

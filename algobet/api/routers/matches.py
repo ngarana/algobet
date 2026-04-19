@@ -150,12 +150,12 @@ def list_matches(
             )
         )
 
-        return PaginatedResponse(
-            items=items,
-            total=total,
-            limit=limit,
-            offset=offset,
-        )
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/upcoming", response_model=PaginatedResponse[MatchDetailResponse])
@@ -170,8 +170,6 @@ def get_upcoming_matches(
     including team names and tournament info for the scraping UI.
     """
     from sqlalchemy.orm import joinedload
-
-    from algobet.models import Season, Team, Tournament
 
     now = datetime.now(timezone.utc)
     tomorrow = datetime.fromtimestamp(now.timestamp() + 24 * 3600)
