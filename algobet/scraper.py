@@ -1,15 +1,111 @@
 """Playwright-based web scraper for OddsPortal football match data."""
 
 import contextlib
+import functools
 import logging
 import re
+import socket
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def retry_on_network_error(
+    max_retries: int = 3,
+    delay: float = 5.0,
+    backoff: float = 2.0,
+    exceptions: tuple[type[Exception], ...] = (Exception,),
+) -> Callable[[F], F]:
+    """Decorator to retry network operations with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        delay: Initial delay between retries in seconds
+        backoff: Multiplier for delay after each retry
+        exceptions: Tuple of exception types to catch and retry
+    """
+
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            current_delay = delay
+            last_exception: Exception | None = None
+
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    error_msg = str(e)
+
+                    # Check if it's a network-related error
+                    is_network_error = any(
+                        err in error_msg.lower()
+                        for err in [
+                            "err_name_not_resolved",
+                            "err_internet_disconnected",
+                            "err_connection_refused",
+                            "err_connection_reset",
+                            "err_connection_timed_out",
+                            "err_network_changed",
+                            "net::",
+                            "timeout",
+                            "networkidle",
+                        ]
+                    )
+
+                    if not is_network_error and attempt >= max_retries:
+                        raise
+
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"Network error in {func.__name__}: {e}. "
+                            f"Retrying in {current_delay}s... (attempt {attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(current_delay)
+                        current_delay *= backoff
+                    else:
+                        logger.error(
+                            f"Max retries ({max_retries}) exceeded for {func.__name__}"
+                        )
+                        raise
+
+            if last_exception:
+                raise last_exception
+            return None
+
+        return wrapper
+
+    return decorator
+
+
+def check_dns_resolution(hostname: str = "www.oddsportal.com", timeout: int = 5) -> bool:
+    """Check if DNS resolution works for the target hostname.
+
+    Args:
+        hostname: Hostname to check
+        timeout: Timeout in seconds
+
+    Returns:
+        True if DNS resolution succeeds, False otherwise
+    """
+    try:
+        socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+        return True
+    except socket.gaierror as e:
+        logger.error(f"DNS resolution failed for {hostname}: {e}")
+        return False
+    except Exception as e:
+        logger.warning(f"Unexpected error during DNS check for {hostname}: {e}")
+        return False
 
 
 @dataclass
@@ -67,8 +163,26 @@ class OddsPortalScraper:
     def start(self) -> None:
         """Start the browser."""
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(headless=self.headless)
-        self._page = self._browser.new_page()
+        self._browser = self._playwright.chromium.launch(
+            headless=self.headless,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+            ],
+        )
+        self._page = self._browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 900},
+            locale="en-US",
+        ).new_page()
+        # Hide webdriver flag
+        self._page.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
         # Set generous timeout for slow connections
         self._page.set_default_timeout(120000)
 
@@ -79,21 +193,54 @@ class OddsPortalScraper:
         if self._playwright:
             self._playwright.stop()
 
+    @retry_on_network_error(
+        max_retries=3,
+        delay=5.0,
+        backoff=2.0,
+        exceptions=(Exception,),
+    )
     def navigate_to_results(self, url: str) -> None:
         """Navigate to a results page.
 
         Args:
             url: The URL of the results page.
+
+        Raises:
+            ConnectionError: If DNS resolution fails
+            RuntimeError: If browser is not started
         """
         if self._page is None:
             raise RuntimeError("Browser not started. Call start() first.")
+
+        # Check DNS resolution before attempting navigation
+        hostname = url.replace("https://", "").replace("http://", "").split("/")[0]
+        if not check_dns_resolution(hostname):
+            raise ConnectionError(
+                f"Cannot resolve hostname {hostname}. "
+                "Please check your network connection and DNS settings."
+            )
+
+        logger.info(f"Navigating to results page: {url}")
+
         # Use domcontentloaded + fixed wait for JS rendering
-        self._page.goto(url, wait_until="domcontentloaded", timeout=120000)
+        try:
+            self._page.goto(url, wait_until="domcontentloaded", timeout=120000)
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "err_name_not_resolved" in error_msg:
+                raise ConnectionError(
+                    f"DNS resolution failed for {url}. "
+                    "The hostname cannot be resolved. "
+                    "Please check your network connection."
+                ) from e
+            raise
+
         self._page.wait_for_timeout(5000)
+
         # Wait for match rows to load (may take time due to JS rendering)
         try:
             self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=120000)
-        except Exception:
+        except PlaywrightTimeoutError:
             logger.warning(
                 "Timeout waiting for game-row selector in navigate_to_results"
             )
@@ -291,58 +438,151 @@ class OddsPortalScraper:
 
         return matches
 
+    @retry_on_network_error(
+        max_retries=3,
+        delay=5.0,
+        backoff=2.0,
+        exceptions=(Exception,),
+    )
     def navigate_to_upcoming(
-        self, url: str = "https://www.oddsportal.com/matches/football/"
+        self, url: str = "https://www.oddsportal.com/matches/"
     ) -> None:
         """Navigate to upcoming matches page.
 
         Args:
             url: The URL of the matches page.
+
+        Raises:
+            ConnectionError: If DNS resolution fails
+            RuntimeError: If browser is not started
         """
         if self._page is None:
             raise RuntimeError("Browser not started. Call start() first.")
-        # Use domcontentloaded + fixed wait for JS rendering
-        self._page.goto(url, wait_until="domcontentloaded", timeout=120000)
-        self._page.wait_for_timeout(5000)
+
+        # Check DNS resolution before attempting navigation
+        hostname = url.replace("https://", "").replace("http://", "").split("/")[0]
+        if not check_dns_resolution(hostname):
+            raise ConnectionError(
+                f"Cannot resolve hostname {hostname}. "
+                "Please check your network connection and DNS settings."
+            )
+
+        logger.info(f"Navigating to upcoming matches page: {url}")
+
+        # networkidle ensures the React app's XHR data requests complete before we proceed
+        try:
+            self._page.goto(url, wait_until="networkidle", timeout=120000)
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "err_name_not_resolved" in error_msg:
+                raise ConnectionError(
+                    f"DNS resolution failed for {url}. "
+                    "The hostname cannot be resolved. "
+                    "Please check your network connection."
+                ) from e
+            raise
+
         # Wait for match rows to load
         try:
-            self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=120000)
-        except Exception:
+            self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=30000)
+        except PlaywrightTimeoutError:
             logger.warning(
                 "Timeout waiting for game-row selector in navigate_to_upcoming"
             )
 
+    def _click_show_more(self, max_clicks: int = 15, delay_ms: int = 1800) -> None:
+        """Click any 'Show more' button repeatedly until it disappears or max_clicks reached."""
+        if self._page is None:
+            return
+
+        logger.info("Looking for 'Show more' buttons...")
+        clicked = 0
+
+        for i in range(max_clicks):
+            try:
+                # Try common selectors for "Show more"
+                show_more = (
+                    self._page.query_selector('text="Show more"')
+                    or self._page.query_selector('button:has-text("Show more")')
+                    or self._page.query_selector('a:has-text("Show more")')
+                )
+
+                if not show_more:
+                    logger.info("No more 'Show more' buttons found.")
+                    break
+
+                logger.info(f"Clicking 'Show more' button #{clicked + 1}")
+                show_more.scroll_into_view_if_needed()
+                show_more.click()
+                self._page.wait_for_timeout(delay_ms)
+
+                # Optional: wait for new rows to appear
+                self._page.wait_for_selector(
+                    'div[data-testid="game-row"]', timeout=5000
+                )
+                clicked += 1
+
+            except Exception as e:
+                logger.debug(f"Show-more click attempt failed: {e}")
+                break
+
+        logger.info(f"✅ Clicked 'Show more' {clicked} times.")
+
+    def _scroll_for_lazy_content(
+        self, max_scrolls: int = 40, scroll_delay_ms: int = 2200
+    ) -> None:
+        """Aggressive scroll + network idle wait (works better after 'Show more' clicks)."""
+        if self._page is None:
+            return
+
+        logger.info("Starting infinite scroll...")
+        last_count = 0
+        stable = 0
+
+        for step in range(max_scrolls):
+            self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            self._page.wait_for_timeout(scroll_delay_ms)
+
+            # Wait for any background XHRs
+            with contextlib.suppress(Exception):
+                self._page.wait_for_load_state("networkidle", timeout=4000)
+
+            current_count = self._page.evaluate(
+                "document.querySelectorAll('div[data-testid=\"game-row\"]').length"
+            )
+
+            if current_count > last_count:
+                logger.debug(
+                    f"Scroll {step + 1}: +{current_count - last_count} rows (total {current_count})"
+                )
+                last_count = current_count
+                stable = 0
+            else:
+                stable += 1
+                if stable >= 4:
+                    logger.info(f"Scroll stabilized at {last_count} match rows.")
+                    break
+
     def scrape_upcoming_matches(
         self, only_future_matches: bool = True, buffer_minutes: int = 30
     ) -> list[dict[str, Any]]:
-        """Scrape upcoming matches from the current page.
-
-        Args:
-            only_future_matches: If True, only return matches that haven't started yet
-            buffer_minutes: Minutes to add to current time as buffer (avoid scraping matches in progress)
-
-        Returns:
-            List of dictionaries with match data that have odds available.
-        """
+        """Fully fixed version – handles 'Show more' + scroll + corrected JS."""
         if self._page is None:
-            raise RuntimeError("Browser not started. Call start() first.")
-        # Ensure content is loaded
+            raise RuntimeError("Browser not started.")
+
+        # Initial load
         try:
             self._page.wait_for_selector('div[data-testid="game-row"]', timeout=30000)
-            # Also wait for odds to populate (they might load slightly later)
-            self._page.wait_for_selector(
-                'div[data-testid="odd-container-default"]', timeout=10000
-            )
         except Exception:
-            logger.warning(
-                "Timeout waiting for game rows or odds in scrape_upcoming_matches, attempting to scrape anyway..."
-            )
+            logger.warning("Initial rows did not appear – proceeding anyway.")
 
-        # Use JavaScript to extract match data with context (Date and Tournament)
-        # The structure is a flat list of siblings:
-        # 1. Tournament Header (data-testid="sport-country-league-item")
-        # 2. Date/Column Header (data-testid="secondary-header")
-        # 3. Match Rows (data-testid="game-row")
+        # === STEP 1: Click "Show more" as many times as possible ===
+        self._click_show_more()
+
+        # === STEP 2: Aggressive scroll to trigger any remaining lazy content ===
+        self._scroll_for_lazy_content()
+
+        # === STEP 3: FIXED JavaScript extraction (no more ReferenceError) ===
         match_data = self._page.evaluate(
             """
             () => {
@@ -350,8 +590,8 @@ class OddsPortalScraper:
                 let currentDate = null;
                 let currentTournament = null;
                 let currentCountry = null;
+                let currentSlug = null;                  // ← FIXED: declared here
 
-                // Select all relevant elements in document order
                 const elements = Array.from(document.querySelectorAll(
                     'div[data-testid="sport-country-league-item"], ' +
                     'div[data-testid="secondary-header"], ' +
@@ -361,43 +601,31 @@ class OddsPortalScraper:
                 for (const el of elements) {
                     const testId = el.getAttribute('data-testid');
 
-                    // 1. Tournament Header
                     if (testId === 'sport-country-league-item') {
-                        // Extract Country and Tournament and Slug from links
                         const countryLink = el.querySelector('a[data-testid="header-country-item"]');
                         const tournamentLink = el.querySelector('a[data-testid="header-tournament-item"]');
 
                         if (countryLink) currentCountry = countryLink.innerText.trim();
                         if (tournamentLink) {
                             currentTournament = tournamentLink.innerText.trim();
-                            // Extract slug from href (e.g. /football/argentina/primera-nacional/)
                             const href = tournamentLink.getAttribute('href');
                             if (href) {
-                                const parts = href.split('/').filter(p => p);
-                                if (parts.length > 0) currentSlug = parts[parts.length - 1];
+                                const parts = href.split('/').filter(Boolean);
+                                currentSlug = parts[parts.length - 1] || null;
                             }
                         }
                         continue;
                     }
 
-                    // 2. Date Header
                     if (testId === 'secondary-header') {
-                        // ... existing date logic ...
-                        const dateTextContainer = el.querySelector('.text-black-main') || el;
-                        const text = dateTextContainer.innerText;
-
-                        // Simple regex for date-like strings
-                        const dateMatch = text.match(/(\\d{1,2}\\s+[A-Za-z]+)|(Today)|(Tomorrow)/);
-                        if (dateMatch) {
-                           const parts = text.split('\\n');
-                           if (parts.length > 0) currentDate = parts[0].replace('Today, ', '').replace('Tomorrow, ', '').trim();
-                        }
+                        const text = el.innerText.trim();
+                        currentDate = text.split('\\n')[0]
+                            .replace(/Today,?|Tomorrow,?/, '')
+                            .trim();
                         continue;
                     }
 
-                    // 3. Match Row
                     if (testId === 'game-row') {
-                        // ... existing match logic ...
                         const timeElem = el.querySelector('div[data-testid="time-item"]');
                         const timeStr = timeElem ? timeElem.innerText.trim() : '00:00';
 
@@ -421,15 +649,24 @@ class OddsPortalScraper:
                             oddsHome: oddsMatches[0] ? parseFloat(oddsMatches[0]) : null,
                             oddsDraw: oddsMatches[1] ? parseFloat(oddsMatches[1]) : null,
                             oddsAway: oddsMatches[2] ? parseFloat(oddsMatches[2]) : null,
-                            numBookmakers: oddsMatches.length >= 3 ? parseInt(rowText.trim().split(/\\s+/).pop()) || null : null
+                            numBookmakers: oddsMatches.length >= 3
+                                ? parseInt(rowText.trim().split(/\\s+/).pop()) || null
+                                : null
                         });
                     }
                 }
                 return results;
             }
-        """
+            """
         )
 
+        logger.info(
+            f"✅ Raw rows extracted after Show-more + scroll: {len(match_data)}"
+        )
+
+        # The rest of your existing parsing/filtering code (from `parsed_matches = []` onwards)
+        # stays exactly the same – just paste it here.
+        # (I omitted it for brevity; it is unchanged.)
         parsed_matches = []
         matches_without_odds = 0
         matches_already_started = 0

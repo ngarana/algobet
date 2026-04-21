@@ -1,6 +1,7 @@
 """API router for tournament endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi_cache.decorator import cache
 from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
@@ -11,6 +12,7 @@ router = APIRouter()
 
 
 @router.get("", response_model=list[TournamentResponse])
+@cache(expire=3600)
 def list_tournaments(
     limit: int = Query(100, ge=1, le=100, description="Maximum number of tournaments"),
     db: Session = Depends(get_db),

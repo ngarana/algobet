@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from algobet.models import Match, Team, Tournament
@@ -168,8 +168,9 @@ class ScrapingService(BaseService[Any]):
 
     def scrape_upcoming(
         self,
-        url: str = "https://www.oddsportal.com/matches/football/",
+        url: str | None = None,
         headless: bool = True,
+        target_team_id: int | None = None,
     ) -> ScrapingProgress:
         """Scrape upcoming matches.
 
@@ -180,6 +181,8 @@ class ScrapingService(BaseService[Any]):
         Returns:
             Final progress update
         """
+        if url is None:
+            url = self._matches_url_for_date(datetime.now(timezone.utc).date())
         job = self.create_job("upcoming", url)
         progress = ScrapingProgress(
             job_id=job.id,
@@ -200,14 +203,16 @@ class ScrapingService(BaseService[Any]):
                 progress.message = "Scraping upcoming matches..."
                 self._emit_progress(progress)
 
-                matches_data = scraper.scrape_upcoming_matches()
+                matches_data = scraper.scrape_upcoming_matches(
+                    only_future_matches=False, buffer_minutes=0
+                )
                 progress.matches_scraped = len(matches_data)
                 progress.progress = 75.0
                 progress.message = f"Found {len(matches_data)} matches. Saving..."
                 self._emit_progress(progress)
 
                 # Save matches
-                saved_count = self._save_upcoming_matches(matches_data)
+                saved_count = self._save_upcoming_matches(matches_data, target_team_id)
                 progress.matches_saved = saved_count
 
                 progress.status = JobStatus.COMPLETED
@@ -218,11 +223,38 @@ class ScrapingService(BaseService[Any]):
                     f"saved {saved_count}."
                 )
 
-        except Exception as e:
+        except ConnectionError as e:
             progress.status = JobStatus.FAILED
             progress.progress = 100.0
             progress.error = str(e)
-            progress.message = f"Failed: {e}"
+            progress.message = f"Network connection failed: {e}"
+            progress.completed_at = datetime.now(timezone.utc)
+            logger.error(f"Connection error in scrape_upcoming: {e}")
+        except Exception as e:
+            error_msg = str(e)
+            is_network_error = any(
+                err in error_msg.lower()
+                for err in [
+                    "err_name_not_resolved",
+                    "err_internet_disconnected",
+                    "err_connection_refused",
+                    "err_connection_reset",
+                    "err_connection_timed_out",
+                    "timeout",
+                    "net::",
+                ]
+            )
+
+            if is_network_error:
+                progress.status = JobStatus.FAILED
+                progress.progress = 100.0
+                progress.error = error_msg
+                progress.message = f"Network error during scraping: {e}"
+            else:
+                progress.status = JobStatus.FAILED
+                progress.progress = 100.0
+                progress.error = error_msg
+                progress.message = f"Failed: {e}"
             progress.completed_at = datetime.now(timezone.utc)
 
         self._emit_progress(progress)
@@ -236,6 +268,7 @@ class ScrapingService(BaseService[Any]):
         target_date: date_cls,
         url: str | None = None,
         headless: bool = True,
+        target_team_id: int | None = None,
     ) -> ScrapingProgress:
         """Scrape matches scheduled for a specific calendar date.
 
@@ -288,7 +321,9 @@ class ScrapingService(BaseService[Any]):
                 )
                 self._emit_progress(progress)
 
-                saved_count = self._save_upcoming_matches(filtered_matches)
+                saved_count = self._save_upcoming_matches(
+                    filtered_matches, target_team_id
+                )
                 progress.matches_saved = saved_count
 
                 progress.status = JobStatus.COMPLETED
@@ -299,11 +334,38 @@ class ScrapingService(BaseService[Any]):
                     f"{target_date.isoformat()}, saved {saved_count}."
                 )
 
-        except Exception as e:
+        except ConnectionError as e:
             progress.status = JobStatus.FAILED
             progress.progress = 100.0
             progress.error = str(e)
-            progress.message = f"Failed: {e}"
+            progress.message = f"Network connection failed: {e}"
+            progress.completed_at = datetime.now(timezone.utc)
+            logger.error(f"Connection error in scrape_matches_by_date: {e}")
+        except Exception as e:
+            error_msg = str(e)
+            is_network_error = any(
+                err in error_msg.lower()
+                for err in [
+                    "err_name_not_resolved",
+                    "err_internet_disconnected",
+                    "err_connection_refused",
+                    "err_connection_reset",
+                    "err_connection_timed_out",
+                    "timeout",
+                    "net::",
+                ]
+            )
+
+            if is_network_error:
+                progress.status = JobStatus.FAILED
+                progress.progress = 100.0
+                progress.error = error_msg
+                progress.message = f"Network error during scraping: {e}"
+            else:
+                progress.status = JobStatus.FAILED
+                progress.progress = 100.0
+                progress.error = error_msg
+                progress.message = f"Failed: {e}"
             progress.completed_at = datetime.now(timezone.utc)
 
         self._emit_progress(progress)
@@ -317,6 +379,7 @@ class ScrapingService(BaseService[Any]):
         url: str,
         max_pages: int | None = None,
         headless: bool = True,
+        target_team_id: int | None = None,
     ) -> ScrapingProgress:
         """Scrape historical results.
 
@@ -377,7 +440,9 @@ class ScrapingService(BaseService[Any]):
                     f"Saving {len(all_matches)} matches from {total_pages} pages..."
                 )
                 self._emit_progress(progress)
-                saved_count = self._save_result_matches(all_matches, tournament)
+                saved_count = self._save_result_matches(
+                    all_matches, tournament, target_team_id
+                )
                 progress.matches_saved = saved_count
 
                 progress.status = JobStatus.COMPLETED
@@ -388,11 +453,47 @@ class ScrapingService(BaseService[Any]):
                     f"{total_pages} pages, saved {saved_count}."
                 )
 
-        except Exception as e:
+        except ConnectionError as e:
+            # Network/DNS specific error handling
             progress.status = JobStatus.FAILED
             progress.progress = 100.0
             progress.error = str(e)
-            progress.message = f"Failed: {e}"
+            progress.message = (
+                f"Network connection failed: {e}. "
+                "Please check your network connection and DNS settings. "
+                "The target site may be unreachable."
+            )
+            progress.completed_at = datetime.now(timezone.utc)
+            logger.error(f"Connection error in scrape_results: {e}")
+        except Exception as e:
+            error_msg = str(e)
+            # Check for common network errors
+            is_network_error = any(
+                err in error_msg.lower()
+                for err in [
+                    "err_name_not_resolved",
+                    "err_internet_disconnected",
+                    "err_connection_refused",
+                    "err_connection_reset",
+                    "err_connection_timed_out",
+                    "timeout",
+                    "net::",
+                ]
+            )
+
+            if is_network_error:
+                progress.status = JobStatus.FAILED
+                progress.progress = 100.0
+                progress.error = error_msg
+                progress.message = (
+                    f"Network error during scraping: {e}. "
+                    "Please check your network connection and DNS settings."
+                )
+            else:
+                progress.status = JobStatus.FAILED
+                progress.progress = 100.0
+                progress.error = error_msg
+                progress.message = f"Failed: {e}"
             progress.completed_at = datetime.now(timezone.utc)
 
         self._emit_progress(progress)
@@ -422,13 +523,35 @@ class ScrapingService(BaseService[Any]):
 
         return country, league_name, slug
 
-    def _matches_url_for_date(self, target_date: date_cls) -> str:
-        """Build the OddsPortal daily matches URL for a specific date."""
-        return (
-            "https://www.oddsportal.com/matches/football/"
-            f"{target_date.strftime('%Y%m%d')}/"
-        )
+    # def _matches_url_for_date(self, target_date: date_cls) -> str:
+    #     """Build the OddsPortal daily matches URL for a specific date.
 
+    #     Args:
+    #         target_date: The date to build the URL for
+
+    #     Returns:
+    #         URL for the daily matches page on the given date
+    #     """
+    #     date_str = target_date.strftime("%Y%m%d")
+    #     return f"https://www.oddsportal.com/matches/football/{date_str}/"
+    def _matches_url_for_date(self, target_date: date_cls) -> str:
+        """Build the OddsPortal URL for upcoming matches.
+
+        IMPORTANT:
+        OddsPortal only has ONE upcoming-matches page: https://www.oddsportal.com/matches/
+        It always shows "today" + several future days via lazy loading.
+
+        Date-specific scraping is achieved by:
+        1. Scraping the full page (with Show-more + infinite scroll)
+        2. Filtering matches by their parsed match_date (done in _filter_matches_by_date)
+
+        This is the reliable and only supported way.
+        """
+        # Always return the main upcoming matches page
+        # (we could add /soccer/ but the base URL works for all sports and gives football by default)
+        return "https://www.oddsportal.com/matches/"
+
+        
     def _filter_matches_by_date(
         self,
         matches_data: list[dict[str, Any]],
@@ -442,7 +565,9 @@ class ScrapingService(BaseService[Any]):
             and match_data["match_date"].date() == target_date
         ]
 
-    def _save_upcoming_matches(self, matches_data: list[dict[str, Any]]) -> int:
+    def _save_upcoming_matches(
+        self, matches_data: list[dict[str, Any]], target_team_id: int | None = None
+    ) -> int:
         """Save upcoming matches to database.
 
         Args:
@@ -457,6 +582,11 @@ class ScrapingService(BaseService[Any]):
             home_team = self.get_or_create_team(match_data["home_team"])
             away_team = self.get_or_create_team(match_data["away_team"])
 
+            # Team isolation logic
+            if target_team_id is not None:
+                if home_team.id != target_team_id and away_team.id != target_team_id:
+                    continue
+
             # Get or create tournament (if available)
             tournament = None
             if match_data.get("tournament_slug"):
@@ -466,12 +596,12 @@ class ScrapingService(BaseService[Any]):
                     slug=match_data["tournament_slug"],
                 )
 
-            # Check for existing match
+            # Check for existing match (compare by date only, not full timestamp)
             existing = self.session.execute(
                 select(Match).where(
                     Match.home_team_id == home_team.id,
                     Match.away_team_id == away_team.id,
-                    Match.match_date == match_data["match_date"],
+                    func.date(Match.match_date) == match_data["match_date"].date(),
                 )
             ).scalar_one_or_none()
 
@@ -504,13 +634,17 @@ class ScrapingService(BaseService[Any]):
         return saved
 
     def _save_result_matches(
-        self, matches: list[ScrapedMatch], tournament: Tournament
+        self,
+        matches: list[ScrapedMatch],
+        tournament: Tournament,
+        target_team_id: int | None = None,
     ) -> int:
         """Save result matches to database.
 
         Args:
             matches: List of ScrapedMatch objects
             tournament: Tournament instance
+            target_team_id: Optional ID of team to filter saves to
 
         Returns:
             Number of matches saved
@@ -519,6 +653,11 @@ class ScrapingService(BaseService[Any]):
         for scraped in matches:
             home_team = self.get_or_create_team(scraped.home_team)
             away_team = self.get_or_create_team(scraped.away_team)
+
+            # Team isolation logic
+            if target_team_id is not None:
+                if home_team.id != target_team_id and away_team.id != target_team_id:
+                    continue
 
             # Check for existing match
             existing = self.session.execute(

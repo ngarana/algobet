@@ -15,6 +15,21 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - algobet-net
+
+  redis:
+    image: redis:8-alpine
+    container_name: algobet-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - algobet-net
 
   api:
     build: &shared-build
@@ -22,12 +37,15 @@ services:
       dockerfile: Dockerfile.api
     container_name: algobet-api
     command: uvicorn algobet.api.main:app --host 0.0.0.0 --port 8010 --reload
-    network_mode: host
+    ports:
+      - "8010:8010"
     volumes:
       - ./algobet:/app/algobet
       - ./data:/app/data
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:8010/health || exit 1" ]
@@ -39,27 +57,35 @@ services:
       - POSTGRES_USER=algobet
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=football
-      - POSTGRES_HOST=localhost
+      - POSTGRES_HOST=algobet-db
       - POSTGRES_PORT=5432
+      - REDIS_URL=redis://algobet-redis:6379/0
       - API_HOST=0.0.0.0
       - API_PORT=8010
       - API_ENV=development
-      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://frontend:3001
       - LOG_LEVEL=info
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
+    networks:
+      - algobet-net
 
   scheduler-worker:
     build: *shared-build
     container_name: algobet-scheduler-worker
     command: python -m algobet.cli.dev_tools scheduler run --interval 60
-    network_mode: host
     volumes:
       - ./algobet:/app/algobet
       - ./data:/app/data
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U algobet -d football -h localhost || exit 1" ]
+      test: [ "CMD-SHELL", "pg_isready -U algobet -d football -h algobet-db || exit 1" ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -68,10 +94,46 @@ services:
       - POSTGRES_USER=algobet
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=football
-      - POSTGRES_HOST=localhost
+      - POSTGRES_HOST=algobet-db
       - POSTGRES_PORT=5432
+      - REDIS_URL=redis://algobet-redis:6379/0
       - LOG_LEVEL=info
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     restart: unless-stopped
+    networks:
+      - algobet-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runner-dev
+    container_name: algobet-frontend
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=/api/v1
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8010
+      - API_INTERNAL_URL=http://api:8010
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - algobet-net
 
 volumes:
   pgdata:
+
+networks:
+  algobet-net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"

@@ -45,6 +45,7 @@ class ScrapingJobBase(BaseModel):
     tournament_name: str | None = Field(
         None, description="Name of tournament to scrape"
     )
+    team_id: int | None = Field(None, description="Optional team ID to target")
     season: str | None = Field(None, description="Season to scrape (e.g., '2023-2024')")
     start_date: datetime | None = Field(
         None, description="Start date for results scraping"
@@ -75,6 +76,9 @@ class UpcomingScrapeRequest(BaseModel):
     tournament_url: HttpUrl | None = Field(
         None, description="Optional manual OddsPortal URL override"
     )
+    team_id: int | None = Field(
+        None, description="Optional Team ID to target specific matches"
+    )
     scope: ScrapeScope = Field(
         ScrapeScope.ALL, description="Scrape all leagues or a specific league"
     )
@@ -102,6 +106,9 @@ class ResultsScrapeRequest(BaseModel):
     tournament_url: HttpUrl | None = Field(
         None, description="Optional manual OddsPortal URL override"
     )
+    team_id: int | None = Field(
+        None, description="Optional Team ID to target specific matches"
+    )
     period: str | None = Field(
         None, description="Season label such as '2023/2024' or '2023-2024'"
     )
@@ -128,6 +135,9 @@ class ByDateScrapeRequest(BaseModel):
     )
     tournament_url: HttpUrl | None = Field(
         None, description="Optional manual OddsPortal URL override"
+    )
+    team_id: int | None = Field(
+        None, description="Optional Team ID to target specific matches"
     )
     scope: ScrapeScope = Field(
         ScrapeScope.ALL, description="Scrape all leagues or a specific league"

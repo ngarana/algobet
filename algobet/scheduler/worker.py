@@ -9,6 +9,7 @@ import click
 
 from algobet.infrastructure.database import session_scope
 from algobet.services.scheduler_service import SchedulerService
+from algobet.services.scheduler_tasks import register_default_tasks
 
 
 class SchedulerWorker:
@@ -24,6 +25,10 @@ class SchedulerWorker:
     def start_scheduler(self) -> None:
         """Start the APScheduler and load all active tasks."""
         try:
+            # Register task types before starting scheduler
+            click.echo("Registering task types...")
+            register_default_tasks()
+
             click.echo("Starting APScheduler...")
             SchedulerService.start_scheduler()
 

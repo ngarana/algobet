@@ -117,18 +117,25 @@ export default function FetchDataPage() {
   const handleDialogConfirm = useCallback(
     (
       data:
-        | { type: "upcoming"; scope: "all" | "league"; tournament_id?: number }
+        | {
+            type: "upcoming";
+            scope: "all" | "league";
+            tournament_id?: number;
+            team_id?: number;
+          }
         | {
             type: "results";
             tournament_id: number;
             period?: string;
             max_pages?: number;
+            team_id?: number;
           }
         | {
             type: "by-date";
             scope: "all" | "league";
             date?: string;
             tournament_id?: number;
+            team_id?: number;
           }
     ) => {
       if (data.type === "upcoming") {

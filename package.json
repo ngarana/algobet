@@ -2,6 +2,12 @@
   "private": true,
   "packageManager": "pnpm@10.29.3",
   "scripts": {
+    "dev": "pnpm --filter algobet-frontend dev",
+    "build": "pnpm --filter algobet-frontend build",
+    "start": "pnpm --filter algobet-frontend start",
+    "lint": "pnpm --filter algobet-frontend lint",
+    "typecheck": "pnpm --filter algobet-frontend typecheck",
+    "test": "pnpm --filter algobet-frontend test",
     "preinstall": "node -e \"if(process.env.npm_config_user_agent && !process.env.npm_config_user_agent.startsWith('pnpm')){console.error('Use pnpm instead of '+process.env.npm_config_user_agent.split('/')[0]);process.exit(1)}\""
   }
 }

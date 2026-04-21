@@ -176,10 +176,7 @@ def _build_results_url(
 
 def _build_matches_url(request_date: date) -> str:
     """Build the OddsPortal daily matches URL for a specific date."""
-    return (
-        "https://www.oddsportal.com/matches/football/"
-        f"{request_date.strftime('%Y%m%d')}/"
-    )
+    return "https://www.oddsportal.com/matches/"
 
 
 def _ensure_utc_timestamp(value: datetime | None) -> datetime | None:
@@ -200,6 +197,7 @@ def _job_create_from_tournament(
     season: str | None = None,
     period: str | None = None,
     request_date: date | None = None,
+    team_id: int | None = None,
 ) -> ScrapingJobCreate:
     """Create a job payload with semantic metadata."""
     return ScrapingJobCreate(
@@ -214,6 +212,7 @@ def _job_create_from_tournament(
         country=tournament.country if tournament else None,
         league_name=tournament.name if tournament else None,
         period=request_date.isoformat() if request_date else period,
+        team_id=team_id,
     )
 
 
@@ -238,7 +237,6 @@ def _progress_callback_for_job(
                 matches_saved=progress.matches_saved,
                 started_at=progress.started_at,
                 completed_at=progress.completed_at,
-                errors=None,
             ),
         )
         _dispatch_async(
@@ -457,6 +455,7 @@ async def scrape_upcoming(
             tournament,
             resolved_url,
             scope=resolved_request.scope,
+            team_id=resolved_request.team_id,
         )
 
         job_id = str(uuid.uuid4())
@@ -555,6 +554,7 @@ async def scrape_results(
             scope=ScrapeScope.LEAGUE if tournament else ScrapeScope.ALL,
             season=resolved_period,
             period=resolved_period,
+            team_id=resolved_request.team_id,
         )
         job_create.start_date = start_date
         job_create.end_date = end_date
@@ -651,6 +651,7 @@ async def scrape_by_date(
             resolved_url,
             scope=resolved_request.scope,
             request_date=target_date,
+            team_id=resolved_request.team_id,
         )
 
         job_id = str(uuid.uuid4())

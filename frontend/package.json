@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "preinstall": "node -e \"if(process.env.npm_config_user_agent && !process.env.npm_config_user_agent.startsWith('pnpm')){console.error('Use pnpm instead of '+process.env.npm_config_user_agent.split('/')[0]);process.exit(1)}\"",
+    "preinstall:docker": "echo 'Skipping pnpm check in Docker'",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "quality-gates": "./scripts/quality-gates.sh",
@@ -52,6 +53,7 @@
     "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@next/eslint-plugin-next": "^16.2.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",

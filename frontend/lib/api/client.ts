@@ -4,7 +4,14 @@
 
 import { z } from "zod";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+// Use relative URL to leverage Next.js API rewrites
+// This works both in Docker (with rewrites) and outside Docker (direct connection)
+const API_BASE_URL =
+  typeof window === "undefined"
+    ? // Server-side: use internal URL for Docker communication
+      process.env.API_INTERNAL_URL || "http://localhost:8010"
+    : // Client-side: use relative URL to leverage Next.js rewrites
+      "/api/v1";
 
 export class ApiError extends Error {
   constructor(

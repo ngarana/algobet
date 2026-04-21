@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi_cache.decorator import cache
 from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
@@ -16,6 +17,7 @@ router = APIRouter()
 
 
 @router.get("", response_model=list[TeamResponse])
+@cache(expire=3600)
 def list_teams(
     search: str | None = Query(None, description="Search by team name"),
     tournament_id: int | None = Query(None, description="Filter by tournament ID"),

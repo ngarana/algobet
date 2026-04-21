@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useTournaments, useTournamentSeasons } from "@/lib/queries/use-tournaments";
+import { useTeams } from "@/lib/queries/use-teams";
 import { FetchDialogType, type FetchDialogTypeValue } from "@/lib/constants/fetch";
 import { FETCH_DIALOG_CONFIG } from "@/lib/constants/fetch";
 import { PlayIcon } from "lucide-react";
@@ -21,20 +22,28 @@ const ALL_SCOPE = "all";
 const LEAGUE_SCOPE = "league";
 const NO_COUNTRY = "__none__";
 const NO_LEAGUE = "__none__";
+const NO_TEAM = "__none__";
 
 type FetchDialogSubmitData =
-  | { type: "upcoming"; scope: "all" | "league"; tournament_id?: number }
+  | {
+      type: "upcoming";
+      scope: "all" | "league";
+      tournament_id?: number;
+      team_id?: number;
+    }
   | {
       type: "results";
       tournament_id: number;
       period?: string;
       max_pages?: number;
+      team_id?: number;
     }
   | {
       type: "by-date";
       scope: "all" | "league";
       date?: string;
       tournament_id?: number;
+      team_id?: number;
     };
 
 interface FetchDialogProps {
@@ -55,6 +64,7 @@ export function FetchDialog({
   );
   const [selectedCountry, setSelectedCountry] = useState<string>(NO_COUNTRY);
   const [selectedTournamentId, setSelectedTournamentId] = useState<string>(NO_LEAGUE);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>(NO_TEAM);
   const [date, setDate] = useState("");
   const [period, setPeriod] = useState("");
   const [maxPages, setMaxPages] = useState("");
@@ -63,8 +73,12 @@ export function FetchDialog({
   const { data: tournaments = [], isLoading: tournamentsLoading } = useTournaments();
   const tournamentId =
     selectedTournamentId !== NO_LEAGUE ? Number(selectedTournamentId) : null;
+  const teamId = selectedTeamId !== NO_TEAM ? Number(selectedTeamId) : null;
   const { data: seasons = [], isLoading: seasonsLoading } =
     useTournamentSeasons(tournamentId);
+  const { data: teams = [], isLoading: teamsLoading } = useTeams(
+    tournamentId ? { tournament_id: tournamentId } : undefined
+  );
 
   useEffect(() => {
     if (type === FetchDialogType.RESULTS) {
@@ -74,6 +88,7 @@ export function FetchDialog({
     }
     setSelectedCountry(NO_COUNTRY);
     setSelectedTournamentId(NO_LEAGUE);
+    setSelectedTeamId(NO_TEAM);
     setDate("");
     setPeriod("");
     setMaxPages("");
@@ -121,6 +136,7 @@ export function FetchDialog({
         type: "upcoming",
         scope,
         tournament_id: requiresLeague ? (tournamentId ?? undefined) : undefined,
+        team_id: requiresLeague ? (teamId ?? undefined) : undefined,
       });
     } else if (type === FetchDialogType.RESULTS && tournamentId) {
       onConfirm({
@@ -128,6 +144,7 @@ export function FetchDialog({
         tournament_id: tournamentId,
         period: period || undefined,
         max_pages: maxPages ? Number(maxPages) : undefined,
+        team_id: teamId ?? undefined,
       });
     } else if (type === FetchDialogType.BY_DATE) {
       onConfirm({
@@ -135,6 +152,7 @@ export function FetchDialog({
         scope,
         date: date || undefined,
         tournament_id: requiresLeague ? (tournamentId ?? undefined) : undefined,
+        team_id: requiresLeague ? (teamId ?? undefined) : undefined,
       });
     }
     handleClose();
@@ -177,6 +195,7 @@ export function FetchDialog({
                   if (value === ALL_SCOPE) {
                     setSelectedCountry(NO_COUNTRY);
                     setSelectedTournamentId(NO_LEAGUE);
+                    setSelectedTeamId(NO_TEAM);
                   }
                 }}
               >
@@ -193,7 +212,7 @@ export function FetchDialog({
 
           {requiresLeague && (
             <>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <div className="space-y-2">
                   <Label htmlFor="country">Country</Label>
                   <Select
@@ -201,6 +220,7 @@ export function FetchDialog({
                     onValueChange={(value) => {
                       setSelectedCountry(value);
                       setSelectedTournamentId(NO_LEAGUE);
+                      setSelectedTeamId(NO_TEAM);
                       setPeriod("");
                     }}
                   >
@@ -230,6 +250,7 @@ export function FetchDialog({
                     value={selectedTournamentId}
                     onValueChange={(value) => {
                       setSelectedTournamentId(value);
+                      setSelectedTeamId(NO_TEAM);
                       setPeriod("");
                     }}
                     disabled={selectedCountry === NO_COUNTRY}
@@ -250,6 +271,35 @@ export function FetchDialog({
                       {filteredTournaments.map((tournament) => (
                         <SelectItem key={tournament.id} value={String(tournament.id)}>
                           {tournament.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="team">Team (Optional)</Label>
+                  <Select
+                    value={selectedTeamId}
+                    onValueChange={setSelectedTeamId}
+                    disabled={selectedTournamentId === NO_LEAGUE}
+                  >
+                    <SelectTrigger id="team" className="border-[#252a37] bg-[#161a25]">
+                      <SelectValue
+                        placeholder={
+                          selectedTournamentId === NO_LEAGUE
+                            ? "Choose league first"
+                            : teamsLoading
+                              ? "Loading teams..."
+                              : "All Teams"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_TEAM}>All Teams</SelectItem>
+                      {teams.map((team) => (
+                        <SelectItem key={team.id} value={String(team.id)}>
+                          {team.name}
                         </SelectItem>
                       ))}
                     </SelectContent>

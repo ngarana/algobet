@@ -1,8 +1,8 @@
-# AGENTS.md - Algobet Frontend Repository Guide
+# AGENTS.md - Algobet Frontend Guide
 
 ## Overview
 
-This document provides essential information for agentic coding agents working with the Algobet frontend repository. It covers build/lint/test commands, code style guidelines, testing patterns, project structure, and actual codebase architecture.
+This document provides essential information for agentic coding agents working with the Algobet frontend (located in the `frontend/` directory). It covers build/lint/test commands, code style guidelines, testing patterns, project structure, and actual codebase architecture.
 
 ## Table of Contents
 
@@ -11,6 +11,7 @@ This document provides essential information for agentic coding agents working w
 - [Testing Patterns](#testing-patterns)
 - [Project Structure](#project-structure)
 - [Configuration Details](#configuration-details)
+- [Docker Setup](#docker-setup)
 - [Best Practices](#best-practices)
 
 ## Build/Lint/Test Commands
@@ -460,6 +461,83 @@ Applies to staged files only:
 - Pre-commit hooks run ESLint and Prettier
 - Commit message validation enforced
 - Location: `.husky/`
+
+## Docker Setup
+
+The frontend can run inside a Docker container alongside the backend services. This provides a consistent development environment and eliminates port mapping issues.
+
+### Running Frontend in Docker
+
+1. **Start all services including frontend:**
+
+```bash
+# From project root
+docker-compose up -d
+
+# Or with all services (including scheduler)
+docker-compose -f docker-compose.all.yml up -d
+```
+
+2. **Access the application:**
+   - Frontend: http://localhost:3001
+   - API: http://localhost:8010
+
+### Docker Configuration
+
+The frontend Docker setup includes:
+
+- **Dockerfile**: Multi-stage build supporting both development and production
+  - `runner-dev` target: For development with hot reloading
+  - `runner` target: For production with optimized build
+
+- **API Communication**: Uses Next.js rewrites to proxy requests
+  - Client-side requests go to `/api/*` which are rewritten to the API service
+  - Server-side requests use the internal Docker network (`http://api:8010`)
+
+- **Port Mapping**: Container port 3001 is mapped to host port 3001
+
+### Environment Variables in Docker
+
+When running in Docker, the following environment variables are set automatically:
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `NEXT_PUBLIC_API_URL` | `/api/v1` | Client-side API path (uses rewrites) |
+| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8010` | WebSocket URL |
+| `API_INTERNAL_URL` | `http://api:8010` | Server-side API URL |
+
+### Troubleshooting Docker Issues
+
+1. **"NetworkError when attempting to fetch resource"**
+   - This error occurs when the frontend cannot reach the API
+   - Solution: Ensure all services are running with `docker-compose ps`
+   - Check API health: `curl http://localhost:8010/health`
+
+2. **Hot reload not working**
+   - Volume mounts may need refreshing
+   - Restart the frontend container: `docker-compose restart frontend`
+
+3. **Port conflicts**
+   - If port 3001 is in use, modify the port mapping in `docker-compose.yml`
+   - Change `"3001:3001"` to `"3002:3001"` to use port 3002 on host
+
+### Running Frontend Outside Docker (Development)
+
+To run the frontend directly on the host machine:
+
+1. Ensure `.env.local` points to the API:
+```
+NEXT_PUBLIC_API_URL=http://localhost:8010/api/v1
+API_INTERNAL_URL=http://localhost:8010
+```
+
+2. Start the frontend:
+```bash
+cd frontend
+pnpm dev
+```
+
+3. Access at http://localhost:3001
 
 ## Best Practices
 
