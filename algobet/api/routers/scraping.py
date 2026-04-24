@@ -117,7 +117,8 @@ def _generate_seasons(period_start: str, period_end: str) -> list[str]:
         return [f"{year}-{year + 1}" for year in range(start_year, end_year + 1)]
     except (ValueError, IndexError) as e:
         raise ValueError(
-            f"Invalid period format. Expected 'YYYY-YYYY', got '{period_start}' or '{period_end}'"
+            f"Invalid period format. Expected 'YYYY-YYYY', "
+            f"got '{period_start}' or '{period_end}'"
         ) from e
 
 
@@ -218,6 +219,8 @@ def _job_create_from_tournament(
     period: str | None = None,
     request_date: date | None = None,
     team_id: int | None = None,
+    period_start: str | None = None,
+    period_end: str | None = None,
 ) -> ScrapingJobCreate:
     """Create a job payload with semantic metadata."""
     return ScrapingJobCreate(
@@ -233,6 +236,8 @@ def _job_create_from_tournament(
         league_name=tournament.name if tournament else None,
         period=request_date.isoformat() if request_date else period,
         team_id=team_id,
+        period_start=period_start,
+        period_end=period_end,
     )
 
 
@@ -255,6 +260,7 @@ def _progress_callback_for_job(
                 message=progress.message,
                 matches_scraped=progress.matches_scraped,
                 matches_saved=progress.matches_saved,
+                errors=[],
                 started_at=progress.started_at,
                 completed_at=progress.completed_at,
             ),
@@ -344,10 +350,56 @@ def run_scraping_job(
                 if not job_create.tournament_url:
                     raise ValueError("Tournament URL is required for results scraping")
 
-                result = service.scrape_results(
-                    url=str(job_create.tournament_url),
-                    max_pages=max_pages,
-                )
+                # Check if period range is specified
+                if job_create.period_start and job_create.period_end:
+                    # Generate seasons from the range
+                    seasons = _generate_seasons(
+                        job_create.period_start, job_create.period_end
+                    )
+
+                    # Parse base URL to extract components
+                    import re
+
+                    url_str = str(job_create.tournament_url)
+                    match = re.match(
+                        r"(https://www\.oddsportal\.com/football/[^/]+/[^/]+)",
+                        url_str,
+                    )
+                    if not match:
+                        raise ValueError(f"Invalid tournament URL: {url_str}")
+
+                    base_url = match.group(1)
+                    # Remove any season suffix from the slug
+                    base_url = re.sub(r"-(\d{4}-\d{4})$", "", base_url)
+
+                    # Scrape each season and aggregate results
+                    total_matches_saved = 0
+                    total_matches_scraped = 0
+
+                    for season in seasons:
+                        season_url = f"{base_url}-{season}/results/"
+                        logger.info(f"[BG TASK] Scraping season: {season}")
+
+                        season_result = service.scrape_results(
+                            url=season_url,
+                            max_pages=max_pages,
+                        )
+                        total_matches_scraped += season_result.matches_scraped
+                        total_matches_saved += season_result.matches_saved
+
+                    # Create combined result
+                    result = ServiceScrapingProgress(
+                        job_id=uuid.UUID(job_id),
+                        status=JobStatus.COMPLETED,
+                        matches_scraped=total_matches_scraped,
+                        matches_saved=total_matches_saved,
+                    )
+                else:
+                    # No period range, just scrape the provided URL
+                    result = service.scrape_results(
+                        url=str(job_create.tournament_url),
+                        max_pages=max_pages,
+                    )
             elif job_create.scraping_type == ScrapingType.BY_DATE:
                 target_date = (
                     date.fromisoformat(job_create.period)
@@ -517,6 +569,8 @@ async def scrape_results(
     tournament_url: str | None = None,
     tournament_id: int | None = None,
     period: str | None = None,
+    period_start: str | None = None,
+    period_end: str | None = None,
     max_pages: int | None = None,
     season: str | None = None,
     start_date: datetime | None = None,

@@ -110,10 +110,10 @@ pnpm test -- --exclude "**/__tests__/legacy/**"
 
 1. **Prettier Configuration**
    - Semi-colons: Yes
-   - Quotes: Single quotes
+   - Quotes: Double quotes
    - Tab width: 2 spaces
    - Trailing comma: ES5 (always except last in objects)
-   - Print width: 88 characters
+   - Print Width: 88 characters
    - Plugin: prettier-plugin-tailwindcss
 
 2. **Code Formatting**
@@ -322,43 +322,114 @@ pnpm test -- --exclude "**/__tests__/legacy/**"
 ```
 frontend/
 ├── app/                          # Next.js app router (feature pages)
-│   ├── app/
-│   │   ├── backtest/
-│   │   ├── calibrate/
-│   │   ├── matches/
-│   │   ├── models/
-│   │   ├── predictions/
-│   │   ├── schedules/
-│   │   ├── scraping/
-│   │   ├── teams/
-│   │   └── value-bets/
-│   └── providers.tsx             # Global providers
-├── components/                    # Reusable components
-│   ├── __tests__/                # Component tests
 │   ├── backtest/
+│   │   ├── error.tsx
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── calibrate/
+│   │   ├── error.tsx
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── matches/
+│   │   ├── [id]/
+│   │   │   ├── error.tsx
+│   │   │   ├── loading.tsx
+│   │   │   └── page.tsx
+│   │   ├── error.tsx
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── models/
+│   │   ├── error.tsx
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── predictions/
+│   │   ├── error.tsx
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── schedules/
+│   │   ├── error.tsx
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── scraping/
+│   │   ├── error.tsx
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── teams/
+│   │   ├── error.tsx
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── value-bets/
+│   │   ├── error.tsx
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── error.tsx
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── providers.tsx
+├── components/                    # Reusable components
+│   ├── __tests__/
+│   │   └── error-boundary.test.tsx
+│   ├── backtest/
+│   │   ├── calibration-curve.tsx
+│   │   ├── confusion-matrix-heatmap.tsx
+│   │   ├── equity-curve-chart.tsx
+│   │   └── index.ts
 │   ├── charts/
+│   │   └── performance-trends-chart.tsx
 │   ├── dashboard/
+│   │   ├── quick-actions-panel.tsx
+│   │   └── recent-activity-feed.tsx
 │   ├── error-boundary.tsx
 │   ├── layout/
+│   │   ├── Breadcrumb.tsx
+│   │   ├── Navbar.tsx
+│   │   ├── Sidebar.tsx
+│   │   └── index.ts
 │   ├── matches/
+│   │   ├── MatchCard.tsx
+│   │   ├── MatchFilters.tsx
+│   │   └── MatchList.tsx
 │   ├── schedules/
+│   │   ├── ExecutionHistory.tsx
+│   │   ├── ScheduleCard.tsx
+│   │   ├── ScheduleForm.tsx
+│   │   └── index.ts
 │   ├── scraping/
+│   │   ├── ExecutionLogsTable.tsx
+│   │   ├── FetchDialog.tsx
+│   │   ├── FetchLiveMonitor.tsx
+│   │   ├── FetchProgress.tsx
+│   │   ├── FetchStatsCards.tsx
+│   │   ├── LiveStreamPanel.tsx
+│   │   ├── MetricCard.tsx
+│   │   ├── NextScheduledCard.tsx
+│   │   ├── StatusBadge.tsx
+│   │   └── index.ts
 │   ├── skeletons/
+│   │   └── index.tsx
 │   └── ui/
 │       ├── badge.tsx
 │       ├── button.tsx
 │       ├── card.tsx
 │       ├── checkbox.tsx
 │       ├── input.tsx
-│       └── table.tsx
+│       ├── label.tsx
+│       ├── progress.tsx
+│       ├── select.tsx
+│       ├── skeleton.tsx
+│       ├── table.tsx
+│       ├── tabs.tsx
+│       ├── __tests__/
+│       │   ├── button.test.tsx
+│       │   └── card.test.tsx
+│       └── index.ts
 ├── hooks/                        # Custom hooks
 │   ├── useFetchProgress.ts
 │   ├── useJobFocus.ts
 │   ├── useJobOperations.ts
-│   ├── useLiveLog.ts
-│   └── useScrapingProgress.test.tsx
+│   └── useLiveLog.ts
 ├── lib/                          # Shared utilities
-│   ├── api/                      # API clients
+│   ├── api/
 │   │   ├── client.ts
 │   │   ├── fetch.ts
 │   │   ├── index.ts
@@ -370,10 +441,13 @@ frontend/
 │   │   ├── scraping.ts
 │   │   ├── teams.ts
 │   │   ├── tournaments.ts
-│   │   └── value-bets.ts
+│   │   ├── value-bets.ts
+│   │   └── __tests__/
+│   │       ├── client.test.ts
+│   │       └── scraping.test.ts
 │   ├── constants/
 │   │   └── fetch.ts
-│   ├── queries/                  # TanStack Query hooks
+│   ├── queries/
 │   │   ├── index.ts
 │   │   ├── use-dashboard-stats.ts
 │   │   ├── use-fetch.ts
@@ -382,20 +456,49 @@ frontend/
 │   │   ├── use-models.ts
 │   │   ├── use-predictions.ts
 │   │   ├── use-teams.ts
-│   │   └── use-tournaments.ts
+│   │   ├── use-tournaments.ts
+│   │   ├── use-value-bets.ts
+│   │   └── __tests__/
+│   │       └── use-teams.test.tsx
 │   ├── types/
 │   │   ├── api.ts
 │   │   ├── ml-operations.ts
-│   │   └── schemas.ts
+│   │   ├── schemas.ts
+│   │   └── __tests__/
+│   │       └── schemas.test.ts
 │   └── utils.ts
-├── next-env.d.ts
+├── stores/                       # Zustand stores
+│   ├── filter-store.ts
+│   ├── ui-store.ts
+│   └── index.ts
+├── scripts/
+│   └── quality-gates.sh
+├── src/
+│   └── test/
+│       └── setupTests.ts
+├── .dockerignore
+├── .env.example
+├── .env.local
+├── .eslintrc.json
+├── eslint.config.mjs
+├── .gitignore
+├── .husky/
+├── .lintstagedrc.json
+├── .prettierrc
+├── .prettierignore
+├── Dockerfile
+├── IMPLEMENTATION_SUMMARY.md
 ├── next.config.js
+├── next-env.d.ts
 ├── package.json
 ├── pnpm-lock.yaml
 ├── postcss.config.js
+├── QUALITY_GATES.md
 ├── tailwind.config.js
+├── TESTING.md
+├── TEST_RESULTS.md
 ├── tsconfig.json
-├── vitest.config.ts
+├── tsconfig.tsbuildinfo
 └── vitest.config.ts
 ```
 
@@ -403,7 +506,7 @@ frontend/
 
 ### ESLint Configuration
 
-**File**: `.eslintrc.json`
+**Files**: `.eslintrc.json` (legacy), `eslint.config.mjs` (flat config)
 
 **Key Rules**:
 
@@ -648,7 +751,7 @@ pnpm typecheck --watch
 | -------------------- | ------------------------- |
 | `pnpm dev`           | Start development server  |
 | `pnpm build`         | Build for production      |
-| `pnmb start`         | Start production server   |
+| `pnpm start`         | Start production server   |
 | `pnpm quality-gates` | Run all quality checks    |
 | `pnpm typecheck`     | TypeScript type checking  |
 | `pnpm lint`          | Run ESLint                |
@@ -657,7 +760,7 @@ pnpm typecheck --watch
 | `pnpm format:check`  | Check formatting          |
 | `pnpm test`          | Run tests once            |
 | `pnpm test:watch`    | Run tests in watch mode   |
-| `pnmb test:ui`       | Open Vitest UI            |
+| `pnpm test:ui`       | Open Vitest UI            |
 | `pnpm test:coverage` | Generate coverage report  |
 
 ## Resources

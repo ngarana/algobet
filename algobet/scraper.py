@@ -6,12 +6,18 @@ import logging
 import re
 import socket
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar, cast
 
-from playwright.sync_api import Browser, Page, Playwright, sync_playwright
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import (
+    Browser,
+    Page,
+    Playwright,
+    TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,12 +88,14 @@ def retry_on_network_error(
                 raise last_exception
             return None
 
-        return wrapper
+        return cast(F, wrapper)
 
     return decorator
 
 
-def check_dns_resolution(hostname: str = "www.oddsportal.com", timeout: int = 5) -> bool:
+def check_dns_resolution(
+    hostname: str = "www.oddsportal.com", timeout: int = 5
+) -> bool:
     """Check if DNS resolution works for the target hostname.
 
     Args:
@@ -498,7 +506,7 @@ class OddsPortalScraper:
         logger.info("Looking for 'Show more' buttons...")
         clicked = 0
 
-        for i in range(max_clicks):
+        for _i in range(max_clicks):
             try:
                 # Try common selectors for "Show more"
                 show_more = (

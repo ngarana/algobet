@@ -1,5 +1,6 @@
 """Scraping service for orchestrating data collection from OddsPortal."""
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date as date_cls, datetime, timezone
@@ -13,6 +14,8 @@ from sqlalchemy.orm import Session
 from algobet.models import Match, Team, Tournament
 from algobet.scraper import OddsPortalScraper, ScrapedMatch
 from algobet.services.base import BaseService
+
+logger = logging.getLogger(__name__)
 
 
 class JobStatus(str, Enum):
@@ -543,15 +546,16 @@ class ScrapingService(BaseService[Any]):
 
         Date-specific scraping is achieved by:
         1. Scraping the full page (with Show-more + infinite scroll)
-        2. Filtering matches by their parsed match_date (done in _filter_matches_by_date)
+        2. Filtering matches by their parsed match_date
+           (done in _filter_matches_by_date)
 
         This is the reliable and only supported way.
         """
         # Always return the main upcoming matches page
-        # (we could add /soccer/ but the base URL works for all sports and gives football by default)
+        # (we could add /soccer/ but the base URL works for all sports
+        # and gives football by default)
         return "https://www.oddsportal.com/matches/"
 
-        
     def _filter_matches_by_date(
         self,
         matches_data: list[dict[str, Any]],
@@ -583,9 +587,12 @@ class ScrapingService(BaseService[Any]):
             away_team = self.get_or_create_team(match_data["away_team"])
 
             # Team isolation logic
-            if target_team_id is not None:
-                if home_team.id != target_team_id and away_team.id != target_team_id:
-                    continue
+            if (
+                target_team_id is not None
+                and home_team.id != target_team_id
+                and away_team.id != target_team_id
+            ):
+                continue
 
             # Get or create tournament (if available)
             tournament = None
@@ -655,9 +662,12 @@ class ScrapingService(BaseService[Any]):
             away_team = self.get_or_create_team(scraped.away_team)
 
             # Team isolation logic
-            if target_team_id is not None:
-                if home_team.id != target_team_id and away_team.id != target_team_id:
-                    continue
+            if (
+                target_team_id is not None
+                and home_team.id != target_team_id
+                and away_team.id != target_team_id
+            ):
+                continue
 
             # Check for existing match
             existing = self.session.execute(
