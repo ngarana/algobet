@@ -1,5 +1,6 @@
 """Integration tests for ML operations API endpoints."""
 
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -276,6 +277,78 @@ class TestBacktestEndpoint:
             assert "roi_percent" in betting
             assert "sharpe_ratio" in betting
             assert "max_drawdown" in betting
+
+
+class TestTrainEndpoint:
+    """Tests for POST /api/v1/ml/train endpoint."""
+
+    def test_train_success(
+        self,
+        test_client: TestClient,
+        test_session: Session,
+    ) -> None:
+        """Training should return the new model summary."""
+        trained_model = ModelVersion(
+            name="Frontend Model",
+            version="xgboost_20260424_000000",
+            algorithm="xgboost",
+            accuracy=0.61,
+            file_path="data/models/xgboost/xgboost_20260424_000000/model.pkl",
+            is_active=False,
+            metrics={"test_accuracy": 0.61},
+        )
+        test_session.add(trained_model)
+        test_session.commit()
+
+        with (
+            patch(
+                "algobet.api.routers.ml_operations.TrainingPipeline"
+            ) as mock_pipeline_cls,
+            patch(
+                "algobet.api.routers.ml_operations.ModelRegistry"
+            ) as mock_registry_cls,
+        ):
+            mock_pipeline = MagicMock()
+            mock_pipeline.run.return_value = MagicMock(
+                model_version="xgboost_20260424_000000",
+                model_type="xgboost",
+                feature_schema_version="v1.0",
+                num_features=42,
+                trained_at=datetime(2026, 4, 24, 0, 0, 0),
+                training_duration_seconds=12.5,
+                train_metrics={"accuracy": 0.7},
+                val_metrics={"accuracy": 0.63},
+                test_metrics={"accuracy": 0.61},
+                feature_importance={"home_form": 0.21},
+            )
+            mock_pipeline_cls.return_value = mock_pipeline
+            mock_registry_cls.return_value = MagicMock()
+
+            response = test_client.post(
+                "/api/v1/ml/train",
+                json={
+                    "model_type": "xgboost",
+                    "tune_hyperparameters": False,
+                    "activate": True,
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["model_version"] == "xgboost_20260424_000000"
+        assert data["model_type"] == "xgboost"
+        assert data["is_active"] is True
+        assert data["num_features"] == 42
+        assert "test_metrics" in data
+
+    def test_train_model_type_validation(self, test_client: TestClient) -> None:
+        """Training should validate model type values."""
+        response = test_client.post(
+            "/api/v1/ml/train",
+            json={"model_type": "invalid-model"},
+        )
+
+        assert response.status_code == 422
 
 
 class TestCalibrateEndpoint:

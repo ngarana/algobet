@@ -163,6 +163,29 @@ class TestModelRegistry:
         mock_session.add.assert_called_once()
         mock_session.flush.assert_called_once()
 
+    def test_save_model_stores_hyperparameters(
+        self, registry, mock_session, temp_storage
+    ):
+        """Test save_model persists hyperparameters in metadata and DB record."""
+        mock_model = {"test": "data"}
+
+        version = registry.save_model(
+            model=mock_model,
+            name="test_model",
+            metrics={"accuracy": 0.75},
+            model_type="xgboost",
+            hyperparameters={"max_depth": 6, "feature_names": ["f1", "f2"]},
+        )
+
+        db_model = mock_session.add.call_args.args[0]
+        assert db_model.hyperparameters is not None
+        assert db_model.hyperparameters["max_depth"] == 6
+
+        metadata_path = temp_storage / "xgboost" / version / "metadata.json"
+        with open(metadata_path) as f:
+            metadata = json.load(f)
+        assert metadata["hyperparameters"]["max_depth"] == 6
+
     def test_save_model_returns_version(self, registry):
         """Test save_model returns version string."""
         mock_model = {"test": "data"}
