@@ -240,9 +240,7 @@ class TrainingPipeline:
         if self.config.use_ensemble:
             model_hyperparameters["ensemble_types"] = self.config.ensemble_types
         if self.config.calibrate_probabilities:
-            model_hyperparameters["calibration_method"] = (
-                self.config.calibration_method
-            )
+            model_hyperparameters["calibration_method"] = self.config.calibration_method
 
         model_version = self.model_registry.save_model(
             model=CalibratedPredictor(predictor, self._calibrator)

@@ -59,6 +59,12 @@ class ScrapingJobBase(BaseModel):
     period: str | None = Field(
         None, description="Period/date (e.g., '2023/2024' or '2023-2024')"
     )
+    period_start: str | None = Field(
+        None, description="Start period for range scraping (e.g., '2010-2011')"
+    )
+    period_end: str | None = Field(
+        None, description="End period for range scraping (e.g., '2019-2020')"
+    )
 
 
 class ScrapingJobCreate(ScrapingJobBase):
@@ -111,6 +117,12 @@ class ResultsScrapeRequest(BaseModel):
     )
     period: str | None = Field(
         None, description="Season label such as '2023/2024' or '2023-2024'"
+    )
+    period_start: str | None = Field(
+        None, description="Start period for range scraping (e.g., '2010-2011')"
+    )
+    period_end: str | None = Field(
+        None, description="End period for range scraping (e.g., '2019-2020')"
     )
     max_pages: int | None = Field(
         None, ge=1, description="Optional page limit for historical scraping"
