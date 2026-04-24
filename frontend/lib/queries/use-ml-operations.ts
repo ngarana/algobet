@@ -4,6 +4,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  runTrainModel,
   runBacktest,
   runCalibrate,
   getBacktestHistory,
@@ -12,10 +13,12 @@ import {
 import type {
   BacktestRequest,
   CalibrateRequest,
+  TrainModelRequest,
 } from "@/lib/types/ml-operations";
 
 export const mlOperationsKeys = {
   all: ["ml-operations"] as const,
+  train: () => [...mlOperationsKeys.all, "train"] as const,
   backtest: () => [...mlOperationsKeys.all, "backtest"] as const,
   backtestHistory: () => [...mlOperationsKeys.all, "backtest-history"] as const,
   backtestHistoryList: (filters?: {
@@ -27,6 +30,21 @@ export const mlOperationsKeys = {
     [...mlOperationsKeys.backtestHistory(), "detail", id] as const,
   calibrate: () => [...mlOperationsKeys.all, "calibrate"] as const,
 };
+
+/**
+ * Train model mutation
+ */
+export function useTrainModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (request: TrainModelRequest) => runTrainModel(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["models"] });
+      queryClient.invalidateQueries({ queryKey: ["predictions"] });
+    },
+  });
+}
 
 /**
  * Run backtest mutation

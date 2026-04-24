@@ -10,6 +10,7 @@ import {
   getPredictionHistory,
 } from "@/lib/api/predictions";
 import type { PredictionFilters } from "@/lib/types/api";
+import type { GeneratePredictionsRequest } from "@/lib/api/predictions";
 
 export const predictionKeys = {
   all: ["predictions"] as const,
@@ -28,17 +29,22 @@ export function usePredictions(filters?: PredictionFilters) {
   });
 }
 
-export function useUpcomingPredictions(daysAhead?: number) {
+export function useUpcomingPredictions(daysAhead?: number, modelVersionId?: number) {
   return useQuery({
-    queryKey: predictionKeys.upcoming(),
-    queryFn: () => getUpcomingPredictions(daysAhead),
+    queryKey: [...predictionKeys.upcoming(), { daysAhead, modelVersionId }],
+    queryFn: () => getUpcomingPredictions(daysAhead, modelVersionId),
   });
 }
 
-export function usePredictionHistory(fromDate?: string, toDate?: string) {
+export function usePredictionHistory(params?: {
+  from_date?: string;
+  to_date?: string;
+  model_version_id?: number;
+  limit?: number;
+}) {
   return useQuery({
-    queryKey: [...predictionKeys.history(), { fromDate, toDate }],
-    queryFn: () => getPredictionHistory(fromDate, toDate),
+    queryKey: [...predictionKeys.history(), params],
+    queryFn: () => getPredictionHistory(params),
   });
 }
 
@@ -46,7 +52,7 @@ export function useGeneratePredictions() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: generatePredictions,
+    mutationFn: (request: GeneratePredictionsRequest) => generatePredictions(request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: predictionKeys.all });
     },

@@ -104,9 +104,27 @@ export interface Prediction {
   predicted_at: string;
   actual_roi: number | null;
   max_probability: number;
+  match?: PredictionMatchSummary | null;
+  model_version?: ModelVersion | null;
 }
 
-export interface PredictionWithMatch extends Prediction {
+export interface PredictionMatchSummary {
+  id: number;
+  match_date: string;
+  status: MatchStatus;
+  home_team_name: string;
+  away_team_name: string;
+  tournament_name: string | null;
+  season_name: string | null;
+  home_score: number | null;
+  away_score: number | null;
+  odds_home: number | null;
+  odds_draw: number | null;
+  odds_away: number | null;
+}
+
+export interface PredictionWithMatch
+  extends Omit<Prediction, "match" | "model_version"> {
   match: MatchDetail;
   model_version: ModelVersion;
 }

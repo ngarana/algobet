@@ -14,6 +14,8 @@ from .match import (
 from .model import ModelVersionResponse
 from .prediction import (
     PredictionFilters,
+    PredictionListItemResponse,
+    PredictionMatchSummaryResponse,
     PredictionResponse,
     PredictionWithMatchResponse,
     ValueBetResponse,
@@ -24,6 +26,7 @@ from .tournament import SeasonResponse, TournamentResponse
 # Rebuild models to resolve forward references
 MatchDetailResponse.model_rebuild()
 PredictionWithMatchResponse.model_rebuild()
+PredictionListItemResponse.model_rebuild()
 
 __all__ = [
     "FormBreakdown",
@@ -39,6 +42,8 @@ __all__ = [
     "MatchStatus",
     "PredictedOutcome",
     "PredictionResponse",
+    "PredictionMatchSummaryResponse",
+    "PredictionListItemResponse",
     "PredictionWithMatchResponse",
     "PredictionFilters",
     "ValueBetResponse",

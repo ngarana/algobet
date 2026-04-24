@@ -8,9 +8,10 @@ import click
 
 from algobet.cli.error_handler import handle_errors
 from algobet.cli.logger import success
-from algobet.infrastructure.database import session_scope
 from algobet.exceptions import ModelLoadError, ModelNotFoundError
+from algobet.infrastructure.database import session_scope
 from algobet.models import ModelVersion
+from algobet.predictions.models.registry import ModelRegistry
 from algobet.services import ModelManagementService
 from algobet.services.dto import ModelListRequest
 
@@ -25,7 +26,7 @@ def model_cli() -> None:
 @click.argument("model_id", type=int)
 @handle_errors
 def delete_model(model_id: int) -> None:
-    """Delete a model version from the database."""
+    """Delete a model version from the database and artifact storage."""
     with session_scope() as session:
         try:
             model = (
@@ -37,15 +38,10 @@ def delete_model(model_id: int) -> None:
                     details={"model_id": model_id},
                 )
 
-            # Delete model file
-            models_path = Path("data/models")
-            model_file = models_path / f"{model.version}.pkl"
-            if model_file.exists():
-                model_file.unlink()
-                success(f"Deleted model file: {model_file}")
+            # Delete via registry to keep lifecycle behavior consistent
+            registry = ModelRegistry(storage_path=Path("data/models"), session=session)
+            registry.delete_model(model.version)
 
-            # Delete database record
-            session.delete(model)
             success(f"Deleted model version: {model.version}")
         except ModelNotFoundError:
             raise

@@ -5,6 +5,32 @@
 import { z } from "zod";
 
 // =============================================================================
+// Train Model Types
+// =============================================================================
+
+export const TrainModelRequestSchema = z.object({
+  model_type: z.enum(["xgboost", "lightgbm", "random_forest"]).default("xgboost"),
+  tune_hyperparameters: z.boolean().default(false),
+  description: z.string().trim().min(1).max(500).optional(),
+  activate: z.boolean().default(true),
+});
+
+export const TrainModelResultSchema = z.object({
+  model_id: z.number().nullable(),
+  model_version: z.string(),
+  model_type: z.string(),
+  is_active: z.boolean(),
+  feature_schema_version: z.string(),
+  num_features: z.number(),
+  trained_at: z.string(),
+  training_duration_seconds: z.number(),
+  train_metrics: z.record(z.number()),
+  val_metrics: z.record(z.number()),
+  test_metrics: z.record(z.number()),
+  feature_importance: z.record(z.number()).nullable(),
+});
+
+// =============================================================================
 // Backtest Types
 // =============================================================================
 
@@ -100,6 +126,9 @@ export const CalibrateResultSchema = z.object({
 // =============================================================================
 // TypeScript Interfaces
 // =============================================================================
+
+export type TrainModelRequest = z.infer<typeof TrainModelRequestSchema>;
+export type TrainModelResult = z.infer<typeof TrainModelResultSchema>;
 
 export type BacktestRequest = z.infer<typeof BacktestRequestSchema>;
 export type ClassificationMetrics = z.infer<typeof ClassificationMetricsSchema>;

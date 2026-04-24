@@ -6,6 +6,10 @@ including listing, activating, and retrieving detailed model information.
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Awaitable
+from typing import Any, TypeVar
+
 from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +55,30 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
         super().__init__(session)
         self.logger = get_logger("services.async_model_management")
 
+    _T = TypeVar("_T")
+
+    async def _maybe_await(self, value: _T | Awaitable[_T]) -> _T:
+        """Resolve values that may be awaitable depending on result/mock type."""
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
+    async def _extract_scalars_all(self, result: Any) -> list[ModelVersion]:
+        """Extract scalar rows as a list from an async execution result."""
+        scalars_result = await self._maybe_await(result.scalars())
+        values = await self._maybe_await(scalars_result.all())
+        if isinstance(values, list):
+            return values
+        try:
+            return list(values)
+        except TypeError:
+            return []
+
+    async def _extract_scalar_one_or_none(self, result: Any) -> ModelVersion | None:
+        """Extract a single scalar value from an async execution result."""
+        value = await self._maybe_await(result.scalar_one_or_none())
+        return value
+
     async def list_models(self, request: ModelListRequest) -> ModelListResponse:
         """List available model versions asynchronously.
 
@@ -88,12 +116,12 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
 
             # Execute query
             result = await self.session.execute(query)
-            models = result.scalars().all()
+            models = await self._extract_scalars_all(result)
 
             # Get the currently active model version
             active_query = select(ModelVersion).where(ModelVersion.is_active == True)
             active_result = await self.session.execute(active_query)
-            active_model = active_result.scalar_one_or_none()
+            active_model = await self._extract_scalar_one_or_none(active_result)
             active_version = active_model.version if active_model else None
 
             # Convert to DTOs
@@ -168,7 +196,7 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
             # Get the currently active model
             current_query = select(ModelVersion).where(ModelVersion.is_active == True)
             current_result = await self.session.execute(current_query)
-            current_active = current_result.scalar_one_or_none()
+            current_active = await self._extract_scalar_one_or_none(current_result)
             previous_version = current_active.version if current_active else None
 
             # Find the target model
@@ -176,7 +204,7 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
                 ModelVersion.version == request.version
             )
             target_result = await self.session.execute(target_query)
-            target_model = target_result.scalar_one_or_none()
+            target_model = await self._extract_scalar_one_or_none(target_result)
 
             if not target_model:
                 self.logger.warning(
@@ -257,7 +285,7 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
             # Find the model by version
             query = select(ModelVersion).where(ModelVersion.version == request.version)
             result = await self.session.execute(query)
-            model = result.scalar_one_or_none()
+            model = await self._extract_scalar_one_or_none(result)
 
             if not model:
                 self.logger.warning(
@@ -334,7 +362,7 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
         try:
             query = select(ModelVersion).where(ModelVersion.is_active == True)
             result = await self.session.execute(query)
-            active_model = result.scalar_one_or_none()
+            active_model = await self._extract_scalar_one_or_none(result)
 
             if not active_model:
                 self.logger.warning(

@@ -230,6 +230,19 @@ class TrainingPipeline:
             **{f"val_{k}": v for k, v in val_metrics.items()},
             **{f"test_{k}": v for k, v in test_metrics.items()},
         }
+        model_hyperparameters: dict[str, Any] = {
+            **best_params,
+            "feature_names": self.feature_pipeline.feature_names,
+            "random_seed": self.config.random_seed,
+            "early_stopping_rounds": self.config.early_stopping_rounds,
+            "use_ensemble": self.config.use_ensemble,
+        }
+        if self.config.use_ensemble:
+            model_hyperparameters["ensemble_types"] = self.config.ensemble_types
+        if self.config.calibrate_probabilities:
+            model_hyperparameters["calibration_method"] = (
+                self.config.calibration_method
+            )
 
         model_version = self.model_registry.save_model(
             model=CalibratedPredictor(predictor, self._calibrator)
@@ -239,6 +252,7 @@ class TrainingPipeline:
             metrics=all_metrics,
             model_type=self.config.model_type,
             feature_schema_version=self.config.feature_schema_version,
+            hyperparameters=model_hyperparameters,
             description=self.config.description,
             tags=self.config.tags,
         )
@@ -391,6 +405,7 @@ class TrainingPipeline:
                     early_stopping_rounds=self.config.early_stopping_rounds,
                 )
                 predictor = create_predictor(model_type, config)
+                predictor.set_feature_names(self.feature_pipeline.feature_names)
                 predictor.fit(X_train, y_train, X_val, y_val)
                 predictors.append(predictor)
 

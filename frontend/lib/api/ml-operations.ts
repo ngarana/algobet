@@ -9,12 +9,24 @@ import type {
   BacktestRequest,
   CalibrateRequest,
   BacktestHistoryList,
+  TrainModelRequest,
+  TrainModelResult,
 } from "@/lib/types/ml-operations";
 import {
   BacktestResultSchema,
   CalibrateResultSchema,
   BacktestHistoryListSchema,
+  TrainModelResultSchema,
 } from "@/lib/types/ml-operations";
+
+/**
+ * Train a new prediction model
+ */
+export async function runTrainModel(
+  request: TrainModelRequest
+): Promise<TrainModelResult> {
+  return apiPost("/ml/train", request, TrainModelResultSchema);
+}
 
 /**
  * Run a historical backtest on model predictions

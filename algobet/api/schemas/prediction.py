@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Pydantic schemas for prediction-related API responses."""
 
 from datetime import datetime
@@ -9,6 +11,23 @@ from .match import MatchDetailResponse, MatchResponse, PredictedOutcome
 
 if TYPE_CHECKING:
     from .model import ModelVersionResponse
+
+
+class PredictionMatchSummaryResponse(BaseModel):
+    """Compact match summary for prediction listings."""
+
+    id: int
+    match_date: datetime
+    status: str
+    home_team_name: str
+    away_team_name: str
+    tournament_name: str | None = None
+    season_name: str | None = None
+    home_score: int | None = None
+    away_score: int | None = None
+    odds_home: float | None = None
+    odds_draw: float | None = None
+    odds_away: float | None = None
 
 
 class ValueBetResponse(BaseModel):
@@ -116,7 +135,14 @@ class PredictionWithMatchResponse(PredictionResponse):
     """Prediction with full match details."""
 
     match: MatchDetailResponse
-    model_version: "ModelVersionResponse"
+    model_version: ModelVersionResponse
+
+
+class PredictionListItemResponse(PredictionResponse):
+    """Prediction record with lightweight related match/model data."""
+
+    match: PredictionMatchSummaryResponse | None = None
+    model_version: ModelVersionResponse | None = None
 
 
 class PredictionFilters(BaseModel):

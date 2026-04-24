@@ -1,24 +1,21 @@
 """API router for prediction endpoints."""
 
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import and_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from algobet.api.dependencies import get_db
 from algobet.api.schemas import (
     MatchStatus,
-    ModelVersionResponse,
     PaginatedResponse,
-    PredictionResponse,
+    PredictionListItemResponse,
+    PredictionMatchSummaryResponse,
 )
-from algobet.api.schemas.match import MatchResponse as MR
-from algobet.models import Match, ModelVersion, Prediction
-from algobet.predictions.models.registry import ModelRegistry
+from algobet.models import Match, Prediction
+from algobet.services.prediction_service import PredictionResult, PredictionService
 
 router = APIRouter()
 
@@ -32,7 +29,57 @@ class GeneratePredictionsRequest(BaseModel):
     days_ahead: int | None = None
 
 
-@router.get("", response_model=PaginatedResponse[PredictionResponse])
+def _build_prediction_item(prediction: Prediction) -> PredictionListItemResponse:
+    """Build a prediction list item with compact related entities."""
+    match = prediction.match
+
+    match_summary = (
+        PredictionMatchSummaryResponse(
+            id=match.id,
+            match_date=match.match_date,
+            status=match.status,
+            home_team_name=match.home_team.name,
+            away_team_name=match.away_team.name,
+            tournament_name=match.tournament.name if match.tournament else None,
+            season_name=match.season.name if match.season else None,
+            home_score=match.home_score,
+            away_score=match.away_score,
+            odds_home=match.odds_home,
+            odds_draw=match.odds_draw,
+            odds_away=match.odds_away,
+        )
+        if match is not None
+        else None
+    )
+
+    return PredictionListItemResponse(
+        id=prediction.id,
+        match_id=prediction.match_id,
+        model_version_id=prediction.model_version_id,
+        prob_home=prediction.prob_home,
+        prob_draw=prediction.prob_draw,
+        prob_away=prediction.prob_away,
+        predicted_outcome=prediction.predicted_outcome,
+        confidence=prediction.confidence,
+        predicted_at=prediction.predicted_at,
+        actual_roi=prediction.actual_roi,
+        max_probability=prediction.max_probability,
+        match=match_summary,
+        model_version=prediction.model_version,
+    )
+
+
+class GeneratePredictionsResponse(BaseModel):
+    """Summary of a prediction generation request."""
+
+    generated: int
+    prediction_ids: list[int]
+    model_version: str
+    matches_processed: int
+    existing_predictions_skipped: int
+
+
+@router.get("", response_model=PaginatedResponse[PredictionListItemResponse])
 def list_predictions(
     match_id: int | None = Query(None, description="Filter by match ID"),
     model_version_id: int | None = Query(
@@ -53,12 +100,18 @@ def list_predictions(
     limit: int = Query(50, ge=1, le=1000, description="Maximum number of records"),
     offset: int = Query(0, ge=0, description="Number of records to skip"),
     db: Session = Depends(get_db),
-) -> PaginatedResponse[PredictionResponse]:
+) -> PaginatedResponse[PredictionListItemResponse]:
     """List predictions with filtering.
 
     Returns predictions matching the specified filters.
     """
-    query = db.query(Prediction)
+    query = db.query(Prediction).options(
+        joinedload(Prediction.match).joinedload(Match.home_team),
+        joinedload(Prediction.match).joinedload(Match.away_team),
+        joinedload(Prediction.match).joinedload(Match.tournament),
+        joinedload(Prediction.match).joinedload(Match.season),
+        joinedload(Prediction.model_version),
+    )
 
     if match_id:
         query = query.filter(Prediction.match_id == match_id)
@@ -96,23 +149,7 @@ def list_predictions(
         query.order_by(Prediction.predicted_at.desc()).offset(offset).limit(limit).all()
     )
 
-    items = []
-    for pred in predictions:
-        items.append(
-            PredictionResponse(
-                id=pred.id,
-                match_id=pred.match_id,
-                model_version_id=pred.model_version_id,
-                prob_home=pred.prob_home,
-                prob_draw=pred.prob_draw,
-                prob_away=pred.prob_away,
-                predicted_outcome=pred.predicted_outcome,
-                confidence=pred.confidence,
-                predicted_at=pred.predicted_at,
-                actual_roi=pred.actual_roi,
-                max_probability=pred.max_probability,
-            )
-        )
+    items = [_build_prediction_item(pred) for pred in predictions]
 
     return PaginatedResponse(
         items=items,
@@ -122,11 +159,11 @@ def list_predictions(
     )
 
 
-@router.post("/generate", response_model=dict[str, Any])
+@router.post("/generate", response_model=GeneratePredictionsResponse)
 def generate_predictions(
     request: GeneratePredictionsRequest,
     db: Session = Depends(get_db),
-) -> dict[str, Any]:
+) -> GeneratePredictionsResponse:
     """Generate predictions for upcoming matches.
 
     Creates predictions for specified matches or all upcoming matches in a tournament.
@@ -137,37 +174,24 @@ def generate_predictions(
     Returns:
         Summary of generated predictions
     """
-    # Get the model to use
-    registry = ModelRegistry(storage_path=Path("data/models"), session=db)
+    service = PredictionService(db)
 
     try:
-        if request.model_version:
-            # Use specified model version
-            model = registry.load_model(request.model_version)
-            model_version_record = (
-                db.query(ModelVersion)
-                .filter(ModelVersion.version == request.model_version)
-                .first()
-            )
-        else:
-            # Use active model
-            model, metadata = registry.get_active_model()
-            model_version_record = (
-                db.query(ModelVersion)
-                .filter(ModelVersion.version == metadata.version)
-                .first()
-            )
-
-        if not model_version_record:
-            raise HTTPException(
-                status_code=400, detail="No model available for predictions"
-            )
-
+        model, resolved_version = service.load_model(request.model_version)
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=400, detail=f"Model error: {str(e)}") from e
 
     # Get matches to predict
-    match_query = db.query(Match).filter(Match.status == MatchStatus.SCHEDULED)
+    match_query = (
+        db.query(Match)
+        .options(
+            joinedload(Match.home_team),
+            joinedload(Match.away_team),
+            joinedload(Match.tournament),
+            joinedload(Match.season),
+        )
+        .filter(Match.status == MatchStatus.SCHEDULED)
+    )
 
     if request.match_ids:
         match_query = match_query.filter(Match.id.in_(request.match_ids))
@@ -187,9 +211,8 @@ def generate_predictions(
 
     matches = match_query.all()
 
-    # Generate predictions (placeholder implementation)
-    # In a full implementation, this would use the ML model to make predictions
-    generated_predictions = []
+    prediction_results: list[PredictionResult] = []
+    skipped_predictions = 0
 
     for match in matches:
         # Check if prediction already exists for this match and model
@@ -198,53 +221,57 @@ def generate_predictions(
             .filter(
                 and_(
                     Prediction.match_id == match.id,
-                    Prediction.model_version_id == model_version_record.id,
+                    Prediction.model_version.has(version=resolved_version),
                 )
             )
             .first()
         )
 
         if existing:
-            continue  # Skip if already predicted
+            skipped_predictions += 1
+            continue
 
-        # Placeholder: Create a prediction with dummy probabilities
-        # In production, this would call model.predict()
-        prob_home = 0.40
-        prob_draw = 0.30
-        prob_away = 0.30
+        features = service.generate_features_v2(match)
+        if features is None:
+            features = service.generate_features(match)
 
-        # Determine predicted outcome
-        probs: dict[str, float] = {"H": prob_home, "D": prob_draw, "A": prob_away}
-        predicted_outcome = max(probs, key=lambda k: probs[k])
-        confidence = probs[predicted_outcome]
+        outcome, confidence, probabilities = service.get_prediction(model, features)
 
-        prediction = Prediction(
-            match_id=match.id,
-            model_version_id=model_version_record.id,
-            prob_home=prob_home,
-            prob_draw=prob_draw,
-            prob_away=prob_away,
-            predicted_outcome=predicted_outcome,
-            confidence=confidence,
+        prediction_results.append(
+            PredictionResult(
+                match_id=match.id,
+                match_date=match.match_date,
+                home_team=match.home_team.name,
+                away_team=match.away_team.name,
+                predicted_outcome=outcome,
+                confidence=confidence,
+                model_version=resolved_version,
+                prob_home=probabilities["home"],
+                prob_draw=probabilities["draw"],
+                prob_away=probabilities["away"],
+            )
         )
-        db.add(prediction)
-        generated_predictions.append(prediction)
 
+    saved_predictions = service.save_predictions(prediction_results)
     db.flush()
 
-    return {
-        "generated": len(generated_predictions),
-        "predictions": [pred.id for pred in generated_predictions],
-        "model_version": model_version_record.version,
-        "matches_processed": len(matches),
-    }
+    return GeneratePredictionsResponse(
+        generated=len(saved_predictions),
+        prediction_ids=[pred.id for pred in saved_predictions],
+        model_version=resolved_version,
+        matches_processed=len(matches),
+        existing_predictions_skipped=skipped_predictions,
+    )
 
 
-@router.get("/upcoming", response_model=PaginatedResponse[dict[str, Any]])
+@router.get("/upcoming", response_model=PaginatedResponse[PredictionListItemResponse])
 def get_upcoming_predictions(
     days: int = Query(7, ge=1, le=30, description="Days ahead for predictions"),
+    model_version_id: int | None = Query(
+        None, description="Optional model version filter"
+    ),
     db: Session = Depends(get_db),
-) -> PaginatedResponse[dict[str, Any]]:
+) -> PaginatedResponse[PredictionListItemResponse]:
     """Get predictions for upcoming matches.
 
     Returns predictions for matches in the next N days.
@@ -258,8 +285,15 @@ def get_upcoming_predictions(
     now = datetime.now(timezone.utc)
     end_date = now + timedelta(days=days)
 
-    predictions = (
+    query = (
         db.query(Prediction)
+        .options(
+            joinedload(Prediction.match).joinedload(Match.home_team),
+            joinedload(Prediction.match).joinedload(Match.away_team),
+            joinedload(Prediction.match).joinedload(Match.tournament),
+            joinedload(Prediction.match).joinedload(Match.season),
+            joinedload(Prediction.model_version),
+        )
         .join(Match)
         .filter(
             and_(
@@ -269,70 +303,32 @@ def get_upcoming_predictions(
             )
         )
         .order_by(Match.match_date)
-        .all()
     )
 
-    total = len(predictions)
-    items = []
-    for pred in predictions:
-        match = pred.match
+    if model_version_id is not None:
+        query = query.filter(Prediction.model_version_id == model_version_id)
 
-        # Build MatchDetailResponse
-        match_response = MR(
-            id=match.id,
-            tournament_id=match.tournament_id,
-            season_id=match.season_id,
-            home_team_id=match.home_team_id,
-            away_team_id=match.away_team_id,
-            match_date=match.match_date,
-            home_score=match.home_score,
-            away_score=match.away_score,
-            status=match.status,
-            odds_home=match.odds_home,
-            odds_draw=match.odds_draw,
-            odds_away=match.odds_away,
-            num_bookmakers=match.num_bookmakers,
-            created_at=match.created_at,
-            updated_at=match.updated_at,
-            result=None,  # Upcoming match has no result
-        )
-
-        # Build ModelVersionResponse
-        model_version = ModelVersionResponse.model_validate(pred.model_version)
-
-        items.append(
-            {
-                "id": pred.id,
-                "match_id": pred.match_id,
-                "model_version_id": pred.model_version_id,
-                "prob_home": pred.prob_home,
-                "prob_draw": pred.prob_draw,
-                "prob_away": pred.prob_away,
-                "predicted_outcome": pred.predicted_outcome,
-                "confidence": pred.confidence,
-                "predicted_at": pred.predicted_at,
-                "actual_roi": pred.actual_roi,
-                "max_probability": pred.max_probability,
-                "match": match_response,
-                "model_version": model_version.model_dump(),
-            }
-        )
+    predictions = query.all()
+    items = [_build_prediction_item(pred) for pred in predictions]
 
     return PaginatedResponse(
         items=items,
-        total=total,
+        total=len(items),
         limit=len(items),
         offset=0,
     )
 
 
-@router.get("/history", response_model=PaginatedResponse[PredictionResponse])
+@router.get("/history", response_model=PaginatedResponse[PredictionListItemResponse])
 def get_prediction_history(
+    model_version_id: int | None = Query(
+        None, description="Optional model version filter"
+    ),
     from_date: datetime | None = Query(None, description="Start date"),
     to_date: datetime | None = Query(None, description="End date"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of records"),
     db: Session = Depends(get_db),
-) -> PaginatedResponse[PredictionResponse]:
+) -> PaginatedResponse[PredictionListItemResponse]:
     """Get prediction accuracy history.
 
     Returns historical prediction accuracy metrics over time.
@@ -346,8 +342,20 @@ def get_prediction_history(
         Prediction accuracy history data
     """
     query = (
-        db.query(Prediction).join(Match).filter(Match.status == MatchStatus.FINISHED)
+        db.query(Prediction)
+        .options(
+            joinedload(Prediction.match).joinedload(Match.home_team),
+            joinedload(Prediction.match).joinedload(Match.away_team),
+            joinedload(Prediction.match).joinedload(Match.tournament),
+            joinedload(Prediction.match).joinedload(Match.season),
+            joinedload(Prediction.model_version),
+        )
+        .join(Match)
+        .filter(Match.status == MatchStatus.FINISHED)
     )
+
+    if model_version_id is not None:
+        query = query.filter(Prediction.model_version_id == model_version_id)
 
     if from_date:
         query = query.filter(Prediction.predicted_at >= from_date)
@@ -358,23 +366,7 @@ def get_prediction_history(
     total = query.count()
     predictions = query.order_by(Prediction.predicted_at.desc()).limit(limit).all()
 
-    items = []
-    for pred in predictions:
-        items.append(
-            PredictionResponse(
-                id=pred.id,
-                match_id=pred.match_id,
-                model_version_id=pred.model_version_id,
-                prob_home=pred.prob_home,
-                prob_draw=pred.prob_draw,
-                prob_away=pred.prob_away,
-                predicted_outcome=pred.predicted_outcome,
-                confidence=pred.confidence,
-                predicted_at=pred.predicted_at,
-                actual_roi=pred.actual_roi,
-                max_probability=pred.max_probability,
-            )
-        )
+    items = [_build_prediction_item(pred) for pred in predictions]
 
     return PaginatedResponse(
         items=items,

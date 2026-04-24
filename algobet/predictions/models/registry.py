@@ -26,6 +26,7 @@ class ModelMetadata:
     metrics: dict[str, float]
     feature_schema_version: str
     artifact_path: Path
+    hyperparameters: dict[str, Any] | None = None
     is_production: bool = False
     tags: dict[str, str] | None = None
     description: str | None = None
@@ -71,6 +72,7 @@ class ModelRegistry:
         metrics: dict[str, float],
         model_type: str = "xgboost",
         feature_schema_version: str = "v1.0",
+        hyperparameters: dict[str, Any] | None = None,
         description: str | None = None,
         tags: dict[str, str] | None = None,
     ) -> str:
@@ -82,6 +84,7 @@ class ModelRegistry:
             metrics: Dictionary of performance metrics (accuracy, log_loss, etc.)
             model_type: Type of model algorithm (xgboost, random_forest, etc.)
             feature_schema_version: Version of feature schema used
+            hyperparameters: Optional model/training hyperparameters metadata
             description: Optional description of the model
             tags: Optional dictionary of tags/labels
 
@@ -110,13 +113,14 @@ class ModelRegistry:
             metrics=metrics,
             feature_schema_version=feature_schema_version,
             artifact_path=artifact_path,
+            hyperparameters=hyperparameters,
             is_production=False,
             tags=tags or {},
             description=description,
         )
 
         metadata_path = version_dir / "metadata.json"
-        with open(metadata_path, "w") as f:
+        with open(metadata_path, "w", encoding="utf-8") as f:
             json.dump(metadata.to_dict(), f, indent=2)
 
         # Register in database
@@ -128,7 +132,7 @@ class ModelRegistry:
             file_path=str(artifact_path),
             is_active=False,
             metrics=metrics,
-            hyperparameters=None,  # Could be extended to save hyperparams
+            hyperparameters=hyperparameters,
             feature_schema_version=feature_schema_version,
             description=description,
         )
@@ -201,6 +205,7 @@ class ModelRegistry:
                 metrics=db_version.metrics or {},
                 feature_schema_version=db_version.feature_schema_version or "v1.0",
                 artifact_path=Path(db_version.file_path),
+                hyperparameters=db_version.hyperparameters or {},
                 is_production=db_version.is_active,
                 description=db_version.description,
             )
@@ -238,6 +243,7 @@ class ModelRegistry:
                 metrics=db_version.metrics or {},
                 feature_schema_version=db_version.feature_schema_version or "v1.0",
                 artifact_path=Path(db_version.file_path),
+                hyperparameters=db_version.hyperparameters or {},
                 is_production=db_version.is_active,
                 description=db_version.description,
             )

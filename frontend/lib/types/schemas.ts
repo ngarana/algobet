@@ -107,6 +107,21 @@ export const PredictionSchema = z.object({
   max_probability: z.number(),
 });
 
+export const PredictionMatchSummarySchema = z.object({
+  id: z.number(),
+  match_date: z.string(),
+  status: MatchStatusSchema,
+  home_team_name: z.string(),
+  away_team_name: z.string(),
+  tournament_name: z.string().nullable(),
+  season_name: z.string().nullable(),
+  home_score: z.number().nullable(),
+  away_score: z.number().nullable(),
+  odds_home: z.number().nullable(),
+  odds_draw: z.number().nullable(),
+  odds_away: z.number().nullable(),
+});
+
 // Update MatchDetailSchema predictions field now that PredictionSchema is defined
 export const MatchDetailSchemaComplete = MatchSchema.extend({
   tournament: TournamentSchema,
@@ -157,6 +172,13 @@ export const ModelVersionSchema = z.object({
   hyperparameters: z.record(z.unknown()).nullable(),
   feature_schema_version: z.string().nullable(),
   description: z.string().nullable(),
+});
+
+export const NullableModelVersionSchema = ModelVersionSchema.nullable();
+
+export const PredictionRecordSchema = PredictionSchema.extend({
+  match: PredictionMatchSummarySchema.nullable().optional(),
+  model_version: NullableModelVersionSchema.optional(),
 });
 
 // Update PredictionWithMatchSchema with complete ModelVersionSchema

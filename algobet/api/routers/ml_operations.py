@@ -10,7 +10,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 
 from algobet.api.dependencies import get_db
-from algobet.models import BacktestHistory, Match
+from algobet.models import BacktestHistory, Match, ModelVersion
 from algobet.predictions.data.queries import MatchRepository
 from algobet.predictions.evaluation import evaluate_predictions
 from algobet.predictions.features.pipeline import (
@@ -22,6 +22,7 @@ from algobet.predictions.training.calibration import (
     ProbabilityCalibrator,
     calculate_calibration_metrics,
 )
+from algobet.predictions.training.pipeline import TrainingConfig, TrainingPipeline
 
 router = APIRouter()
 
@@ -29,6 +30,35 @@ router = APIRouter()
 # =============================================================================
 # Request/Response Schemas
 # =============================================================================
+
+
+class TrainModelRequest(BaseModel):
+    """Request schema for model training."""
+
+    model_type: str = Field(
+        default="xgboost",
+        pattern="^(xgboost|lightgbm|random_forest)$",
+    )
+    tune_hyperparameters: bool = False
+    description: str | None = None
+    activate: bool = True
+
+
+class TrainModelResponse(BaseModel):
+    """Response schema for model training."""
+
+    model_id: int | None = None
+    model_version: str
+    model_type: str
+    is_active: bool
+    feature_schema_version: str
+    num_features: int
+    trained_at: str
+    training_duration_seconds: float
+    train_metrics: dict[str, float]
+    val_metrics: dict[str, float]
+    test_metrics: dict[str, float]
+    feature_importance: dict[str, float] | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -129,6 +159,62 @@ class CalibrateResultResponse(BaseModel):
 # =============================================================================
 # Endpoints
 # =============================================================================
+
+
+@router.post("/train", response_model=TrainModelResponse)
+def run_training(
+    request: TrainModelRequest,
+    db: Session = Depends(get_db),
+) -> TrainModelResponse:
+    """Train a prediction model and optionally activate it."""
+    config = TrainingConfig(
+        model_type=request.model_type,
+        tune_hyperparameters=request.tune_hyperparameters,
+        description=request.description
+        or f"Frontend trained {request.model_type} model",
+    )
+
+    try:
+        pipeline = TrainingPipeline(
+            config=config,
+            session=db,
+            models_path=Path("data/models"),
+        )
+        result = pipeline.run()
+    except (ImportError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Training failed: {e}",
+        ) from e
+
+    registry = ModelRegistry(storage_path=Path("data/models"), session=db)
+    is_active = False
+    if request.activate:
+        registry.activate_model(result.model_version)
+        is_active = True
+
+    db_model = (
+        db.query(ModelVersion)
+        .filter(ModelVersion.version == result.model_version)
+        .first()
+    )
+
+    return TrainModelResponse(
+        model_id=db_model.id if db_model else None,
+        model_version=result.model_version,
+        model_type=result.model_type,
+        is_active=is_active,
+        feature_schema_version=result.feature_schema_version,
+        num_features=result.num_features,
+        trained_at=result.trained_at.isoformat(),
+        training_duration_seconds=result.training_duration_seconds,
+        train_metrics=result.train_metrics,
+        val_metrics=result.val_metrics,
+        test_metrics=result.test_metrics,
+        feature_importance=result.feature_importance,
+    )
 
 
 @router.post("/backtest", response_model=BacktestResultResponse)
@@ -498,6 +584,11 @@ def run_calibrate(
         name="match_predictor_calibrated",
         metrics=metrics,
         model_type="calibrated",
+        hyperparameters={
+            "base_model_version": base_version,
+            "calibration_method": request.method,
+            "feature_names": feature_pipeline.feature_names,
+        },
         description=f"Calibrated version of {base_version} using {request.method}",
     )
 
