@@ -72,8 +72,14 @@ Thumbs.db
 # Data files
 data/raw/
 data/processed/
-data/models/*.joblib
-data/models/*.pkl
+data/models/**/*.joblib
+data/models/**/*.pkl
+data/models/**/*.json
+data/models/**/model.pkl
+data/models/**/metadata.json
+data/pipelines/**
+!data/models/README.md
+!data/pipelines/README.md
 data/scraped/
 *.csv
 *.xlsx
