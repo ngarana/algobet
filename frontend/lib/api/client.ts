@@ -37,37 +37,44 @@ async function handleResponse<T>(
     );
   }
 
-  // Handle empty responses
-  const contentType = response.headers.get("content-type");
-  if (!contentType || !contentType.includes("application/json")) {
-    return {} as T;
-  }
-
-  const text = await response.text();
-  if (!text || text.trim() === "") {
-    return {} as T;
-  }
-
   let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
+  const contentType = response.headers?.get?.("content-type");
+
+  if (contentType?.includes("application/json")) {
+    const text = await response.text();
+    if (!text || text.trim() === "") {
+      return {} as T;
+    }
+
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return {} as T;
+    }
+  } else if (typeof response.json === "function") {
+    data = await response.json().catch(() => undefined);
+  } else {
     return {} as T;
   }
 
-  // Handle null data
-  if (data === null || data === undefined) {
+  if (data === undefined) {
     return {} as T;
+  }
+
+  if (data === null) {
+    return data as T;
   }
 
   if (schema) {
-    const result = schema.safeParse(data);
-    if (!result.success) {
-      console.warn("API response validation warning:", result.error);
-      // Return data anyway instead of throwing
-      return data as T;
+    try {
+      return schema.parse(data);
+    } catch (error) {
+      throw new Error(
+        `Invalid API response format: ${
+          error instanceof Error ? error.message : "Schema validation failed"
+        }`
+      );
     }
-    return result.data;
   }
 
   return data as T;

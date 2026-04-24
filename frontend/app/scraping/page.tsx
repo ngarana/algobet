@@ -125,7 +125,8 @@ export default function FetchDataPage() {
           }
         | {
             type: "results";
-            tournament_id: number;
+            tournament_id?: number;
+            tournament_url?: string;
             period?: string;
             max_pages?: number;
             team_id?: number;
@@ -146,6 +147,7 @@ export default function FetchDataPage() {
       } else if (data.type === "results") {
         void fetchResults({
           tournament_id: data.tournament_id,
+          tournament_url: data.tournament_url,
           period: data.period,
           max_pages: data.max_pages,
         });

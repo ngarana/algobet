@@ -65,6 +65,8 @@ export interface FetchResultsRequest {
   tournament_id?: number;
   tournament_url?: string;
   period?: string;
+  period_start?: string;
+  period_end?: string;
   max_pages?: number;
 }
 

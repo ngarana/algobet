@@ -33,8 +33,11 @@ type FetchDialogSubmitData =
     }
   | {
       type: "results";
-      tournament_id: number;
+      tournament_id?: number;
+      tournament_url?: string;
       period?: string;
+      period_start?: string;
+      period_end?: string;
       max_pages?: number;
       team_id?: number;
     }
@@ -68,6 +71,10 @@ export function FetchDialog({
   const [date, setDate] = useState("");
   const [period, setPeriod] = useState("");
   const [maxPages, setMaxPages] = useState("");
+  const [resultsInputMode, setResultsInputMode] = useState<"select" | "link">("select");
+  const [leagueLink, setLeagueLink] = useState("");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
 
   const config = FETCH_DIALOG_CONFIG[type];
   const { data: tournaments = [], isLoading: tournamentsLoading } = useTournaments();
@@ -92,6 +99,10 @@ export function FetchDialog({
     setDate("");
     setPeriod("");
     setMaxPages("");
+    setResultsInputMode("select");
+    setLeagueLink("");
+    setPeriodStart("");
+    setPeriodEnd("");
   }, [type]);
 
   const countries = useMemo(
@@ -123,7 +134,9 @@ export function FetchDialog({
     (tournament) => String(tournament.id) === selectedTournamentId
   );
 
-  const requiresLeague = type === FetchDialogType.RESULTS || scope === LEAGUE_SCOPE;
+  const requiresLeague =
+    (type === FetchDialogType.RESULTS && resultsInputMode === "select") ||
+    scope === LEAGUE_SCOPE;
   const hasSeasonSuggestions = seasons.length > 0;
 
   const handleClose = () => {
@@ -138,14 +151,24 @@ export function FetchDialog({
         tournament_id: requiresLeague ? (tournamentId ?? undefined) : undefined,
         team_id: requiresLeague ? (teamId ?? undefined) : undefined,
       });
-    } else if (type === FetchDialogType.RESULTS && tournamentId) {
-      onConfirm({
-        type: "results",
-        tournament_id: tournamentId,
-        period: period || undefined,
-        max_pages: maxPages ? Number(maxPages) : undefined,
-        team_id: teamId ?? undefined,
-      });
+    } else if (type === FetchDialogType.RESULTS) {
+      if (resultsInputMode === "link") {
+        onConfirm({
+          type: "results",
+          tournament_url: leagueLink,
+          period_start: periodStart || undefined,
+          period_end: periodEnd || undefined,
+          max_pages: maxPages ? Number(maxPages) : undefined,
+        });
+      } else if (tournamentId) {
+        onConfirm({
+          type: "results",
+          tournament_id: tournamentId,
+          period: period || undefined,
+          max_pages: maxPages ? Number(maxPages) : undefined,
+          team_id: teamId ?? undefined,
+        });
+      }
     } else if (type === FetchDialogType.BY_DATE) {
       onConfirm({
         type: "by-date",
@@ -160,8 +183,12 @@ export function FetchDialog({
 
   const isConfirmDisabled =
     isLoading ||
-    (requiresLeague && !tournamentId) ||
-    (type === FetchDialogType.RESULTS && tournamentsLoading);
+    (type === FetchDialogType.RESULTS && resultsInputMode === "link"
+      ? !leagueLink.trim()
+      : requiresLeague && !tournamentId) ||
+    (type === FetchDialogType.RESULTS &&
+      resultsInputMode === "select" &&
+      tournamentsLoading);
 
   return (
     <Card className="border-[#252a37] bg-[#12151d]">
@@ -210,113 +237,166 @@ export function FetchDialog({
             </div>
           )}
 
-          {requiresLeague && (
-            <>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country</Label>
-                  <Select
-                    value={selectedCountry}
-                    onValueChange={(value) => {
-                      setSelectedCountry(value);
-                      setSelectedTournamentId(NO_LEAGUE);
-                      setSelectedTeamId(NO_TEAM);
-                      setPeriod("");
-                    }}
-                  >
-                    <SelectTrigger
-                      id="country"
-                      className="border-[#252a37] bg-[#161a25]"
-                    >
-                      <SelectValue
-                        placeholder={
-                          tournamentsLoading ? "Loading countries..." : "Select country"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {countries.map((country) => (
-                        <SelectItem key={country} value={country}>
-                          {country}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="league">League</Label>
-                  <Select
-                    value={selectedTournamentId}
-                    onValueChange={(value) => {
-                      setSelectedTournamentId(value);
-                      setSelectedTeamId(NO_TEAM);
-                      setPeriod("");
-                    }}
-                    disabled={selectedCountry === NO_COUNTRY}
-                  >
-                    <SelectTrigger
-                      id="league"
-                      className="border-[#252a37] bg-[#161a25]"
-                    >
-                      <SelectValue
-                        placeholder={
-                          selectedCountry === NO_COUNTRY
-                            ? "Choose country first"
-                            : "Select league"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {filteredTournaments.map((tournament) => (
-                        <SelectItem key={tournament.id} value={String(tournament.id)}>
-                          {tournament.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="team">Team (Optional)</Label>
-                  <Select
-                    value={selectedTeamId}
-                    onValueChange={setSelectedTeamId}
-                    disabled={selectedTournamentId === NO_LEAGUE}
-                  >
-                    <SelectTrigger id="team" className="border-[#252a37] bg-[#161a25]">
-                      <SelectValue
-                        placeholder={
-                          selectedTournamentId === NO_LEAGUE
-                            ? "Choose league first"
-                            : teamsLoading
-                              ? "Loading teams..."
-                              : "All Teams"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_TEAM}>All Teams</SelectItem>
-                      {teams.map((team) => (
-                        <SelectItem key={team.id} value={String(team.id)}>
-                          {team.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+          {type === FetchDialogType.RESULTS && (
+            <div className="space-y-2">
+              <Label>League Selection Mode</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 text-sm text-[#e0e6f0]">
+                  <input
+                    type="radio"
+                    name="resultsInputMode"
+                    checked={resultsInputMode === "select"}
+                    onChange={() => setResultsInputMode("select")}
+                    className="h-4 w-4 accent-[#f59e0b]"
+                  />
+                  Select from dropdown
+                </label>
+                <label className="flex items-center gap-2 text-sm text-[#e0e6f0]">
+                  <input
+                    type="radio"
+                    name="resultsInputMode"
+                    checked={resultsInputMode === "link"}
+                    onChange={() => setResultsInputMode("link")}
+                    className="h-4 w-4 accent-[#f59e0b]"
+                  />
+                  Paste league link
+                </label>
               </div>
-
-              {selectedTournament && (
-                <div className="rounded-lg border border-[#252a37] bg-[#161a25] px-3 py-2 text-sm text-[#9ca3af]">
-                  Targeting{" "}
-                  <span className="text-[#e0e6f0]">{selectedTournament.name}</span>
-                  {" · "}
-                  {selectedTournament.country}
-                </div>
-              )}
-            </>
+            </div>
           )}
+
+          {requiresLeague &&
+            type === FetchDialogType.RESULTS &&
+            resultsInputMode === "link" && (
+              <div className="space-y-2">
+                <Label htmlFor="league-link">League Results URL</Label>
+                <Input
+                  id="league-link"
+                  value={leagueLink}
+                  onChange={(e) => setLeagueLink(e.target.value)}
+                  placeholder="https://www.oddsportal.com/football/england/premier-league/results/"
+                  className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
+                />
+                <p className="text-xs text-[#9ca3af]">
+                  Paste the full OddsPortal results URL for the league you want to
+                  scrape.
+                </p>
+              </div>
+            )}
+
+          {requiresLeague &&
+            !(type === FetchDialogType.RESULTS && resultsInputMode === "link") && (
+              <>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="country">Country</Label>
+                    <Select
+                      value={selectedCountry}
+                      onValueChange={(value) => {
+                        setSelectedCountry(value);
+                        setSelectedTournamentId(NO_LEAGUE);
+                        setSelectedTeamId(NO_TEAM);
+                        setPeriod("");
+                      }}
+                    >
+                      <SelectTrigger
+                        id="country"
+                        className="border-[#252a37] bg-[#161a25]"
+                      >
+                        <SelectValue
+                          placeholder={
+                            tournamentsLoading
+                              ? "Loading countries..."
+                              : "Select country"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {countries.map((country) => (
+                          <SelectItem key={country} value={country}>
+                            {country}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="league">League</Label>
+                    <Select
+                      value={selectedTournamentId}
+                      onValueChange={(value) => {
+                        setSelectedTournamentId(value);
+                        setSelectedTeamId(NO_TEAM);
+                        setPeriod("");
+                      }}
+                      disabled={selectedCountry === NO_COUNTRY}
+                    >
+                      <SelectTrigger
+                        id="league"
+                        className="border-[#252a37] bg-[#161a25]"
+                      >
+                        <SelectValue
+                          placeholder={
+                            selectedCountry === NO_COUNTRY
+                              ? "Choose country first"
+                              : "Select league"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filteredTournaments.map((tournament) => (
+                          <SelectItem key={tournament.id} value={String(tournament.id)}>
+                            {tournament.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="team">Team (Optional)</Label>
+                    <Select
+                      value={selectedTeamId}
+                      onValueChange={setSelectedTeamId}
+                      disabled={selectedTournamentId === NO_LEAGUE}
+                    >
+                      <SelectTrigger
+                        id="team"
+                        className="border-[#252a37] bg-[#161a25]"
+                      >
+                        <SelectValue
+                          placeholder={
+                            selectedTournamentId === NO_LEAGUE
+                              ? "Choose league first"
+                              : teamsLoading
+                                ? "Loading teams..."
+                                : "All Teams"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_TEAM}>All Teams</SelectItem>
+                        {teams.map((team) => (
+                          <SelectItem key={team.id} value={String(team.id)}>
+                            {team.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {selectedTournament && (
+                  <div className="rounded-lg border border-[#252a37] bg-[#161a25] px-3 py-2 text-sm text-[#9ca3af]">
+                    Targeting{" "}
+                    <span className="text-[#e0e6f0]">{selectedTournament.name}</span>
+                    {" · "}
+                    {selectedTournament.country}
+                  </div>
+                )}
+              </>
+            )}
 
           {type === FetchDialogType.RESULTS && (
             <>

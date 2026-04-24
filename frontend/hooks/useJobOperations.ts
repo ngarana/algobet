@@ -25,7 +25,8 @@ interface UseJobOperationsReturn {
     scope?: "all" | "league";
   }) => Promise<void>;
   fetchResults: (request: {
-    tournament_id: number;
+    tournament_id?: number;
+    tournament_url?: string;
     period?: string;
     max_pages?: number;
   }) => Promise<void>;
@@ -128,9 +129,14 @@ export function useJobOperations(
    * Fetch results for a tournament
    */
   const fetchResults = useCallback(
-    async (request: { tournament_id: number; period?: string; max_pages?: number }) => {
-      if (!request.tournament_id) {
-        addLog("ERR", "League selection is required");
+    async (request: {
+      tournament_id?: number;
+      tournament_url?: string;
+      period?: string;
+      max_pages?: number;
+    }) => {
+      if (!request.tournament_id && !request.tournament_url) {
+        addLog("ERR", "League selection or URL is required");
         onError?.(ERROR_MESSAGES.TOURNAMENT_URL_REQUIRED);
         return;
       }
@@ -138,6 +144,7 @@ export function useJobOperations(
         () =>
           fetchResultsMutation.mutateAsync({
             tournament_id: request.tournament_id,
+            tournament_url: request.tournament_url,
             period: request.period,
             max_pages: request.max_pages,
           }),
