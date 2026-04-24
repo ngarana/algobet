@@ -268,18 +268,47 @@ export function FetchDialog({
           {requiresLeague &&
             type === FetchDialogType.RESULTS &&
             resultsInputMode === "link" && (
-              <div className="space-y-2">
-                <Label htmlFor="league-link">League Results URL</Label>
-                <Input
-                  id="league-link"
-                  value={leagueLink}
-                  onChange={(e) => setLeagueLink(e.target.value)}
-                  placeholder="https://www.oddsportal.com/football/england/premier-league/results/"
-                  className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
-                />
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="league-link">League Results URL</Label>
+                  <Input
+                    id="league-link"
+                    value={leagueLink}
+                    onChange={(e) => setLeagueLink(e.target.value)}
+                    placeholder="https://www.oddsportal.com/football/england/premier-league/results/"
+                    className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
+                  />
+                  <p className="text-xs text-[#9ca3af]">
+                    Paste the full OddsPortal results URL for the league you want to
+                    scrape.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="period-start">Period Start</Label>
+                    <Input
+                      id="period-start"
+                      value={periodStart}
+                      onChange={(e) => setPeriodStart(e.target.value)}
+                      placeholder="e.g. 2010-2011"
+                      className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="period-end">Period End</Label>
+                    <Input
+                      id="period-end"
+                      value={periodEnd}
+                      onChange={(e) => setPeriodEnd(e.target.value)}
+                      placeholder="e.g. 2019-2020"
+                      className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
+                    />
+                  </div>
+                </div>
                 <p className="text-xs text-[#9ca3af]">
-                  Paste the full OddsPortal results URL for the league you want to
-                  scrape.
+                  Specify a period range to scrape multiple seasons. Leave blank to
+                  scrape only the current season from the URL.
                 </p>
               </div>
             )}

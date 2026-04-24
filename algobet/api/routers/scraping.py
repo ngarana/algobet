@@ -101,6 +101,26 @@ def _normalize_period(value: str | None) -> str | None:
     return normalized or None
 
 
+def _generate_seasons(period_start: str, period_end: str) -> list[str]:
+    """Generate a list of seasons between start and end periods.
+
+    Args:
+        period_start: Start period (e.g., '2010-2011')
+        period_end: End period (e.g., '2019-2020')
+
+    Returns:
+        List of season strings (e.g., ['2010-2011', '2011-2012', ...])
+    """
+    try:
+        start_year = int(period_start.split("-")[0])
+        end_year = int(period_end.split("-")[0])
+        return [f"{year}-{year + 1}" for year in range(start_year, end_year + 1)]
+    except (ValueError, IndexError) as e:
+        raise ValueError(
+            f"Invalid period format. Expected 'YYYY-YYYY', got '{period_start}' or '{period_end}'"
+        ) from e
+
+
 def _lookup_tournament(
     db: Session, tournament_id: int | None, tournament_url: str | HttpUrl | None
 ) -> Tournament | None:
@@ -530,6 +550,10 @@ async def scrape_results(
             request_data["period"] = season
         if max_pages is not None:
             request_data["max_pages"] = max_pages
+        if period_start is not None:
+            request_data["period_start"] = period_start
+        if period_end is not None:
+            request_data["period_end"] = period_end
         resolved_request = ResultsScrapeRequest(**request_data)
         tournament = _lookup_tournament(
             db, resolved_request.tournament_id, resolved_request.tournament_url
@@ -558,6 +582,8 @@ async def scrape_results(
         )
         job_create.start_date = start_date
         job_create.end_date = end_date
+        job_create.period_start = resolved_request.period_start
+        job_create.period_end = resolved_request.period_end
 
         job_id = str(uuid.uuid4())
         job = ScrapingJobResponse(

@@ -144,18 +144,22 @@ class TestPredictionRouterContracts:
         test_session.add_all([tournament, season, home_team, away_team, model, match])
         test_session.commit()
 
-        with patch(
-            "algobet.api.routers.predictions.PredictionService.load_model",
-            return_value=(MagicMock(), "v2.0.0"),
-        ), patch(
-            "algobet.api.routers.predictions.PredictionService.generate_features_v2",
-            return_value=np.array([[1.0, 2.0, 3.0]], dtype=np.float64),
-        ), patch(
-            "algobet.api.routers.predictions.PredictionService.get_prediction",
-            return_value=(
-                "HOME",
-                0.67,
-                {"home": 0.67, "draw": 0.2, "away": 0.13},
+        with (
+            patch(
+                "algobet.api.routers.predictions.PredictionService.load_model",
+                return_value=(MagicMock(), "v2.0.0"),
+            ),
+            patch(
+                "algobet.api.routers.predictions.PredictionService.generate_features_v2",
+                return_value=np.array([[1.0, 2.0, 3.0]], dtype=np.float64),
+            ),
+            patch(
+                "algobet.api.routers.predictions.PredictionService.get_prediction",
+                return_value=(
+                    "HOME",
+                    0.67,
+                    {"home": 0.67, "draw": 0.2, "away": 0.13},
+                ),
             ),
         ):
             response = test_client.post(
