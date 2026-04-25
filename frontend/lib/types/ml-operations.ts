@@ -13,6 +13,28 @@ export const TrainModelRequestSchema = z.object({
   tune_hyperparameters: z.boolean().default(false),
   description: z.string().trim().min(1).max(500).optional(),
   activate: z.boolean().default(true),
+
+  // Data range settings
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  min_matches: z.number().min(10).max(100000).default(100),
+
+  // Train/val/test split ratios
+  train_ratio: z.number().min(0.1).max(0.9).default(0.7),
+  val_ratio: z.number().min(0.05).max(0.45).default(0.15),
+  test_ratio: z.number().min(0.05).max(0.45).default(0.15),
+
+  // Training settings
+  random_seed: z.number().min(0).max(999999).default(42),
+  early_stopping_rounds: z.number().min(10).max(500).default(50),
+  tuning_trials: z.number().min(10).max(500).default(50),
+
+  // Calibration settings
+  calibrate_probabilities: z.boolean().default(true),
+  calibration_method: z.enum(["isotonic", "sigmoid"]).default("isotonic"),
+
+  // Custom hyperparameters
+  hyperparameters: z.record(z.unknown()).default({}),
 });
 
 export const TrainModelResultSchema = z.object({

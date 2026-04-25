@@ -287,20 +287,32 @@ class TrainingPipeline:
         """Prepare training data from database.
 
         Steps:
-            1. Load historical matches
-            2. Generate raw features once for all matches
-            3. Split by temporal indices
-            4. Fit transformers on training subset only
-            5. Transform all three subsets
-            6. Save fitted pipeline to disk for inference
+        1. Load historical matches
+        2. Generate raw features once for all matches
+        3. Split by temporal indices
+        4. Fit transformers on training subset only
+        5. Transform all three subsets
+        6. Save fitted pipeline to disk for inference
         """
         from algobet.predictions.features.pipeline import prepare_match_dataframe
 
-        # Get historical matches
-        matches = self.repo.get_historical_matches(require_results=True)
+        # Get historical matches with optional date filters
+        matches = self.repo.get_historical_matches(
+            min_date=getattr(self.config, 'start_date', None),
+            max_date=getattr(self.config, 'end_date', None),
+            require_results=True,
+        )
 
         if not matches:
             raise ValueError("No historical matches found for training")
+
+        # Check minimum matches requirement if specified
+        min_matches = getattr(self.config, 'min_matches', None)
+        if min_matches and len(matches) < min_matches:
+            raise ValueError(
+                f"Insufficient matches: {len(matches)} < {min_matches}. "
+                "Adjust date range or reduce minimum matches requirement."
+            )
 
         # Convert to DataFrame
         matches_df = prepare_match_dataframe(matches)

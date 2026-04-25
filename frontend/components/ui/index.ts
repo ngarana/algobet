@@ -30,3 +30,10 @@ export {
   SelectTrigger,
   SelectValue,
 } from "./select";
+export { Slider } from "./slider";
+export {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "./accordion";

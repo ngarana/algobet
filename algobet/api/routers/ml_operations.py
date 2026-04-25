@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -42,6 +43,28 @@ class TrainModelRequest(BaseModel):
     tune_hyperparameters: bool = False
     description: str | None = None
     activate: bool = True
+
+    # Data range settings
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    min_matches: int = Field(default=100, ge=10, le=100000)
+
+    # Train/val/test split ratios
+    train_ratio: float = Field(default=0.7, ge=0.1, le=0.9)
+    val_ratio: float = Field(default=0.15, ge=0.05, le=0.45)
+    test_ratio: float = Field(default=0.15, ge=0.05, le=0.45)
+
+    # Training settings
+    random_seed: int = Field(default=42, ge=0, le=999999)
+    early_stopping_rounds: int = Field(default=50, ge=10, le=500)
+    tuning_trials: int = Field(default=50, ge=10, le=500)
+
+    # Calibration settings
+    calibrate_probabilities: bool = True
+    calibration_method: str = Field(default="isotonic", pattern="^(isotonic|sigmoid)$")
+
+    # Custom hyperparameters (optional)
+    hyperparameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class TrainModelResponse(BaseModel):
@@ -167,11 +190,32 @@ def run_training(
     db: Session = Depends(get_db),
 ) -> TrainModelResponse:
     """Train a prediction model and optionally activate it."""
+    # Validate split ratios sum to 1.0
+    total_ratio = request.train_ratio + request.val_ratio + request.test_ratio
+    if abs(total_ratio - 1.0) > 0.001:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Split ratios must sum to 1.0, got {total_ratio:.2f}",
+        )
+
     config = TrainingConfig(
         model_type=request.model_type,
         tune_hyperparameters=request.tune_hyperparameters,
         description=request.description
         or f"Frontend trained {request.model_type} model",
+        # Split ratios
+        train_ratio=request.train_ratio,
+        val_ratio=request.val_ratio,
+        test_ratio=request.test_ratio,
+        # Training settings
+        random_seed=request.random_seed,
+        early_stopping_rounds=request.early_stopping_rounds,
+        tuning_trials=request.tuning_trials,
+        # Calibration settings
+        calibrate_probabilities=request.calibrate_probabilities,
+        calibration_method=request.calibration_method,
+        # Custom hyperparameters
+        hyperparameters=request.hyperparameters,
     )
 
     try:
