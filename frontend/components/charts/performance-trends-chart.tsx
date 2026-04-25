@@ -7,9 +7,7 @@ interface PerformanceTrendsProps {
   isLoading?: boolean;
 }
 
-export function PerformanceTrendsChart({
-  isLoading = false,
-}: PerformanceTrendsProps) {
+export function PerformanceTrendsChart({ isLoading = false }: PerformanceTrendsProps) {
   if (isLoading) {
     return (
       <div className="h-64">

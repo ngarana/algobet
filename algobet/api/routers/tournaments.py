@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("", response_model=list[TournamentResponse])
-@cache(expire=3600)
+@cache(expire=3600)  # type: ignore[misc]
 def list_tournaments(
     limit: int = Query(100, ge=1, le=100, description="Maximum number of tournaments"),
     db: Session = Depends(get_db),

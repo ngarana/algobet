@@ -1,10 +1,16 @@
 import { useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Grid, List } from "lucide-react";
 
 import { PredictionControls } from "@/components/predictions";
 import { PredictionStats } from "@/components/predictions";
 import { PredictionFilters } from "@/components/predictions";
 import { PredictionTable } from "@/components/predictions";
+import { PredictionCard } from "@/components/predictions";
+import { ModelPerformanceCard } from "@/components/predictions";
+import { PredictionDetailModal } from "@/components/predictions";
+import { ExportButton } from "@/components/predictions";
 import type { Prediction } from "@/lib/types/api";
 import type { PredictionFilterState } from "@/components/predictions/PredictionFilters";
 import type { ModelVersion, PredictionMatchSummary } from "@/lib/types/api";
@@ -28,8 +34,10 @@ interface PredictionDashboardProps {
   title: string;
   description: string;
   showRoi: boolean;
-  onRefresh: () => void;
+  _onRefresh?: () => void;
 }
+
+type ViewMode = "table" | "card";
 
 export default function PredictionDashboard({
   activeModel,
@@ -49,13 +57,16 @@ export default function PredictionDashboard({
   title,
   description,
   showRoi,
-  onRefresh,
+  _onRefresh,
 }: PredictionDashboardProps) {
   const [filters, setFilters] = useState<PredictionFilterState>({});
   const [sortConfig, setSortConfig] = useState<{
     key: keyof Prediction | "match" | "probabilities";
     direction: "asc" | "desc";
   } | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [selectedPrediction, setSelectedPrediction] = useState<Prediction | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
 
   // Filter predictions based on filter state
   const filteredPredictions = useMemo(() => {
@@ -192,6 +203,25 @@ export default function PredictionDashboard({
     (v) => v !== undefined && v !== ""
   ).length;
 
+  const handleViewDetails = (prediction: Prediction) => {
+    setSelectedPrediction(prediction);
+    setDetailModalOpen(true);
+  };
+
+  const handleExportPrediction = (prediction: Prediction) => {
+    const data = [prediction];
+    const jsonContent = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonContent], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `prediction-${prediction.id}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       <PredictionControls
@@ -209,35 +239,99 @@ export default function PredictionDashboard({
         onActivate={onActivate}
       />
 
-      <PredictionStats
-        predictions={predictions}
-        filteredPredictions={filteredPredictions}
-      />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <PredictionStats
+            predictions={predictions}
+            filteredPredictions={filteredPredictions}
+          />
 
-      <Card>
-        <div className="space-y-4">
-          <div className="flex flex-col gap-4 p-6">
-            <PredictionFilters
-              filters={filters}
-              onFiltersChange={setFilters}
-              availableModels={models}
-              activeFilterCount={activeFilterCount}
+          <Card>
+            <div className="space-y-4">
+              <div className="flex flex-col gap-4 p-6">
+                <div className="flex flex-col justify-between gap-4 sm:flex-row">
+                  <PredictionFilters
+                    filters={filters}
+                    onFiltersChange={setFilters}
+                    availableModels={models}
+                    activeFilterCount={activeFilterCount}
+                  />
+                  <div className="flex items-center gap-2">
+                    <ExportButton predictions={sortedPredictions} />
+                    <div className="flex rounded-md border">
+                      <Button
+                        variant={viewMode === "table" ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setViewMode("table")}
+                        className="rounded-r-none"
+                      >
+                        <List className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant={viewMode === "card" ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setViewMode("card")}
+                        className="rounded-l-none"
+                      >
+                        <Grid className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {viewMode === "table" ? (
+                <PredictionTable
+                  predictions={sortedPredictions}
+                  originalPredictions={predictions}
+                  filteredPredictions={filteredPredictions}
+                  showRoi={showRoi}
+                  isLoading={isLoading}
+                  title={title}
+                  description={description}
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                  onViewDetails={handleViewDetails}
+                />
+              ) : (
+                <div className="p-6">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {sortedPredictions.map((prediction) => (
+                      <PredictionCard
+                        key={prediction.id}
+                        prediction={prediction}
+                        showRoi={showRoi}
+                        onViewDetails={handleViewDetails}
+                      />
+                    ))}
+                  </div>
+                  {sortedPredictions.length === 0 && !isLoading && (
+                    <div className="py-8 text-center text-muted-foreground">
+                      No predictions found
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        {selectedModel && (
+          <div className="space-y-6">
+            <ModelPerformanceCard
+              model={selectedModel}
+              totalPredictions={predictions.length}
             />
           </div>
+        )}
+      </div>
 
-          <PredictionTable
-            predictions={sortedPredictions}
-            originalPredictions={predictions}
-            filteredPredictions={filteredPredictions}
-            showRoi={showRoi}
-            isLoading={isLoading}
-            title={title}
-            description={description}
-            sortConfig={sortConfig}
-            onSort={handleSort}
-          />
-        </div>
-      </Card>
+      <PredictionDetailModal
+        prediction={selectedPrediction}
+        open={detailModalOpen}
+        onOpenChange={setDetailModalOpen}
+        onExport={handleExportPrediction}
+      />
     </div>
   );
 }

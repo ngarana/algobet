@@ -1,3 +1,5 @@
+import { Eye } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { ConfidenceIndicator } from "./ConfidenceIndicator";
 import ValueBetIndicator from "./ValueBetIndicator";
 import type { Prediction } from "@/lib/types/api";
@@ -5,6 +7,7 @@ import type { Prediction } from "@/lib/types/api";
 interface PredictionRowProps {
   prediction: Prediction;
   showRoi: boolean;
+  onViewDetails?: (prediction: Prediction) => void;
 }
 
 const outcomeLabels: Record<string, string> = {
@@ -49,13 +52,21 @@ function ProbabilityBar({
   );
 }
 
-export default function PredictionRow({ prediction, showRoi }: PredictionRowProps) {
+export default function PredictionRow({
+  prediction,
+  showRoi,
+  onViewDetails,
+}: PredictionRowProps) {
   const match = prediction.match;
   const matchLabel = match
     ? `${match.home_team_name} vs ${match.away_team_name}`
     : `Match #${prediction.match_id}`;
 
   const isValueBet = prediction.actual_roi !== null && prediction.actual_roi > 0;
+
+  const handleViewDetails = () => {
+    onViewDetails?.(prediction);
+  };
 
   return (
     <tr className="border-b transition-colors hover:bg-muted/50">
@@ -142,6 +153,16 @@ export default function PredictionRow({ prediction, showRoi }: PredictionRowProp
           )}
         </td>
       )}
+      <td className="p-4 align-middle">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleViewDetails}
+          title="View Details"
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
+      </td>
     </tr>
   );
 }

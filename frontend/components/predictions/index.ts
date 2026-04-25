@@ -6,4 +6,8 @@ export { default as PredictionDashboard } from "./PredictionDashboard";
 export { ConfidenceIndicator } from "./ConfidenceIndicator";
 export { default as ValueBetIndicator } from "./ValueBetIndicator";
 export { default as PredictionFilters } from "./PredictionFilters";
+export { default as ModelPerformanceCard } from "./ModelPerformanceCard";
+export { default as PredictionDetailModal } from "./PredictionDetailModal";
+export { default as PredictionCard } from "./PredictionCard";
+export { default as ExportButton } from "./ExportButton";
 export type { PredictionFilterState } from "./PredictionFilters";

@@ -13,11 +13,7 @@ import {
 } from "@/lib/queries/use-predictions";
 import type { GeneratePredictionsResult } from "@/lib/api/predictions";
 
-import {
-  PredictionControls,
-  PredictionStats,
-  PredictionTable,
-} from "@/components/predictions";
+import PredictionDashboard from "@/components/predictions/PredictionDashboard";
 
 export default function PredictionsPage() {
   const { data: activeModel } = useActiveModel();
@@ -172,7 +168,7 @@ export default function PredictionsPage() {
         </Card>
       )}
 
-      <PredictionControls
+      <PredictionDashboard
         activeModel={activeModel ?? null}
         models={models}
         selectedModel={selectedModel}
@@ -185,18 +181,12 @@ export default function PredictionsPage() {
         onChangeSelectedModelId={setSelectedModelId}
         onGenerate={handleGenerate}
         onActivate={handleActivate}
-      />
-
-      {!isLoading && predictions.length > 0 && (
-        <PredictionStats predictions={predictions} />
-      )}
-
-      <PredictionTable
         predictions={predictions}
-        showRoi={view === "history"}
         isLoading={isLoading}
         title={title}
         description={description}
+        showRoi={view === "history"}
+        _onRefresh={handleRefresh}
       />
     </div>
   );

@@ -72,8 +72,8 @@ export interface Match {
 export interface MatchDetail extends Match {
   tournament: Tournament;
   season: Season;
-  home_team: Team;
-  away_team: Team;
+  home_team: TeamWithStats;
+  away_team: TeamWithStats;
   predictions: Prediction[];
   h2h_matches: Match[];
 }
@@ -123,8 +123,10 @@ export interface PredictionMatchSummary {
   odds_away: number | null;
 }
 
-export interface PredictionWithMatch
-  extends Omit<Prediction, "match" | "model_version"> {
+export interface PredictionWithMatch extends Omit<
+  Prediction,
+  "match" | "model_version"
+> {
   match: MatchDetail;
   model_version: ModelVersion;
 }

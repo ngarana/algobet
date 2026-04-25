@@ -77,7 +77,9 @@ class AsyncModelManagementService(AsyncBaseService[AsyncSession]):
     async def _extract_scalar_one_or_none(self, result: Any) -> ModelVersion | None:
         """Extract a single scalar value from an async execution result."""
         value = await self._maybe_await(result.scalar_one_or_none())
-        return value
+        if value is None:
+            return None
+        return value  # type: ignore[no-any-return]
 
     async def list_models(self, request: ModelListRequest) -> ModelListResponse:
         """List available model versions asynchronously.

@@ -37,3 +37,14 @@ export {
   AccordionTrigger,
   AccordionContent,
 } from "./accordion";
+export {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+  DialogPortal,
+} from "./dialog";

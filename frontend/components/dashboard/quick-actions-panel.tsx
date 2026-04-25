@@ -1,12 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  Target,
-  TrendingUp,
-  Calculator,
-  RotateCcw,
-} from "lucide-react";
+import { Target, TrendingUp, Calculator, RotateCcw } from "lucide-react";
 
 interface QuickActionsPanelProps {
   onRunPredictions?: () => void;

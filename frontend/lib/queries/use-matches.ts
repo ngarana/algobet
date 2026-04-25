@@ -84,8 +84,7 @@ export function useUpcomingMatches(filters?: UpcomingMatchesFilters) {
 
 export const upcomingKeys = {
   all: ["upcoming-matches"] as const,
-  list: (tournamentId?: number) =>
-    [...upcomingKeys.all, "list", tournamentId] as const,
+  list: (tournamentId?: number) => [...upcomingKeys.all, "list", tournamentId] as const,
 };
 
 export function useUpcomingMatchesWithTeams(tournamentId?: number) {

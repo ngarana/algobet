@@ -44,11 +44,7 @@ export async function getPredictions(
 export async function generatePredictions(
   request: GeneratePredictionsRequest
 ): Promise<GeneratePredictionsResult> {
-  return apiPost(
-    "/predictions/generate",
-    request,
-    generatePredictionsResultSchema
-  );
+  return apiPost("/predictions/generate", request, generatePredictionsResultSchema);
 }
 
 export async function getUpcomingPredictions(
@@ -62,14 +58,12 @@ export async function getUpcomingPredictions(
   return apiGet(`/predictions/upcoming${queryString}`, predictionArraySchema);
 }
 
-export async function getPredictionHistory(
-  params?: {
-    from_date?: string;
-    to_date?: string;
-    model_version_id?: number;
-    limit?: number;
-  }
-): Promise<PaginatedResponse<Prediction>> {
+export async function getPredictionHistory(params?: {
+  from_date?: string;
+  to_date?: string;
+  model_version_id?: number;
+  limit?: number;
+}): Promise<PaginatedResponse<Prediction>> {
   const queryString = params ? buildQueryString(params) : "";
   return apiGet(`/predictions/history${queryString}`, predictionArraySchema);
 }

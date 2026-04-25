@@ -3,7 +3,11 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { getTournaments, getTournament, getTournamentSeasons } from "@/lib/api/tournaments";
+import {
+  getTournaments,
+  getTournament,
+  getTournamentSeasons,
+} from "@/lib/api/tournaments";
 
 export const tournamentKeys = {
   all: ["tournaments"] as const,

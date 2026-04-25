@@ -73,8 +73,8 @@ export const MatchSchema = z.object({
 export const MatchDetailSchema = MatchSchema.extend({
   tournament: TournamentSchema,
   season: SeasonSchema,
-  home_team: TeamSchema,
-  away_team: TeamSchema,
+  home_team: TeamWithStatsSchema,
+  away_team: TeamWithStatsSchema,
   predictions: z.array(z.any()), // Will be defined after PredictionSchema
   h2h_matches: z.array(MatchSchema),
 });
@@ -126,8 +126,8 @@ export const PredictionMatchSummarySchema = z.object({
 export const MatchDetailSchemaComplete = MatchSchema.extend({
   tournament: TournamentSchema,
   season: SeasonSchema,
-  home_team: TeamSchema,
-  away_team: TeamSchema,
+  home_team: TeamWithStatsSchema,
+  away_team: TeamWithStatsSchema,
   predictions: z.array(PredictionSchema),
   h2h_matches: z.array(MatchSchema),
 });

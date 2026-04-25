@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 from algobet.api.dependencies import get_db
 from algobet.api.schemas import (
     MatchStatus,
+    ModelVersionResponse,
     PaginatedResponse,
     PredictionListItemResponse,
     PredictionMatchSummaryResponse,
@@ -52,6 +53,12 @@ def _build_prediction_item(prediction: Prediction) -> PredictionListItemResponse
         else None
     )
 
+    model_version = (
+        ModelVersionResponse.model_validate(prediction.model_version)
+        if prediction.model_version is not None
+        else None
+    )
+
     return PredictionListItemResponse(
         id=prediction.id,
         match_id=prediction.match_id,
@@ -65,7 +72,7 @@ def _build_prediction_item(prediction: Prediction) -> PredictionListItemResponse
         actual_roi=prediction.actual_roi,
         max_probability=prediction.max_probability,
         match=match_summary,
-        model_version=prediction.model_version,
+        model_version=model_version,
     )
 
 

@@ -26,6 +26,7 @@ interface PredictionTableProps {
   } | null;
   onSort?: (key: keyof Prediction | "match" | "probabilities") => void;
   onRefresh?: () => void;
+  onViewDetails?: (prediction: Prediction) => void;
 }
 
 function SortableHeader({
@@ -74,6 +75,7 @@ export default function PredictionTable({
   description,
   sortConfig,
   onSort,
+  onViewDetails,
 }: PredictionTableProps) {
   if (isLoading) {
     return (
@@ -155,6 +157,7 @@ export default function PredictionTable({
                   onSort={onSort}
                 />
               )}
+              <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -163,6 +166,7 @@ export default function PredictionTable({
                 key={prediction.id}
                 prediction={prediction}
                 showRoi={showRoi}
+                onViewDetails={onViewDetails}
               />
             ))}
           </TableBody>

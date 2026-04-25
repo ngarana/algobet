@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.get("", response_model=list[TeamResponse])
-@cache(expire=3600)
+@cache(expire=3600)  # type: ignore[misc]
 def list_teams(
     search: str | None = Query(None, description="Search by team name"),
     tournament_id: int | None = Query(None, description="Filter by tournament ID"),

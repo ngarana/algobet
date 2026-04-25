@@ -298,8 +298,8 @@ class TrainingPipeline:
 
         # Get historical matches with optional date filters
         matches = self.repo.get_historical_matches(
-            min_date=getattr(self.config, 'start_date', None),
-            max_date=getattr(self.config, 'end_date', None),
+            min_date=getattr(self.config, "start_date", None),
+            max_date=getattr(self.config, "end_date", None),
             require_results=True,
         )
 
@@ -307,7 +307,7 @@ class TrainingPipeline:
             raise ValueError("No historical matches found for training")
 
         # Check minimum matches requirement if specified
-        min_matches = getattr(self.config, 'min_matches', None)
+        min_matches = getattr(self.config, "min_matches", None)
         if min_matches and len(matches) < min_matches:
             raise ValueError(
                 f"Insufficient matches: {len(matches)} < {min_matches}. "
