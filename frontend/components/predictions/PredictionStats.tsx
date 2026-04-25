@@ -2,17 +2,28 @@ interface PredictionStatsProps {
   predictions: Array<{
     confidence: number;
     predicted_outcome: string;
+    actual_roi?: number | null;
+  }>;
+  filteredPredictions?: Array<{
+    confidence: number;
+    predicted_outcome: string;
+    actual_roi?: number | null;
   }>;
 }
 
-export default function PredictionStats({ predictions }: PredictionStatsProps) {
+export default function PredictionStats({
+  predictions,
+  filteredPredictions,
+}: PredictionStatsProps) {
+  const displayPredictions = filteredPredictions || predictions;
+
   const avgConfidence =
-    predictions.length > 0
-      ? predictions.reduce((sum, prediction) => sum + prediction.confidence, 0) /
-        predictions.length
+    displayPredictions.length > 0
+      ? displayPredictions.reduce((sum, prediction) => sum + prediction.confidence, 0) /
+        displayPredictions.length
       : 0;
 
-  const counts = predictions.reduce(
+  const counts = displayPredictions.reduce(
     (accumulator, prediction) => {
       accumulator[prediction.predicted_outcome] =
         (accumulator[prediction.predicted_outcome] || 0) + 1;
@@ -24,7 +35,7 @@ export default function PredictionStats({ predictions }: PredictionStatsProps) {
   return (
     <div className="grid gap-4 md:grid-cols-4">
       <div className="rounded-lg border bg-card p-4 text-center">
-        <div className="text-2xl font-bold">{predictions.length}</div>
+        <div className="text-2xl font-bold">{displayPredictions.length}</div>
         <div className="text-xs text-muted-foreground">Predictions</div>
       </div>
       <div className="rounded-lg border bg-card p-4 text-center">
