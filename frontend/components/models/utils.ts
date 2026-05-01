@@ -28,15 +28,31 @@ export const defaultConfig = {
   description: "",
   tune: false,
   activate: true,
+  // Data range
   startDate: "",
   endDate: "",
   minMatches: 100,
+  // Tournament and team filtering
+  tournamentIds: [] as number[],
+  teamIds: [] as number[],
+  venueFilter: "both" as const,
+  requireOdds: true,
+  // Match quality filters
+  minTotalGoals: null as number | null,
+  maxTotalGoals: null as number | null,
+  // Split ratios
   trainRatio: 0.7,
   valRatio: 0.15,
   testRatio: 0.15,
+  // Training settings
   randomSeed: 42,
   earlyStoppingRounds: 50,
   tuningTrials: 50,
+  // Calibration settings
   calibrateProbabilities: true,
   calibrationMethod: "isotonic" as const,
+  // Outcome balancing
+  outcomeBalance: true,
+  // Feature groups (empty = all)
+  featureGroups: [] as string[],
 };

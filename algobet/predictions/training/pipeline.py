@@ -34,6 +34,15 @@ from algobet.predictions.training.split import (
     encode_targets,
     get_class_weights,
 )
+from algobet.predictions.features.generators import (
+    CompositeFeatureGenerator,
+    FeatureGenerator,
+    TeamFormGenerator,
+    HeadToHeadGenerator,
+    OddsFeatureGenerator,
+    TemporalFeatureGenerator,
+    create_default_generators,
+)
 from algobet.predictions.training.tuner import (
     HAS_OPTUNA,
     HyperparameterTuner,
@@ -52,9 +61,27 @@ class TrainingConfig:
     use_ensemble: bool = False
     ensemble_types: list[str] = field(default_factory=lambda: ["xgboost", "lightgbm"])
 
+    # Data range settings
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    min_matches: int | None = None
+
+    # Filtering: tournament and team selection
+    tournament_ids: list[int] | None = None
+    team_ids: list[int] | None = None
+    venue_filter: str | None = None  # "home", "away", "both"
+    require_odds: bool = True
+
+    # Match quality filters
+    min_total_goals: float | None = None
+    max_total_goals: float | None = None
+
     # Feature settings
     feature_schema_version: str = "v1.0"
     use_feature_cache: bool = True
+
+    # Feature group selection
+    feature_groups: list[str] | None = None
 
     # Split settings
     train_ratio: float = 0.7
@@ -72,6 +99,9 @@ class TrainingConfig:
     # Training settings
     early_stopping_rounds: int = 50
     random_seed: int = 42
+
+    # Outcome balancing control
+    outcome_balance: bool | None = None
 
     # Output settings
     model_name: str = "match_predictor"
@@ -153,8 +183,15 @@ class TrainingPipeline:
         self.session = session
         self.models_path = Path(models_path)
 
-        # Initialize components
-        self.feature_pipeline = feature_pipeline or FeaturePipeline.create_default()
+        # Initialize feature pipeline with optional feature group selection
+        if feature_pipeline:
+            self.feature_pipeline = feature_pipeline
+        elif config.feature_groups:
+            self.feature_pipeline = self._create_feature_pipeline_with_groups(
+                config.feature_groups
+            )
+        else:
+            self.feature_pipeline = FeaturePipeline.create_default()
         self.feature_store = FeatureStore(
             session=session,
             schema_version=config.feature_schema_version,
@@ -175,6 +212,36 @@ class TrainingPipeline:
         self._X_test: NDArray[np.float64] | None = None
         self._y_test: NDArray[np.int64] | None = None
 
+    def _create_feature_pipeline_with_groups(
+        self, feature_groups: list[str]
+    ) -> FeaturePipeline:
+        """Create a feature pipeline with only the specified feature groups.
+
+        Args:
+            feature_groups: List of feature group names to include
+
+        Returns:
+            FeaturePipeline configured with selected generators
+        """
+        GENERATOR_MAP: dict[str, type[FeatureGenerator]] = {
+            "team_form": TeamFormGenerator,
+            "head_to_head": HeadToHeadGenerator,
+            "odds": OddsFeatureGenerator,
+            "temporal": TemporalFeatureGenerator,
+        }
+
+        generators: list[FeatureGenerator] = []
+        for group_name in feature_groups:
+            generator_class = GENERATOR_MAP.get(group_name)
+            if generator_class:
+                generators.append(generator_class())
+
+        if not generators:
+            return FeaturePipeline.create_default()
+
+        composite = CompositeFeatureGenerator(generators)
+        return FeaturePipeline(generators=composite)
+
     def run(self) -> TrainingResult:
         """Execute the complete training pipeline.
 
@@ -188,8 +255,11 @@ class TrainingPipeline:
         # Step 1: Prepare data
         X_train, X_val, X_test, y_train, y_val, y_test = self._prepare_data()
 
-        # Step 2: Handle class imbalance
-        class_weights = get_class_weights(y_train)
+        # Step 2: Handle class imbalance (if enabled)
+        if self.config.outcome_balance is not False:
+            class_weights = get_class_weights(y_train)
+        else:
+            class_weights = None
 
         # Step 3: Hyperparameter tuning (optional)
         tuning_result = None
@@ -296,11 +366,17 @@ class TrainingPipeline:
         """
         from algobet.predictions.features.pipeline import prepare_match_dataframe
 
-        # Get historical matches with optional date filters
+        # Get historical matches with optional date and filter constraints
         matches = self.repo.get_historical_matches(
-            min_date=getattr(self.config, "start_date", None),
-            max_date=getattr(self.config, "end_date", None),
+            min_date=self.config.start_date,
+            max_date=self.config.end_date,
+            tournament_ids=self.config.tournament_ids,
+            team_ids=self.config.team_ids,
             require_results=True,
+            require_odds=self.config.require_odds,
+            min_total_goals=self.config.min_total_goals,
+            max_total_goals=self.config.max_total_goals,
+            venue_filter=self.config.venue_filter,
         )
 
         if not matches:
@@ -393,14 +469,14 @@ class TrainingPipeline:
 
         return tuner.tune(X_train, y_train, X_val, y_val, class_weights)
 
-    def _train_model(
+def _train_model(
         self,
         X_train: NDArray[np.float64],
         y_train: NDArray[np.int64],
         X_val: NDArray[np.float64],
-        y_val: NDArray[np.int64],
+        y_val: NDArray[np.float64],
         hyperparameters: dict[str, Any],
-        class_weights: dict[int, float],
+        class_weights: dict[int, float] | None,
     ) -> MatchPredictor:
         """Train the prediction model."""
         if self.config.use_ensemble:

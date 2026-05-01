@@ -28,15 +28,27 @@ class MatchRepository:
         min_date: datetime | None = None,
         max_date: datetime | None = None,
         tournament_id: int | None = None,
+        tournament_ids: list[int] | None = None,
+        team_ids: list[int] | None = None,
         require_results: bool = True,
+        require_odds: bool | None = None,
+        min_total_goals: float | None = None,
+        max_total_goals: float | None = None,
+        venue_filter: str | None = None,
     ) -> list[Match]:
-        """Get matches for training within a date range.
+        """Get matches for training within a date range with advanced filtering.
 
         Args:
             min_date: Optional start date filter
             max_date: Optional end date filter
-            tournament_id: Optional tournament filter
+            tournament_id: Optional single tournament filter (deprecated, prefer tournament_ids)
+            tournament_ids: Optional list of tournament IDs to include
+            team_ids: Optional list of team IDs (matches where either home or away team is in list)
             require_results: If True, only return finished matches with scores
+            require_odds: If True, only return matches with odds available
+            min_total_goals: Optional minimum total goals filter (home_score + away_score)
+            max_total_goals: Optional maximum total goals filter
+            venue_filter: Optional venue filter - "home", "away", or "both" (default)
 
         Returns:
             List of Match objects ordered by date
@@ -49,6 +61,29 @@ class MatchRepository:
             stmt = stmt.where(Match.match_date <= max_date)
         if tournament_id:
             stmt = stmt.where(Match.tournament_id == tournament_id)
+        if tournament_ids:
+            stmt = stmt.where(Match.tournament_id.in_(tournament_ids))
+        if team_ids:
+            # Match where either home or away team is in the list
+            if venue_filter == "home":
+                stmt = stmt.where(Match.home_team_id.in_(team_ids))
+            elif venue_filter == "away":
+                stmt = stmt.where(Match.away_team_id.in_(team_ids))
+            else:  # "both" or None
+                stmt = stmt.where(
+                    or_(
+                        Match.home_team_id.in_(team_ids),
+                        Match.away_team_id.in_(team_ids),
+                    )
+                )
+        if require_odds:
+            stmt = stmt.where(
+                and_(
+                    Match.odds_home.is_not(None),
+                    Match.odds_draw.is_not(None),
+                    Match.odds_away.is_not(None),
+                )
+            )
         if require_results:
             stmt = stmt.where(
                 and_(
@@ -57,6 +92,11 @@ class MatchRepository:
                     Match.away_score.is_not(None),
                 )
             )
+        # Goals filters must be applied after results are required (need scores)
+        if min_total_goals is not None:
+            stmt = stmt.where((Match.home_score + Match.away_score) >= min_total_goals)
+        if max_total_goals is not None:
+            stmt = stmt.where((Match.home_score + Match.away_score) <= max_total_goals)
 
         stmt = stmt.order_by(Match.match_date)
         result = self.session.execute(stmt)

@@ -50,17 +50,36 @@ export function TrainModelCard() {
         tune_hyperparameters: config.tune,
         description: config.description.trim() || undefined,
         activate: config.activate,
+        // Data range settings
         start_date: config.startDate || undefined,
         end_date: config.endDate || undefined,
         min_matches: config.minMatches,
+        // Tournament and team filtering
+        tournament_ids:
+          config.tournamentIds.length > 0 ? config.tournamentIds : undefined,
+        team_ids: config.teamIds.length > 0 ? config.teamIds : undefined,
+        venue_filter: config.venueFilter,
+        require_odds: config.requireOdds,
+        // Match quality filters
+        min_total_goals: config.minTotalGoals ?? undefined,
+        max_total_goals: config.maxTotalGoals ?? undefined,
+        // Split ratios
         train_ratio: config.trainRatio,
         val_ratio: config.valRatio,
         test_ratio: config.testRatio,
+        // Training settings
         random_seed: config.randomSeed,
         early_stopping_rounds: config.earlyStoppingRounds,
         tuning_trials: config.tuningTrials,
+        // Calibration settings
         calibrate_probabilities: config.calibrateProbabilities,
         calibration_method: config.calibrationMethod,
+        // Outcome balancing
+        outcome_balance: config.outcomeBalance,
+        // Feature groups
+        feature_groups:
+          config.featureGroups.length > 0 ? config.featureGroups : undefined,
+        // Custom hyperparameters
         hyperparameters: {},
       });
       setResult(trained);

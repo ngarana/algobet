@@ -49,6 +49,16 @@ class TrainModelRequest(BaseModel):
     end_date: datetime | None = None
     min_matches: int = Field(default=100, ge=10, le=100000)
 
+    # Filtering: tournament and team selection
+    tournament_ids: list[int] | None = None
+    team_ids: list[int] | None = None
+    venue_filter: str | None = None  # "home", "away", "both"
+    require_odds: bool | None = None
+
+    # Match quality filters
+    min_total_goals: float | None = None
+    max_total_goals: float | None = None
+
     # Train/val/test split ratios
     train_ratio: float = Field(default=0.7, ge=0.1, le=0.9)
     val_ratio: float = Field(default=0.15, ge=0.05, le=0.45)
@@ -62,6 +72,12 @@ class TrainModelRequest(BaseModel):
     # Calibration settings
     calibrate_probabilities: bool = True
     calibration_method: str = Field(default="isotonic", pattern="^(isotonic|sigmoid)$")
+
+    # Outcome balancing control
+    outcome_balance: bool | None = None
+
+    # Feature groups selection (subset of available generators)
+    feature_groups: list[str] | None = None  # e.g. ["team_form", "odds", "temporal"]
 
     # Custom hyperparameters (optional)
     hyperparameters: dict[str, Any] = Field(default_factory=dict)
@@ -203,6 +219,18 @@ def run_training(
         tune_hyperparameters=request.tune_hyperparameters,
         description=request.description
         or f"Frontend trained {request.model_type} model",
+        # Data range settings
+        start_date=request.start_date,
+        end_date=request.end_date,
+        min_matches=request.min_matches,
+        # Filtering: tournament and team selection
+        tournament_ids=request.tournament_ids,
+        team_ids=request.team_ids,
+        venue_filter=request.venue_filter,
+        require_odds=request.require_odds if request.require_odds is not None else True,
+        # Match quality filters
+        min_total_goals=request.min_total_goals,
+        max_total_goals=request.max_total_goals,
         # Split ratios
         train_ratio=request.train_ratio,
         val_ratio=request.val_ratio,
@@ -214,6 +242,10 @@ def run_training(
         # Calibration settings
         calibrate_probabilities=request.calibrate_probabilities,
         calibration_method=request.calibration_method,
+        # Outcome balancing
+        outcome_balance=request.outcome_balance,
+        # Feature groups
+        feature_groups=request.feature_groups,
         # Custom hyperparameters
         hyperparameters=request.hyperparameters,
     )

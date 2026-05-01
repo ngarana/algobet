@@ -10,7 +10,11 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { DataRangeSection } from "./DataRangeSection";
+import { DataSelectionSection } from "./DataSelectionSection";
+import { MatchQualitySection } from "./MatchQualitySection";
 import { DataSplitSection } from "./DataSplitSection";
+import { FeatureGroupsSection } from "./FeatureGroupsSection";
+import { OutcomeBalancingSection } from "./OutcomeBalancingSection";
 import { TrainingSettingsSection } from "./TrainingSettingsSection";
 import { defaultConfig } from "./utils";
 import type { AdvancedSettingsProps } from "./types";
@@ -41,7 +45,11 @@ export function AdvancedSettings({ config, onConfigChange }: AdvancedSettingsPro
         <AccordionContent className="px-4 pb-4">
           <div className="space-y-6 pt-2">
             <DataRangeSection config={config} onConfigChange={onConfigChange} />
+            <DataSelectionSection config={config} onConfigChange={onConfigChange} />
+            <MatchQualitySection config={config} onConfigChange={onConfigChange} />
             <DataSplitSection config={config} onConfigChange={onConfigChange} />
+            <FeatureGroupsSection config={config} onConfigChange={onConfigChange} />
+            <OutcomeBalancingSection config={config} onConfigChange={onConfigChange} />
             <TrainingSettingsSection config={config} onConfigChange={onConfigChange} />
             <Button
               type="button"

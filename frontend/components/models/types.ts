@@ -6,17 +6,33 @@ export interface TrainingConfig {
   description: string;
   tune: boolean;
   activate: boolean;
+  // Data range
   startDate: string;
   endDate: string;
   minMatches: number;
+  // Tournament and team filtering
+  tournamentIds: number[];
+  teamIds: number[];
+  venueFilter: "home" | "away" | "both";
+  requireOdds: boolean;
+  // Match quality filters
+  minTotalGoals: number | null;
+  maxTotalGoals: number | null;
+  // Split ratios
   trainRatio: number;
   valRatio: number;
   testRatio: number;
+  // Training settings
   randomSeed: number;
   earlyStoppingRounds: number;
   tuningTrials: number;
+  // Calibration settings
   calibrateProbabilities: boolean;
   calibrationMethod: "isotonic" | "sigmoid";
+  // Outcome balancing
+  outcomeBalance: boolean;
+  // Feature groups
+  featureGroups: string[];
 }
 
 export interface TrainingResultDisplayProps {
