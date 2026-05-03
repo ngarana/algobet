@@ -138,12 +138,25 @@ class ScrapingService(BaseService[Any]):
         Returns:
             Tournament instance
         """
+        # Make slug unique by including country to avoid collisions
+        # e.g., Germany's Bundesliga and Austria's Bundesliga both use "bundesliga" slug
+        unique_slug = f"{country.lower()}-{slug}" if slug else slug
+
         tournament = self.session.execute(
-            select(Tournament).where(Tournament.url_slug == slug)
+            select(Tournament).where(Tournament.url_slug == unique_slug)
         ).scalar_one_or_none()
 
+        # Fallback: check by name + country if slug-based lookup fails
         if not tournament:
-            tournament = Tournament(name=name, country=country, url_slug=slug)
+            tournament = self.session.execute(
+                select(Tournament).where(
+                    Tournament.name == name,
+                    Tournament.country == country,
+                )
+            ).scalar_one_or_none()
+
+        if not tournament:
+            tournament = Tournament(name=name, country=country, url_slug=unique_slug)
             self.session.add(tournament)
             self.session.flush()
 
@@ -603,14 +616,18 @@ class ScrapingService(BaseService[Any]):
                     slug=match_data["tournament_slug"],
                 )
 
-            # Check for existing match (compare by date only, not full timestamp)
-            existing = self.session.execute(
-                select(Match).where(
-                    Match.home_team_id == home_team.id,
-                    Match.away_team_id == away_team.id,
-                    func.date(Match.match_date) == match_data["match_date"].date(),
+            # Check for existing match (compare by date and tournament if available)
+            existing_query = select(Match).where(
+                Match.home_team_id == home_team.id,
+                Match.away_team_id == away_team.id,
+                func.date(Match.match_date) == match_data["match_date"].date(),
+            )
+            # Only check tournament (to avoid cross-tournament duplicates)
+            if tournament:
+                existing_query = existing_query.where(
+                    Match.tournament_id == tournament.id
                 )
-            ).scalar_one_or_none()
+            existing = self.session.execute(existing_query).scalar_one_or_none()
 
             if existing:
                 # Update odds if available
