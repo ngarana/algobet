@@ -1,5 +1,6 @@
 """API router for ML operations (backtest, calibrate)."""
 
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ from algobet.predictions.training.calibration import (
 from algobet.predictions.training.pipeline import TrainingConfig, TrainingPipeline
 
 router = APIRouter()
+DEFAULT_TRAIN_MODEL_TYPE = os.getenv("ALGOBET_DEFAULT_MODEL_TYPE", "xgboost")
 
 
 # =============================================================================
@@ -37,7 +39,7 @@ class TrainModelRequest(BaseModel):
     """Request schema for model training."""
 
     model_type: str = Field(
-        default="xgboost",
+        default=DEFAULT_TRAIN_MODEL_TYPE,
         pattern="^(xgboost|lightgbm|random_forest)$",
     )
     tune_hyperparameters: bool = False
@@ -315,6 +317,12 @@ def run_training(
         .first()
     )
 
+    # Convert numpy float32 values to Python floats for JSON serialization
+    def _to_float_dict(d: dict[str, float] | None) -> dict[str, float] | None:
+        if d is None:
+            return None
+        return {k: float(v) for k, v in d.items()}
+
     return TrainModelResponse(
         model_id=db_model.id if db_model else None,
         model_version=result.model_version,
@@ -324,10 +332,10 @@ def run_training(
         num_features=result.num_features,
         trained_at=result.trained_at.isoformat(),
         training_duration_seconds=result.training_duration_seconds,
-        train_metrics=result.train_metrics,
-        val_metrics=result.val_metrics,
-        test_metrics=result.test_metrics,
-        feature_importance=result.feature_importance,
+        train_metrics={k: float(v) for k, v in result.train_metrics.items()},
+        val_metrics={k: float(v) for k, v in result.val_metrics.items()},
+        test_metrics={k: float(v) for k, v in result.test_metrics.items()},
+        feature_importance=_to_float_dict(result.feature_importance),
     )
 
 
