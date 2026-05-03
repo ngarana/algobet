@@ -31,9 +31,12 @@ import contextlib
 import os
 import tempfile
 from collections.abc import Generator
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, close_all_sessions, sessionmaker
 
@@ -99,37 +102,38 @@ def test_client(test_session: Session) -> Generator[TestClient, None, None]:
             pass
 
     app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app)
-    try:
-        yield client
-    finally:
-        app.dependency_overrides.clear()
-        # Clean up all test data by deleting from tables
-        # Delete in reverse order of dependencies
+    with TestClient(app) as client:
+        FastAPICache.init(InMemoryBackend(), prefix=f"test-fastapi-cache-{uuid4().hex}")
         try:
-            test_session.query(Base.metadata.tables["predictions"]).delete(
-                synchronize_session=False
-            )
-            test_session.query(Base.metadata.tables["backtest_history"]).delete(
-                synchronize_session=False
-            )
-            test_session.query(Base.metadata.tables["model_versions"]).delete(
-                synchronize_session=False
-            )
-            test_session.query(Base.metadata.tables["matches"]).delete(
-                synchronize_session=False
-            )
-            test_session.query(Base.metadata.tables["teams"]).delete(
-                synchronize_session=False
-            )
-            test_session.query(Base.metadata.tables["seasons"]).delete(
-                synchronize_session=False
-            )
-            test_session.query(Base.metadata.tables["tournaments"]).delete(
-                synchronize_session=False
-            )
-            test_session.commit()
-        except Exception:
-            # If cleanup fails, just rollback
-            test_session.rollback()
-            raise
+            yield client
+        finally:
+            app.dependency_overrides.clear()
+            # Clean up all test data by deleting from tables
+            # Delete in reverse order of dependencies
+            try:
+                test_session.query(Base.metadata.tables["predictions"]).delete(
+                    synchronize_session=False
+                )
+                test_session.query(Base.metadata.tables["backtest_history"]).delete(
+                    synchronize_session=False
+                )
+                test_session.query(Base.metadata.tables["model_versions"]).delete(
+                    synchronize_session=False
+                )
+                test_session.query(Base.metadata.tables["matches"]).delete(
+                    synchronize_session=False
+                )
+                test_session.query(Base.metadata.tables["teams"]).delete(
+                    synchronize_session=False
+                )
+                test_session.query(Base.metadata.tables["seasons"]).delete(
+                    synchronize_session=False
+                )
+                test_session.query(Base.metadata.tables["tournaments"]).delete(
+                    synchronize_session=False
+                )
+                test_session.commit()
+            except Exception:
+                # If cleanup fails, just rollback
+                test_session.rollback()
+                raise

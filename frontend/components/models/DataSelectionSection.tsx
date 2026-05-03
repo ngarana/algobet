@@ -16,10 +16,15 @@ export function DataSelectionSection({
 }: DataRangeSectionProps) {
   const [tournamentSearch, setTournamentSearch] = useState("");
   const [teamSearch, setTeamSearch] = useState("");
+  const [tournamentLabels, setTournamentLabels] = useState<Record<number, string>>({});
   const [teamLabels, setTeamLabels] = useState<Record<number, string>>({});
 
+  const deferredTournamentSearch = useDeferredValue(tournamentSearch.trim());
   const deferredTeamSearch = useDeferredValue(teamSearch.trim());
-  const { data: tournaments = [], isLoading: tournamentsLoading } = useTournaments();
+  const { data: tournaments = [], isLoading: tournamentsLoading } = useTournaments({
+    search: deferredTournamentSearch || undefined,
+    limit: 24,
+  });
   const scopedTournamentId =
     config.tournamentIds.length === 1 ? config.tournamentIds[0] : undefined;
   const { data: teams = [], isLoading: teamsLoading } = useTeams({
@@ -27,6 +32,26 @@ export function DataSelectionSection({
     tournament_id: scopedTournamentId,
     limit: 50,
   });
+
+  useEffect(() => {
+    if (tournaments.length === 0) {
+      return;
+    }
+
+    setTournamentLabels((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      tournaments.forEach((tournament) => {
+        if (next[tournament.id] !== tournament.name) {
+          next[tournament.id] = tournament.name;
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [tournaments]);
 
   useEffect(() => {
     if (teams.length === 0) {
@@ -63,32 +88,6 @@ export function DataSelectionSection({
       : [...current, teamId];
     onConfigChange("teamIds", updated);
   };
-
-  const tournamentsById = useMemo(
-    () => new Map(tournaments.map((tournament) => [tournament.id, tournament])),
-    [tournaments]
-  );
-
-  const visibleTournaments = useMemo(() => {
-    const query = tournamentSearch.trim().toLowerCase();
-    const sorted = [...tournaments].sort((left, right) =>
-      left.name.localeCompare(right.name)
-    );
-
-    const filtered = query
-      ? sorted.filter((tournament) =>
-          `${tournament.name} ${tournament.country}`.toLowerCase().includes(query)
-        )
-      : sorted;
-
-    return filtered.slice(0, query ? 24 : 12);
-  }, [tournamentSearch, tournaments]);
-
-  const selectedTournaments = config.tournamentIds
-    .map((tournamentId) => tournamentsById.get(tournamentId))
-    .filter((tournament): tournament is NonNullable<typeof tournament> =>
-      Boolean(tournament)
-    );
 
   const visibleTeams = useMemo(
     () => teams.slice(0, teamSearch.trim() ? 24 : 12),
@@ -139,8 +138,8 @@ export function DataSelectionSection({
               <p className="px-3 py-2 text-sm text-muted-foreground">
                 Loading tournaments...
               </p>
-            ) : visibleTournaments.length > 0 ? (
-              visibleTournaments.map((tournament) => (
+            ) : tournaments.length > 0 ? (
+              tournaments.map((tournament) => (
                 <OptionRow
                   key={tournament.id}
                   isSelected={config.tournamentIds.includes(tournament.id)}
@@ -157,13 +156,13 @@ export function DataSelectionSection({
           </div>
         </div>
 
-        {selectedTournaments.length > 0 ? (
+        {config.tournamentIds.length > 0 ? (
           <div className="flex flex-wrap gap-2">
-            {selectedTournaments.map((tournament) => (
+            {config.tournamentIds.map((tournamentId) => (
               <SelectedChip
-                key={tournament.id}
-                label={tournament.name}
-                onRemove={() => toggleTournament(tournament.id)}
+                key={tournamentId}
+                label={tournamentLabels[tournamentId] ?? `Tournament #${tournamentId}`}
+                onRemove={() => toggleTournament(tournamentId)}
               />
             ))}
           </div>

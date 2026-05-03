@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi_cache.decorator import cache
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
@@ -16,8 +17,17 @@ from algobet.predictions.features.form_features import FormCalculator
 router = APIRouter()
 
 
+def _normalize_search_term(value: str | None) -> str | None:
+    """Normalize user-entered search text for predictive search queries."""
+    if value is None:
+        return None
+
+    normalized = " ".join(value.split()).strip()
+    return normalized or None
+
+
 @router.get("", response_model=list[TeamResponse])
-@cache(expire=3600)  # type: ignore[misc]
+@cache(expire=300)  # type: ignore[misc]
 def list_teams(
     search: str | None = Query(None, description="Search by team name"),
     tournament_id: int | None = Query(None, description="Filter by tournament ID"),
@@ -37,27 +47,43 @@ def list_teams(
         List of teams matching the criteria
     """
     query = db.query(Team)
+    normalized_search = _normalize_search_term(search)
 
-    if search:
-        query = query.filter(Team.name.ilike(f"%{search}%"))
-
-    if tournament_id:
-        # Filter to teams that have matches in this tournament
+    if tournament_id is not None:
+        # Filter to teams that have matches in this tournament. Using a compact
+        # union subquery keeps the result set small for repeated typeahead calls.
         from algobet.models import Match
 
-        query = query.filter(
-            Team.id.in_(
-                db.query(Match.home_team_id)
-                .filter(Match.tournament_id == tournament_id)
-                .union(
-                    db.query(Match.away_team_id).filter(
-                        Match.tournament_id == tournament_id
-                    )
+        tournament_team_ids = (
+            select(Match.home_team_id.label("team_id"))
+            .where(Match.tournament_id == tournament_id)
+            .union(
+                select(Match.away_team_id.label("team_id")).where(
+                    Match.tournament_id == tournament_id
                 )
             )
+            .subquery()
         )
 
-    teams = query.order_by(Team.name).offset(offset).limit(limit).all()
+        query = query.join(
+            tournament_team_ids, tournament_team_ids.c.team_id == Team.id
+        )
+
+    if normalized_search:
+        lowered_name = func.lower(Team.name)
+        lowered_search = normalized_search.lower()
+        contains_pattern = f"%{lowered_search}%"
+        prefix_pattern = f"{lowered_search}%"
+
+        query = query.filter(lowered_name.like(contains_pattern)).order_by(
+            case((lowered_name.like(prefix_pattern), 0), else_=1),
+            func.length(Team.name),
+            Team.name,
+        )
+    else:
+        query = query.order_by(Team.name)
+
+    teams = query.offset(offset).limit(limit).all()
     return [TeamResponse.model_validate(t) for t in teams]
 
 

@@ -42,8 +42,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         redis = aioredis.from_url(redis_url, encoding="utf8", decode_responses=False)
         FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
         print("Redis cache initialized successfully")
-    except Exception as e:
-        print(f"Warning: Failed to initialize Redis cache: {e}")
+    except Exception as redis_error:
+        try:
+            from fastapi_cache import FastAPICache
+            from fastapi_cache.backends.inmemory import InMemoryBackend
+
+            FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+            print(
+                "Redis cache unavailable; using in-memory cache fallback: "
+                f"{redis_error}"
+            )
+        except Exception as cache_error:
+            print(
+                "Warning: Failed to initialize API cache backends: "
+                f"redis={redis_error}; fallback={cache_error}"
+            )
 
     # Start scheduler if enabled (default: enabled)
     enable_scheduler = os.getenv("ENABLE_SCHEDULER", "true").lower() == "true"

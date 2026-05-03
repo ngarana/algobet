@@ -10,11 +10,20 @@ import type { Tournament, Season } from "@/lib/types/api";
 export const TournamentArraySchema = z.array(TournamentSchema);
 export const SeasonArraySchema = z.array(SeasonSchema);
 
+interface TournamentFilters {
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
 /**
  * Get all tournaments
  */
-export async function getTournaments(): Promise<Tournament[]> {
-  return apiGet("/tournaments", TournamentArraySchema);
+export async function getTournaments(
+  filters?: TournamentFilters
+): Promise<Tournament[]> {
+  const queryString = filters ? buildQueryString(filters) : "";
+  return apiGet(`/tournaments${queryString}`, TournamentArraySchema);
 }
 
 /**

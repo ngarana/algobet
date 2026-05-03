@@ -53,6 +53,40 @@ class TestTournamentsEndpoints:
         assert data[0]["name"] == "La Liga"  # Sorted alphabetically
         assert data[1]["name"] == "Premier League"
 
+    def test_search_tournaments(self, test_client, test_session) -> None:
+        """Test searching tournaments by name."""
+        tournaments = [
+            Tournament(
+                name="Premier League", country="England", url_slug="premier-league"
+            ),
+            Tournament(name="Primeira Liga", country="Portugal", url_slug="primeira"),
+            Tournament(name="La Liga", country="Spain", url_slug="la-liga"),
+        ]
+        test_session.add_all(tournaments)
+        test_session.commit()
+
+        response = test_client.get("/api/v1/tournaments?search=pr")
+        assert response.status_code == 200
+        data = response.json()
+        assert [tournament["name"] for tournament in data] == [
+            "Primeira Liga",
+            "Premier League",
+        ]
+
+    def test_list_tournaments_with_offset(self, test_client, test_session) -> None:
+        """Test listing tournaments with offset pagination."""
+        tournaments = [
+            Tournament(name=f"League {i}", country="Country", url_slug=f"league-{i}")
+            for i in range(5)
+        ]
+        test_session.add_all(tournaments)
+        test_session.commit()
+
+        response = test_client.get("/api/v1/tournaments?limit=2&offset=1")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+
     def test_get_tournament(self, test_client, test_session) -> None:
         """Test getting a specific tournament."""
         tournament = Tournament(
@@ -131,6 +165,66 @@ class TestTeamsEndpoints:
         assert len(data) == 2
         for team in data:
             assert "Manchester" in team["name"]
+
+    def test_list_teams_filtered_by_tournament(self, test_client, test_session) -> None:
+        """Test filtering teams by tournament participation."""
+        tournament = Tournament(
+            name="Premier League", country="England", url_slug="premier-league"
+        )
+        other_tournament = Tournament(
+            name="La Liga", country="Spain", url_slug="la-liga"
+        )
+        season = Season(
+            tournament=tournament, name="2023/2024", start_year=2023, end_year=2024
+        )
+        other_season = Season(
+            tournament=other_tournament,
+            name="2023/2024",
+            start_year=2023,
+            end_year=2024,
+        )
+        arsenal = Team(name="Arsenal")
+        chelsea = Team(name="Chelsea")
+        barcelona = Team(name="Barcelona")
+        real_madrid = Team(name="Real Madrid")
+
+        premier_match = Match(
+            tournament=tournament,
+            season=season,
+            home_team=arsenal,
+            away_team=chelsea,
+            match_date=datetime.now() + timedelta(days=1),
+            status="SCHEDULED",
+        )
+        laliga_match = Match(
+            tournament=other_tournament,
+            season=other_season,
+            home_team=barcelona,
+            away_team=real_madrid,
+            match_date=datetime.now() + timedelta(days=2),
+            status="SCHEDULED",
+        )
+
+        test_session.add_all(
+            [
+                tournament,
+                other_tournament,
+                season,
+                other_season,
+                arsenal,
+                chelsea,
+                barcelona,
+                real_madrid,
+                premier_match,
+                laliga_match,
+            ]
+        )
+        test_session.commit()
+
+        response = test_client.get(f"/api/v1/teams?tournament_id={tournament.id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert {team["name"] for team in data} == {"Arsenal", "Chelsea"}
 
     def test_get_team(self, test_client, test_session) -> None:
         """Test getting a specific team."""
