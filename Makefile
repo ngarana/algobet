@@ -1,6 +1,7 @@
 # AlgoBet Docker Makefile
 
 .PHONY: help build up down logs clean rebuild restart backend scheduler scheduler-init db init-db
+.PHONY: gpu-build gpu-up gpu-train gpu-benchmark gpu-shell gpu-logs gpu-down
 
 # Default target
 help:
@@ -22,6 +23,15 @@ help:
 	@echo ""
 	@echo "  make logs-backend - View backend logs"
 	@echo "  make logs-scheduler - View scheduler worker logs"
+	@echo ""
+	@echo "GPU Training (Intel iGPU via IPEX-LLM container):"
+	@echo "  make gpu-build    - Build the GPU training container"
+	@echo "  make gpu-up       - Start full stack with GPU trainer"
+	@echo "  make gpu-train    - Run one-shot GPU-accelerated training"
+	@echo "  make gpu-benchmark - Run GPU/MKL performance benchmark"
+	@echo "  make gpu-shell    - Open shell in GPU container"
+	@echo "  make gpu-logs     - View GPU trainer logs"
+	@echo "  make gpu-down     - Stop GPU trainer"
 
 # Build all containers
 build:
@@ -81,3 +91,37 @@ rebuild:
 # Restart all containers
 restart:
 	docker-compose restart
+
+# ==============================================================================
+# GPU Training Targets (Intel iGPU via IPEX-LLM container)
+# ==============================================================================
+
+GPU_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.gpu.yml
+
+# Build the GPU training container
+gpu-build:
+	$(GPU_COMPOSE) build gpu-trainer
+
+# Start the full stack with GPU training worker
+gpu-up:
+	$(GPU_COMPOSE) up -d
+
+# Run a one-shot GPU-accelerated training job
+gpu-train:
+	$(GPU_COMPOSE) run --rm gpu-trainer train
+
+# Run a GPU/MKL performance benchmark
+gpu-benchmark:
+	$(GPU_COMPOSE) run --rm gpu-trainer benchmark
+
+# Open an interactive shell inside the GPU container
+gpu-shell:
+	$(GPU_COMPOSE) run --rm gpu-trainer shell
+
+# View GPU trainer logs
+gpu-logs:
+	$(GPU_COMPOSE) logs -f gpu-trainer
+
+# Stop the GPU trainer
+gpu-down:
+	$(GPU_COMPOSE) stop gpu-trainer
