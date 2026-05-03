@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 import click
 
 from algobet.cli.error_handler import handle_errors
-from algobet.infrastructure.database import session_scope
 from algobet.exceptions import DataNotFoundError
+from algobet.infrastructure.database import session_scope
 from algobet.services import QueryService
 from algobet.services.dto import MatchFilter, TeamFilter, TournamentFilter
 

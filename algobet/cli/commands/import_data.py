@@ -27,12 +27,12 @@ import click
 
 from algobet.cli.error_handler import handle_errors
 from algobet.cli.logger import error, info, success
-from algobet.infrastructure.database import session_scope
 from algobet.importers.football_data import (
     DIVISION_MAPPING,
     FootballDataImporter,
     ImportProgress,
 )
+from algobet.infrastructure.database import session_scope
 
 # Division codes for help text
 DIVISION_HELP = """Division code (league identifier). Common codes:
