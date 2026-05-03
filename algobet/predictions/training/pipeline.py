@@ -26,6 +26,7 @@ from algobet.predictions.features.generators import (
 from algobet.predictions.features.pipeline import FeaturePipeline
 from algobet.predictions.features.store import FeatureStore
 from algobet.predictions.models.registry import ModelRegistry
+from algobet.predictions.training.acceleration import resolve_training_hyperparameters
 from algobet.predictions.training.calibration import (
     CalibratedPredictor,
     ProbabilityCalibrator,
@@ -312,8 +313,14 @@ class TrainingPipeline:
             **{f"val_{k}": v for k, v in val_metrics.items()},
             **{f"test_{k}": v for k, v in test_metrics.items()},
         }
+        resolved_registry_hyperparameters = best_params
+        if not self.config.use_ensemble:
+            resolved_registry_hyperparameters = resolve_training_hyperparameters(
+                model_type=self.config.model_type,
+                hyperparameters=best_params,
+            )
         model_hyperparameters: dict[str, Any] = {
-            **best_params,
+            **resolved_registry_hyperparameters,
             "feature_names": self.feature_pipeline.feature_names,
             "random_seed": self.config.random_seed,
             "early_stopping_rounds": self.config.early_stopping_rounds,
@@ -510,9 +517,13 @@ class TrainingPipeline:
             # Train ensemble of multiple model types
             predictors = []
             for model_type in self.config.ensemble_types:
-                config = ModelConfig(
+                model_hyperparameters = resolve_training_hyperparameters(
                     model_type=model_type,
                     hyperparameters=hyperparameters,
+                )
+                config = ModelConfig(
+                    model_type=model_type,
+                    hyperparameters=model_hyperparameters,
                     class_weights=class_weights,
                     random_seed=self.config.random_seed,
                     early_stopping_rounds=self.config.early_stopping_rounds,
@@ -525,9 +536,13 @@ class TrainingPipeline:
             return EnsemblePredictor(predictors=predictors)
         else:
             # Train single model
-            config = ModelConfig(
+            model_hyperparameters = resolve_training_hyperparameters(
                 model_type=self.config.model_type,
                 hyperparameters=hyperparameters,
+            )
+            config = ModelConfig(
+                model_type=self.config.model_type,
+                hyperparameters=model_hyperparameters,
                 class_weights=class_weights,
                 random_seed=self.config.random_seed,
                 early_stopping_rounds=self.config.early_stopping_rounds,

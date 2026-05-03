@@ -14,6 +14,9 @@ import numpy as np
 from numpy.typing import NDArray
 from sklearn.metrics import log_loss
 
+from algobet.predictions.training.acceleration import (
+    resolve_training_hyperparameters,
+)
 from algobet.predictions.training.classifiers import (
     ModelConfig,
     create_predictor,
@@ -212,8 +215,7 @@ class HyperparameterTuner:
         # Sample hyperparameters
         params = self._sample_params(trial)
 
-        # Create model config
-        config = ModelConfig(
+        config = _build_model_config(
             model_type=self.model_type,
             hyperparameters=params,
             class_weights=class_weights,
@@ -375,7 +377,7 @@ class GridSearchTuner:
         for i, values in enumerate(combinations):
             params = dict(zip(param_names, values, strict=False))
 
-            config = ModelConfig(
+            config = _build_model_config(
                 model_type=self.model_type,
                 hyperparameters=params,
                 class_weights=class_weights,
@@ -421,3 +423,20 @@ def get_default_search_space(model_type: str) -> dict[str, tuple[Any, Any]]:
         Dictionary mapping parameter names to (low, high) tuples
     """
     return DEFAULT_SEARCH_SPACES.get(model_type, {}).copy()
+
+
+def _build_model_config(
+    model_type: str,
+    hyperparameters: dict[str, Any],
+    class_weights: dict[int, float] | None,
+) -> ModelConfig:
+    """Create a model config with environment-driven acceleration overrides."""
+    resolved_hyperparameters = resolve_training_hyperparameters(
+        model_type=model_type,
+        hyperparameters=hyperparameters,
+    )
+    return ModelConfig(
+        model_type=model_type,
+        hyperparameters=resolved_hyperparameters,
+        class_weights=class_weights,
+    )
