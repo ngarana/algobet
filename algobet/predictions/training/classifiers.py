@@ -4,6 +4,7 @@ Provides classifier implementations for football match outcome prediction.
 All classifiers follow a common interface for easy swapping and ensemble use.
 """
 
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -242,9 +243,11 @@ class XGBoostPredictor(MatchPredictor):
             "num_class": 3,
             "eval_metric": self.config.eval_metric,
             "random_state": self.config.random_seed,
-            "use_label_encoder": False,
             **self.config.hyperparameters,
         }
+        uses_sycl_device = (
+            str(params.get("device", "")).strip().lower().startswith("sycl")
+        )
 
         # Add class weights if provided
         if self.config.class_weights:
@@ -255,15 +258,40 @@ class XGBoostPredictor(MatchPredictor):
         else:
             sample_weights = None
 
+        # The upstream multiclass SYCL path currently crashes on Intel iGPU
+        # runtimes, so we train one binary booster per class instead.
+        if uses_sycl_device:
+            if X_val is not None and y_val is not None:
+                warnings.warn(
+                    "XGBoost SYCL multiclass training uses one-vs-rest binary "
+                    "boosters and disables in-training eval sets / early stopping "
+                    "because the upstream multiclass SYCL path currently crashes "
+                    "on Intel iGPU runtimes.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            self._model = self._fit_sycl_one_vs_rest(
+                X=X,
+                y_encoded=y_encoded,
+                params=params,
+                sample_weights=sample_weights,
+            )
+            self._is_fitted = True
+            return self
+
         # Create DMatrix
         dtrain = xgb.DMatrix(X, label=y_encoded, weight=sample_weights)
 
         # Validation set for early stopping
-        evals = [(dtrain, "train")]
+        train_kwargs: dict[str, Any] = {
+            "evals": None,
+            "early_stopping_rounds": None,
+        }
         if X_val is not None and y_val is not None:
             y_val_encoded = self._label_encoder.transform(y_val)
             dval = xgb.DMatrix(X_val, label=y_val_encoded)
-            evals.append((dval, "val"))
+            train_kwargs["evals"] = [(dtrain, "train"), (dval, "val")]
+            train_kwargs["early_stopping_rounds"] = self.config.early_stopping_rounds
 
         # Train model
         n_estimators = params.pop("n_estimators", 500)
@@ -272,15 +300,43 @@ class XGBoostPredictor(MatchPredictor):
             params,
             dtrain,
             num_boost_round=n_estimators,
-            evals=evals,
-            early_stopping_rounds=self.config.early_stopping_rounds
-            if X_val is not None
-            else None,
+            evals=train_kwargs["evals"],
+            early_stopping_rounds=train_kwargs["early_stopping_rounds"],
             verbose_eval=False,
         )
 
         self._is_fitted = True
         return self
+
+    def _fit_sycl_one_vs_rest(
+        self,
+        X: NDArray[np.float64],
+        y_encoded: NDArray[np.int64],
+        params: dict[str, Any],
+        sample_weights: NDArray[np.float64] | None,
+    ) -> list[Any]:
+        """Train one binary XGBoost booster per class on the SYCL GPU path."""
+        binary_params = dict(params)
+        n_estimators = binary_params.pop("n_estimators", 500)
+        binary_params.pop("num_class", None)
+        binary_params["objective"] = "binary:logistic"
+        if binary_params.get("eval_metric") == "mlogloss":
+            binary_params["eval_metric"] = "logloss"
+
+        boosters = []
+        for class_index in range(len(self._label_encoder.classes_)):
+            binary_targets = (y_encoded == class_index).astype(np.int64)
+            dtrain = xgb.DMatrix(X, label=binary_targets, weight=sample_weights)
+            booster = xgb.train(
+                binary_params,
+                dtrain,
+                num_boost_round=n_estimators,
+                evals=None,
+                early_stopping_rounds=None,
+                verbose_eval=False,
+            )
+            boosters.append(booster)
+        return boosters
 
     def predict_proba(self, X: NDArray[np.float64]) -> NDArray[np.float64]:
         """Predict probabilities using DMatrix."""
@@ -288,6 +344,17 @@ class XGBoostPredictor(MatchPredictor):
             raise ValueError("Model not fitted. Call fit() first.")
 
         dmatrix = xgb.DMatrix(X)
+        if isinstance(self._model, list):
+            probas = np.column_stack(
+                [booster.predict(dmatrix) for booster in self._model]
+            ).astype(np.float64)
+            row_sums = probas.sum(axis=1, keepdims=True)
+            zero_rows = row_sums.squeeze(axis=1) <= 0
+            row_sums[zero_rows] = 1.0
+            probas = probas / row_sums
+            if np.any(zero_rows):
+                probas[zero_rows] = 1.0 / probas.shape[1]
+            return probas
         return self._model.predict(dmatrix)
 
     def predict(self, X: NDArray[np.float64]) -> list[str]:
@@ -303,7 +370,19 @@ class XGBoostPredictor(MatchPredictor):
             return None
 
         # Get importance scores
-        importance = self._model.get_score(importance_type="gain")
+        if isinstance(self._model, list):
+            importance: dict[str, float] = {}
+            for booster in self._model:
+                booster_scores = booster.get_score(importance_type="gain")
+                for feature_key, score in booster_scores.items():
+                    importance[feature_key] = importance.get(feature_key, 0.0) + score
+            if self._model:
+                importance = {
+                    feature_key: score / len(self._model)
+                    for feature_key, score in importance.items()
+                }
+        else:
+            importance = self._model.get_score(importance_type="gain")
 
         # Map to feature names
         result = {}
