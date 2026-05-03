@@ -1,0 +1,62 @@
+########################################################
+#Train XGBoost model
+curl -X POST "http://localhost:8011/api/v1/ml/train" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_type": "xgboost",
+    "tournament_ids": [359],
+    "description": "EPL model trained on the Intel iGPU worker",
+    "activate": true,
+    "min_matches": 100,
+    "require_odds": true,
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "test_ratio": 0.15,
+    "calibrate_probabilities": true,
+    "calibration_method": "isotonic"
+  }' 2>&1
+########################################################
+
+
+########################################################
+#Train LightGBM model
+curl -s "http://localhost:8011/api/v1/ml/train" -X POST -H "Content-Type: application/json" -d '{
+  "model_type": "lightgbm",
+  "description": "LightGBM model test",
+  "activate": true,
+  "min_matches": 100,
+  "tournament_ids": [359],
+  "calibrate_probabilities": true
+}' | python3 -m json.tool
+
+
+# Generate prediction via GPU worker
+$ curl -s -X POST "http://localhost:8011/api/v1/predictions/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"match_ids": [18126], "model_version": "xgboost_20260503_180255"}' | python3 -m json.tool
+{
+    "generated": 1,
+    "prediction_ids": [
+        1
+    ],
+    "model_version": "xgboost_20260503_180255",
+    "matches_processed": 1,
+    "existing_predictions_skipped": 0
+}
+
+# Generate prediction via GPU worker
+$ curl -s -X POST "http://localhost:8011/api/v1/predictions/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"match_ids": [18126], "model_version": "lightgbm_20260503_202823"}' | python3 -m json.tool
+{
+    "generated": 1,
+    "prediction_ids": [
+        1
+    ],
+    "model_version": "xgboost_20260503_180255",
+    "matches_processed": 1,
+    "existing_predictions_skipped": 0
+}
+
+# Get prediction details
+$ curl -s "http://localhost:8011/api/v1/predictions?match_id=18126&model_version_id=1" | python3 -m json.tool
