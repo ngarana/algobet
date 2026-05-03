@@ -11,9 +11,6 @@ from algobet.infrastructure.models import Base, MetadataMixin, TimestampMixin
 # Match models
 from algobet.matches.models import Match, MatchStatistics
 
-# Team/Tournament models
-from algobet.teams.models import Season, Team, Tournament
-
 # Prediction models
 from algobet.predictions.models import (
     BacktestHistory,
@@ -22,11 +19,19 @@ from algobet.predictions.models import (
     Prediction,
 )
 
-# Scraping models
-from algobet.scraping.models import ScrapedOdds, ScrapingJob, ScrapingLog, ScrapingSource
-
 # Scheduling models
 from algobet.scheduling.models import ScheduledTask, TaskExecution
+
+# Scraping models
+from algobet.scraping.models import (
+    ScrapedOdds,
+    ScrapingJob,
+    ScrapingLog,
+    ScrapingSource,
+)
+
+# Team/Tournament models
+from algobet.teams.models import Season, Team, Tournament
 
 __all__ = [
     # Base
