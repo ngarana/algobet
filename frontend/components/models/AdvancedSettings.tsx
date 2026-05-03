@@ -13,8 +13,11 @@ import { DataRangeSection } from "./DataRangeSection";
 import { DataSelectionSection } from "./DataSelectionSection";
 import { MatchQualitySection } from "./MatchQualitySection";
 import { DataSplitSection } from "./DataSplitSection";
+import { SplitStrategySection } from "./SplitStrategySection";
 import { FeatureGroupsSection } from "./FeatureGroupsSection";
 import { OutcomeBalancingSection } from "./OutcomeBalancingSection";
+import { EnsembleSection } from "./EnsembleSection";
+import { HyperparametersSection } from "./HyperparametersSection";
 import { TrainingSettingsSection } from "./TrainingSettingsSection";
 import { defaultConfig } from "./utils";
 import type { AdvancedSettingsProps } from "./types";
@@ -48,8 +51,11 @@ export function AdvancedSettings({ config, onConfigChange }: AdvancedSettingsPro
             <DataSelectionSection config={config} onConfigChange={onConfigChange} />
             <MatchQualitySection config={config} onConfigChange={onConfigChange} />
             <DataSplitSection config={config} onConfigChange={onConfigChange} />
+            <SplitStrategySection config={config} onConfigChange={onConfigChange} />
             <FeatureGroupsSection config={config} onConfigChange={onConfigChange} />
             <OutcomeBalancingSection config={config} onConfigChange={onConfigChange} />
+            <EnsembleSection config={config} onConfigChange={onConfigChange} />
+            <HyperparametersSection config={config} onConfigChange={onConfigChange} />
             <TrainingSettingsSection config={config} onConfigChange={onConfigChange} />
             <Button
               type="button"

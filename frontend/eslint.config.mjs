@@ -14,6 +14,11 @@ export default tseslint.config(
       jest: jestPlugin,
       "testing-library": testingLibraryPlugin,
     },
+    languageOptions: {
+      globals: {
+        process: "readonly",
+      },
+    },
     settings: {
       "testing-library": {
         "custom-module": "@testing-library/react",
@@ -35,6 +40,7 @@ export default tseslint.config(
     files: ["**/*.{js,jsx}"],
     languageOptions: {
       globals: {
+        process: "readonly",
         module: "readonly",
         require: "readonly",
         exports: "readonly",

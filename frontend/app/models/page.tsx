@@ -1,42 +1,153 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { Box, RefreshCw, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   useActivateModel,
   useActiveModel,
   useDeleteModel,
   useModels,
 } from "@/lib/queries/use-models";
-import { TrainModelCard, ModelRow } from "@/components/models";
+import { useTrainModel } from "@/lib/queries/use-ml-operations";
+import {
+  GuidedTrainingWorkspace,
+  ModelRegistry,
+  ModelInspector,
+  TrainingResultDisplay,
+} from "@/components/models";
+import { defaultConfig } from "@/components/models/utils";
+import type { TrainingConfig } from "@/components/models/types";
 import type { ModelVersion } from "@/lib/types/api";
+import type { TrainModelResult } from "@/lib/types/ml-operations";
 
 export default function ModelsPage() {
+  const searchParams = useSearchParams();
   const { data: modelsData, isLoading, refetch } = useModels();
   const { data: activeModel } = useActiveModel();
   const activateMutation = useActivateModel();
   const deleteMutation = useDeleteModel();
-  const [expandedModel, setExpandedModel] = useState<ModelVersion | null>(null);
+  const trainMutation = useTrainModel();
+
+  const [config, setConfig] = useState<TrainingConfig>(defaultConfig);
+  const [result, setResult] = useState<TrainModelResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
 
   const models = modelsData?.items ?? [];
   const activeVersion = activeModel?.version ?? null;
+
+  const selectedModel = useMemo(() => {
+    if (selectedModelId === null) return null;
+    return models.find((m) => m.id === selectedModelId) ?? null;
+  }, [selectedModelId, models]);
+
+  useEffect(() => {
+    const idParam = searchParams.get("id");
+    if (idParam) {
+      const id = parseInt(idParam, 10);
+      const exists = models.some((m) => m.id === id);
+      if (exists) {
+        setSelectedModelId(id);
+      } else if (activeVersion) {
+        const active = models.find((m) => m.version === activeVersion);
+        setSelectedModelId(active?.id ?? null);
+      } else if (models.length > 0) {
+        setSelectedModelId(models[0].id);
+      }
+    } else if (activeVersion) {
+      const active = models.find((m) => m.version === activeVersion);
+      setSelectedModelId(active?.id ?? null);
+    } else if (models.length > 0) {
+      setSelectedModelId(models[0].id);
+    }
+  }, [searchParams, models, activeVersion]);
+
+  const updateConfig = useCallback(
+    <K extends keyof TrainingConfig>(key: K, value: TrainingConfig[K]) => {
+      setConfig((prev) => ({ ...prev, [key]: value }));
+    },
+    []
+  );
+
+  const handleTrainSubmit = useCallback(
+    async (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      setError(null);
+
+      const totalRatio = config.trainRatio + config.valRatio + config.testRatio;
+      if (Math.abs(totalRatio - 1.0) > 0.001) {
+        setError(
+          `Split ratios must sum to 1.0, currently ${(totalRatio * 100).toFixed(1)}%`
+        );
+        return;
+      }
+
+      try {
+        const trained = await trainMutation.mutateAsync({
+          model_type: config.modelType,
+          tune_hyperparameters: config.tune,
+          description: config.description.trim() || undefined,
+          activate: config.activate,
+          start_date: config.startDate || undefined,
+          end_date: config.endDate || undefined,
+          min_matches: config.minMatches,
+          tournament_ids:
+            config.tournamentIds.length > 0 ? config.tournamentIds : undefined,
+          team_ids: config.teamIds.length > 0 ? config.teamIds : undefined,
+          venue_filter: config.venueFilter,
+          require_odds: config.requireOdds,
+          min_total_goals: config.minTotalGoals ?? undefined,
+          max_total_goals: config.maxTotalGoals ?? undefined,
+          train_ratio: config.trainRatio,
+          val_ratio: config.valRatio,
+          test_ratio: config.testRatio,
+          random_seed: config.randomSeed,
+          early_stopping_rounds: config.earlyStoppingRounds,
+          tuning_trials: config.tuningTrials,
+          calibrate_probabilities: config.calibrateProbabilities,
+          calibration_method: config.calibrationMethod,
+          outcome_balance: config.outcomeBalance,
+          feature_groups:
+            config.featureGroups.length > 0 ? config.featureGroups : undefined,
+          use_ensemble: config.useEnsemble,
+          ensemble_types: config.useEnsemble ? config.ensembleTypes : undefined,
+          split_strategy: config.splitStrategy,
+          gap_days: config.gapDays,
+          min_train_size: config.minTrainSize,
+          ew_val_size: config.ewValSize,
+          ew_test_size: config.ewTestSize,
+          step_size: config.stepSize,
+          train_seasons: config.trainSeasons,
+          val_seasons: config.valSeasons,
+          test_seasons: config.testSeasons,
+          tags: {},
+          hyperparameters:
+            Object.keys(config.customHyperparameters).length > 0
+              ? config.customHyperparameters
+              : {},
+        });
+        setResult(trained);
+        refetch();
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to train model. Please try again."
+        );
+      }
+    },
+    [config, trainMutation, refetch]
+  );
+
+  const handleSelectModel = useCallback((model: ModelVersion | null) => {
+    setSelectedModelId(model?.id ?? null);
+  }, []);
+
   const averageAccuracy =
     models.length > 0
       ? models.reduce((sum, model) => sum + (model.accuracy ?? 0), 0) / models.length
@@ -96,65 +207,63 @@ export default function ModelsPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <div>
-          <TrainModelCard />
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                Train Model
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <GuidedTrainingWorkspace
+                config={config}
+                onConfigChange={updateConfig}
+                onSubmit={handleTrainSubmit}
+                isTraining={trainMutation.isPending}
+                error={error}
+              />
+              {result && (
+                <div className="mt-4">
+                  <TrainingResultDisplay result={result} />
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
-        <div>
-          {isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-16 w-full" />
-              <Skeleton className="h-64 w-full" />
-            </div>
-          ) : models.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Model Registry</CardTitle>
-                <CardDescription>
-                  Activate the model you want to use for default predictions, or inspect
-                  metrics before switching.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Version</TableHead>
-                      <TableHead>Algorithm</TableHead>
-                      <TableHead>Accuracy</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {models.map((model) => (
-                      <ModelRow
-                        key={model.id}
-                        model={model}
-                        isActive={model.version === activeVersion}
-                        isExpanded={expandedModel?.id === model.id}
-                        onActivate={(id) => activateMutation.mutate(id)}
-                        onDelete={(id) => deleteMutation.mutate(id)}
-                        onToggleMetrics={setExpandedModel}
-                      />
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <Box className="mb-4 h-12 w-12" />
-                <p className="text-lg font-medium">No models found</p>
-                <p className="text-sm">
-                  Train your first model from the panel on the left.
-                </p>
-              </CardContent>
-            </Card>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Model Registry</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : (
+                <ModelRegistry
+                  models={models}
+                  activeVersion={activeVersion}
+                  selectedModelId={selectedModelId}
+                  onSelectModel={handleSelectModel}
+                  onActivate={(id) => activateMutation.mutate(id)}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          {selectedModel && (
+            <ModelInspector
+              model={selectedModel}
+              onClose={() => setSelectedModelId(null)}
+              onActivate={(id) => activateMutation.mutate(id)}
+              onDelete={(id) => deleteMutation.mutate(id)}
+            />
           )}
         </div>
       </div>

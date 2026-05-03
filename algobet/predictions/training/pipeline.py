@@ -15,6 +15,14 @@ from numpy.typing import NDArray
 from sqlalchemy.orm import Session
 
 from algobet.predictions.data.queries import MatchRepository
+from algobet.predictions.features.generators import (
+    CompositeFeatureGenerator,
+    FeatureGenerator,
+    HeadToHeadGenerator,
+    OddsFeatureGenerator,
+    TeamFormGenerator,
+    TemporalFeatureGenerator,
+)
 from algobet.predictions.features.pipeline import FeaturePipeline
 from algobet.predictions.features.store import FeatureStore
 from algobet.predictions.models.registry import ModelRegistry
@@ -30,18 +38,11 @@ from algobet.predictions.training.classifiers import (
     create_predictor,
 )
 from algobet.predictions.training.split import (
+    ExpandingWindowSplitter,
+    SeasonAwareSplitter,
     TemporalSplitter,
     encode_targets,
     get_class_weights,
-)
-from algobet.predictions.features.generators import (
-    CompositeFeatureGenerator,
-    FeatureGenerator,
-    TeamFormGenerator,
-    HeadToHeadGenerator,
-    OddsFeatureGenerator,
-    TemporalFeatureGenerator,
-    create_default_generators,
 )
 from algobet.predictions.training.tuner import (
     HAS_OPTUNA,
@@ -87,6 +88,17 @@ class TrainingConfig:
     train_ratio: float = 0.7
     val_ratio: float = 0.15
     test_ratio: float = 0.15
+    split_strategy: str = "temporal"  # "temporal", "expanding_window", "season_aware"
+    gap_days: int = 0
+    # Expanding window params
+    min_train_size: int = 100
+    ew_val_size: int = 50
+    ew_test_size: int = 50
+    step_size: int = 50
+    # Season-aware params
+    train_seasons: int = 3
+    val_seasons: int = 1
+    test_seasons: int = 1
 
     # Tuning settings
     tune_hyperparameters: bool = False
@@ -401,15 +413,30 @@ class TrainingPipeline:
             axis=1,
         )
 
-        # Split data temporally FIRST
-        splitter = TemporalSplitter(
-            train_ratio=self.config.train_ratio,
-            val_ratio=self.config.val_ratio,
-            test_ratio=self.config.test_ratio,
-        )
+        # Split data using configured strategy
+        if self.config.split_strategy == "expanding_window":
+            splitter = ExpandingWindowSplitter(
+                min_train_size=self.config.min_train_size,
+                val_size=self.config.ew_val_size,
+                test_size=self.config.ew_test_size,
+                step_size=self.config.step_size,
+            )
+        elif self.config.split_strategy == "season_aware":
+            splitter = SeasonAwareSplitter(
+                train_seasons=self.config.train_seasons,
+                val_seasons=self.config.val_seasons,
+                test_seasons=self.config.test_seasons,
+            )
+        else:
+            splitter = TemporalSplitter(
+                train_ratio=self.config.train_ratio,
+                val_ratio=self.config.val_ratio,
+                test_ratio=self.config.test_ratio,
+                gap_days=self.config.gap_days,
+            )
 
         splits = list(splitter.split(matches_df))
-        split = splits[0]  # Single split
+        split = splits[0]  # Use the first (or only) split
 
         # Encode targets
         y = encode_targets(matches_df["result"].values)
@@ -469,7 +496,7 @@ class TrainingPipeline:
 
         return tuner.tune(X_train, y_train, X_val, y_val, class_weights)
 
-def _train_model(
+    def _train_model(
         self,
         X_train: NDArray[np.float64],
         y_train: NDArray[np.int64],

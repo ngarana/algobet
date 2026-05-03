@@ -55,4 +55,21 @@ export const defaultConfig = {
   outcomeBalance: true,
   // Feature groups (empty = all)
   featureGroups: [] as string[],
+  // Ensemble training
+  useEnsemble: false,
+  ensembleTypes: ["xgboost", "lightgbm"] as string[],
+  // Split strategy
+  splitStrategy: "temporal" as const,
+  gapDays: 0,
+  // Expanding window params
+  minTrainSize: 100,
+  ewValSize: 50,
+  ewTestSize: 50,
+  stepSize: 50,
+  // Season-aware params
+  trainSeasons: 3,
+  valSeasons: 1,
+  testSeasons: 1,
+  // Custom hyperparameters
+  customHyperparameters: {} as Record<string, number>,
 };

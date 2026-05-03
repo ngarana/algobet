@@ -1,18 +1,52 @@
 "use client";
 
-import { Trophy } from "lucide-react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Check, Search, Trophy, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { useTournaments } from "@/lib/queries/use-tournaments";
 import { useTeams } from "@/lib/queries/use-teams";
+import { cn } from "@/lib/utils";
 import type { DataRangeSectionProps } from "./types";
 
 export function DataSelectionSection({
   config,
   onConfigChange,
 }: DataRangeSectionProps) {
+  const [tournamentSearch, setTournamentSearch] = useState("");
+  const [teamSearch, setTeamSearch] = useState("");
+  const [teamLabels, setTeamLabels] = useState<Record<number, string>>({});
+
+  const deferredTeamSearch = useDeferredValue(teamSearch.trim());
   const { data: tournaments = [], isLoading: tournamentsLoading } = useTournaments();
-  const { data: teams = [], isLoading: teamsLoading } = useTeams({ limit: 100 });
+  const scopedTournamentId =
+    config.tournamentIds.length === 1 ? config.tournamentIds[0] : undefined;
+  const { data: teams = [], isLoading: teamsLoading } = useTeams({
+    search: deferredTeamSearch || undefined,
+    tournament_id: scopedTournamentId,
+    limit: 50,
+  });
+
+  useEffect(() => {
+    if (teams.length === 0) {
+      return;
+    }
+
+    setTeamLabels((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      teams.forEach((team) => {
+        if (next[team.id] !== team.name) {
+          next[team.id] = team.name;
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [teams]);
 
   const toggleTournament = (tournamentId: number) => {
     const current = config.tournamentIds;
@@ -30,98 +64,208 @@ export function DataSelectionSection({
     onConfigChange("teamIds", updated);
   };
 
+  const tournamentsById = useMemo(
+    () => new Map(tournaments.map((tournament) => [tournament.id, tournament])),
+    [tournaments]
+  );
+
+  const visibleTournaments = useMemo(() => {
+    const query = tournamentSearch.trim().toLowerCase();
+    const sorted = [...tournaments].sort((left, right) =>
+      left.name.localeCompare(right.name)
+    );
+
+    const filtered = query
+      ? sorted.filter((tournament) =>
+          `${tournament.name} ${tournament.country}`.toLowerCase().includes(query)
+        )
+      : sorted;
+
+    return filtered.slice(0, query ? 24 : 12);
+  }, [tournamentSearch, tournaments]);
+
+  const selectedTournaments = config.tournamentIds
+    .map((tournamentId) => tournamentsById.get(tournamentId))
+    .filter((tournament): tournament is NonNullable<typeof tournament> =>
+      Boolean(tournament)
+    );
+
+  const visibleTeams = useMemo(
+    () => teams.slice(0, teamSearch.trim() ? 24 : 12),
+    [teamSearch, teams]
+  );
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <h4 className="flex items-center gap-2 text-sm font-semibold">
         <Trophy className="h-4 w-4" />
         Tournament & Team Selection
       </h4>
 
-      {/* Tournament Selection */}
-      <div className="space-y-2">
-        <Label>Tournaments</Label>
-        <div className="flex flex-wrap gap-2">
-          {tournamentsLoading ? (
-            <span className="text-xs text-muted-foreground">Loading...</span>
-          ) : tournaments.length > 0 ? (
-            tournaments.slice(0, 8).map((t) => (
-              <Badge
-                key={t.id}
-                variant={config.tournamentIds.includes(t.id) ? "default" : "outline"}
-                className="cursor-pointer"
-                onClick={() => toggleTournament(t.id)}
-              >
-                {t.name}
-              </Badge>
-            ))
-          ) : (
-            <span className="text-xs text-muted-foreground">
-              No tournaments available
-            </span>
-          )}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="tournament-search">Tournaments</Label>
+            <p className="text-xs text-muted-foreground">
+              Search and pick one or more competitions to narrow the training set.
+            </p>
+          </div>
           {config.tournamentIds.length > 0 && (
-            <Badge
-              variant="secondary"
-              className="cursor-pointer"
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => onConfigChange("tournamentIds", [])}
             >
-              Clear ({config.tournamentIds.length})
-            </Badge>
+              Clear
+            </Button>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          {config.tournamentIds.length > 0
-            ? `Selected ${config.tournamentIds.length} tournament(s). Leave empty for all.`
-            : "Leave empty to include all tournaments."}
-        </p>
+
+        <div className="space-y-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="tournament-search"
+              placeholder="Search tournaments..."
+              value={tournamentSearch}
+              onChange={(event) => setTournamentSearch(event.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          <div className="max-h-60 overflow-y-auto rounded-md border bg-background">
+            {tournamentsLoading ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                Loading tournaments...
+              </p>
+            ) : visibleTournaments.length > 0 ? (
+              visibleTournaments.map((tournament) => (
+                <OptionRow
+                  key={tournament.id}
+                  isSelected={config.tournamentIds.includes(tournament.id)}
+                  label={tournament.name}
+                  meta={tournament.country}
+                  onSelect={() => toggleTournament(tournament.id)}
+                />
+              ))
+            ) : (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                No tournaments match your search.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {selectedTournaments.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {selectedTournaments.map((tournament) => (
+              <SelectedChip
+                key={tournament.id}
+                label={tournament.name}
+                onRemove={() => toggleTournament(tournament.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Leave empty to include all tournaments.
+          </p>
+        )}
       </div>
 
-      {/* Team Selection */}
-      <div className="space-y-2">
-        <Label>Teams</Label>
-        <div className="flex flex-wrap gap-2">
-          {teamsLoading ? (
-            <span className="text-xs text-muted-foreground">Loading...</span>
-          ) : teams.length > 0 ? (
-            teams.slice(0, 12).map((t) => (
-              <Badge
-                key={t.id}
-                variant={config.teamIds.includes(t.id) ? "default" : "outline"}
-                className="cursor-pointer"
-                onClick={() => toggleTeam(t.id)}
-              >
-                {t.name}
-              </Badge>
-            ))
-          ) : (
-            <span className="text-xs text-muted-foreground">No teams available</span>
-          )}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="team-search">Teams</Label>
+            <p className="text-xs text-muted-foreground">
+              Search for clubs to include. When one tournament is selected, team search
+              is scoped to that competition.
+            </p>
+          </div>
           {config.teamIds.length > 0 && (
-            <Badge
-              variant="secondary"
-              className="cursor-pointer"
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => onConfigChange("teamIds", [])}
             >
-              Clear ({config.teamIds.length})
-            </Badge>
+              Clear
+            </Button>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          {config.teamIds.length > 0
-            ? `Selected ${config.teamIds.length} team(s). Matches involving these teams will be included.`
-            : "Leave empty to include all teams."}
-        </p>
+
+        <div className="space-y-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="team-search"
+              placeholder="Search teams..."
+              value={teamSearch}
+              onChange={(event) => setTeamSearch(event.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          <div className="max-h-60 overflow-y-auto rounded-md border bg-background">
+            {teamsLoading ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                Loading teams...
+              </p>
+            ) : visibleTeams.length > 0 ? (
+              visibleTeams.map((team) => (
+                <OptionRow
+                  key={team.id}
+                  isSelected={config.teamIds.includes(team.id)}
+                  label={team.name}
+                  meta={
+                    config.tournamentIds.length > 1
+                      ? "Search runs across all tournaments"
+                      : scopedTournamentId
+                        ? "Scoped to selected tournament"
+                        : "Available team"
+                  }
+                  onSelect={() => toggleTeam(team.id)}
+                />
+              ))
+            ) : (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                No teams match your search.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {config.teamIds.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {config.teamIds.map((teamId) => (
+              <SelectedChip
+                key={teamId}
+                label={teamLabels[teamId] ?? `Team #${teamId}`}
+                onRemove={() => toggleTeam(teamId)}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Leave empty to include all teams.
+          </p>
+        )}
       </div>
 
-      {/* Venue Filter */}
       <div className="space-y-2">
         <Label>Match Venue</Label>
         <div className="flex gap-2">
           {(["both", "home", "away"] as const).map((venue) => (
-            <Badge
+            <button
+              type="button"
               key={venue}
-              variant={config.venueFilter === venue ? "default" : "outline"}
-              className="cursor-pointer"
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                config.venueFilter === venue
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "bg-background text-foreground hover:bg-muted"
+              )}
               onClick={() => onConfigChange("venueFilter", venue)}
             >
               {venue === "both"
@@ -129,10 +273,63 @@ export function DataSelectionSection({
                 : venue === "home"
                   ? "Home Only"
                   : "Away Only"}
-            </Badge>
+            </button>
           ))}
         </div>
       </div>
     </div>
+  );
+}
+
+interface OptionRowProps {
+  isSelected: boolean;
+  label: string;
+  meta: string;
+  onSelect: () => void;
+}
+
+function OptionRow({ isSelected, label, meta, onSelect }: OptionRowProps) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-muted/60",
+        isSelected && "bg-primary/5"
+      )}
+      onClick={onSelect}
+    >
+      <div className="min-w-0">
+        <div className="truncate font-medium">{label}</div>
+        <div className="truncate text-xs text-muted-foreground">{meta}</div>
+      </div>
+      <div
+        className={cn(
+          "flex h-5 w-5 items-center justify-center rounded-full border",
+          isSelected
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-muted-foreground/30 text-transparent"
+        )}
+      >
+        <Check className="h-3 w-3" />
+      </div>
+    </button>
+  );
+}
+
+interface SelectedChipProps {
+  label: string;
+  onRemove: () => void;
+}
+
+function SelectedChip({ label, onRemove }: SelectedChipProps) {
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 rounded-full border bg-muted px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/70"
+      onClick={onRemove}
+    >
+      <span>{label}</span>
+      <X className="h-3 w-3" />
+    </button>
   );
 }

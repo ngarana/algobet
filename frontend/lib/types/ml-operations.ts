@@ -40,6 +40,25 @@ export const TrainModelRequestSchema = z.object({
   outcome_balance: z.boolean().optional(),
   // Feature groups selection
   feature_groups: z.array(z.string()).optional(),
+  // Ensemble training
+  use_ensemble: z.boolean().default(false),
+  ensemble_types: z.array(z.string()).optional(),
+  // Split strategy
+  split_strategy: z
+    .enum(["temporal", "expanding_window", "season_aware"])
+    .default("temporal"),
+  gap_days: z.number().min(0).max(30).default(0),
+  // Expanding window params
+  min_train_size: z.number().min(50).max(5000).default(100),
+  ew_val_size: z.number().min(10).max(1000).default(50),
+  ew_test_size: z.number().min(10).max(1000).default(50),
+  step_size: z.number().min(10).max(500).default(50),
+  // Season-aware params
+  train_seasons: z.number().min(1).max(10).default(3),
+  val_seasons: z.number().min(1).max(5).default(1),
+  test_seasons: z.number().min(1).max(5).default(1),
+  // Model tags
+  tags: z.record(z.string()).default({}),
   // Custom hyperparameters
   hyperparameters: z.record(z.unknown()).default({}),
 });

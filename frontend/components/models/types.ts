@@ -33,6 +33,23 @@ export interface TrainingConfig {
   outcomeBalance: boolean;
   // Feature groups
   featureGroups: string[];
+  // Ensemble training
+  useEnsemble: boolean;
+  ensembleTypes: string[];
+  // Split strategy
+  splitStrategy: "temporal" | "expanding_window" | "season_aware";
+  gapDays: number;
+  // Expanding window params
+  minTrainSize: number;
+  ewValSize: number;
+  ewTestSize: number;
+  stepSize: number;
+  // Season-aware params
+  trainSeasons: number;
+  valSeasons: number;
+  testSeasons: number;
+  // Custom hyperparameters
+  customHyperparameters: Record<string, number>;
 }
 
 export interface TrainingResultDisplayProps {

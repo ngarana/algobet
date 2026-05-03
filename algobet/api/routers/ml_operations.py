@@ -79,6 +79,29 @@ class TrainModelRequest(BaseModel):
     # Feature groups selection (subset of available generators)
     feature_groups: list[str] | None = None  # e.g. ["team_form", "odds", "temporal"]
 
+    # Ensemble training
+    use_ensemble: bool = False
+    ensemble_types: list[str] | None = None  # e.g. ["xgboost", "lightgbm"]
+
+    # Split strategy
+    split_strategy: str = Field(
+        default="temporal",
+        pattern="^(temporal|expanding_window|season_aware)$",
+    )
+    gap_days: int = Field(default=0, ge=0, le=30)
+    # Expanding window params (used when split_strategy = expanding_window)
+    min_train_size: int = Field(default=100, ge=50, le=5000)
+    ew_val_size: int = Field(default=50, ge=10, le=1000)
+    ew_test_size: int = Field(default=50, ge=10, le=1000)
+    step_size: int = Field(default=50, ge=10, le=500)
+    # Season-aware params (used when split_strategy = season_aware)
+    train_seasons: int = Field(default=3, ge=1, le=10)
+    val_seasons: int = Field(default=1, ge=1, le=5)
+    test_seasons: int = Field(default=1, ge=1, le=5)
+
+    # Model tags
+    tags: dict[str, str] = Field(default_factory=dict)
+
     # Custom hyperparameters (optional)
     hyperparameters: dict[str, Any] = Field(default_factory=dict)
 
@@ -246,6 +269,21 @@ def run_training(
         outcome_balance=request.outcome_balance,
         # Feature groups
         feature_groups=request.feature_groups,
+        # Ensemble training
+        use_ensemble=request.use_ensemble,
+        ensemble_types=request.ensemble_types or ["xgboost", "lightgbm"],
+        # Split strategy
+        split_strategy=request.split_strategy,
+        gap_days=request.gap_days,
+        min_train_size=request.min_train_size,
+        ew_val_size=request.ew_val_size,
+        ew_test_size=request.ew_test_size,
+        step_size=request.step_size,
+        train_seasons=request.train_seasons,
+        val_seasons=request.val_seasons,
+        test_seasons=request.test_seasons,
+        # Model tags
+        tags=request.tags,
         # Custom hyperparameters
         hyperparameters=request.hyperparameters,
     )

@@ -79,8 +79,28 @@ export function TrainModelCard() {
         // Feature groups
         feature_groups:
           config.featureGroups.length > 0 ? config.featureGroups : undefined,
+        // Ensemble training
+        use_ensemble: config.useEnsemble,
+        ensemble_types: config.useEnsemble ? config.ensembleTypes : undefined,
+        // Split strategy
+        split_strategy: config.splitStrategy,
+        gap_days: config.gapDays,
+        // Expanding window params
+        min_train_size: config.minTrainSize,
+        ew_val_size: config.ewValSize,
+        ew_test_size: config.ewTestSize,
+        step_size: config.stepSize,
+        // Season-aware params
+        train_seasons: config.trainSeasons,
+        val_seasons: config.valSeasons,
+        test_seasons: config.testSeasons,
+        // Model tags
+        tags: {},
         // Custom hyperparameters
-        hyperparameters: {},
+        hyperparameters:
+          Object.keys(config.customHyperparameters).length > 0
+            ? config.customHyperparameters
+            : {},
       });
       setResult(trained);
     } catch (err) {
