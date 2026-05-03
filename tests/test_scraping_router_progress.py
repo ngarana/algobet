@@ -51,6 +51,43 @@ def test_results_endpoint_forwards_max_pages() -> None:
         )
 
 
+def test_results_endpoint_uses_batch_service_for_period_ranges() -> None:
+    client = TestClient(app)
+    tournament_url = (
+        "https://www.oddsportal.com/football/england/premier-league/results/"
+    )
+
+    with (
+        patch(
+            "algobet.api.routers.scraping.manager.broadcast_progress",
+            new=AsyncMock(),
+        ),
+        patch(
+            "algobet.api.routers.scraping.manager.broadcast_job_status",
+            new=AsyncMock(),
+        ),
+        patch("algobet.api.routers.scraping.ScrapingService") as mock_service_class,
+    ):
+        mock_service = MagicMock()
+        mock_service_class.return_value = mock_service
+        mock_service.scrape_results_range.return_value = MagicMock(
+            matches_saved=24,
+            matches_scraped=48,
+        )
+
+        response = client.post(
+            f"/api/v1/scraping/results?tournament_url={tournament_url}"
+            "&period_start=2021-2022&period_end=2022-2023&max_pages=5"
+        )
+
+        assert response.status_code == 200
+        mock_service.scrape_results_range.assert_called_once_with(
+            url=tournament_url,
+            seasons=["2021-2022", "2022-2023"],
+            max_pages=5,
+        )
+
+
 def test_upcoming_endpoint_sets_started_at_and_broadcasts_incremental_progress() -> (
     None
 ):
@@ -136,13 +173,10 @@ def test_by_date_endpoint_builds_date_url_and_forwards_target_date() -> None:
         assert response.status_code == 200
         payload = response.json()
 
-        assert (
-            payload["tournament_url"]
-            == "https://www.oddsportal.com/matches/football/20260421/"
-        )
+        assert payload["tournament_url"] == "https://www.oddsportal.com/matches/"
         assert payload["period"] == "2026-04-21"
 
         mock_service.scrape_matches_by_date.assert_called_once_with(
-            url="https://www.oddsportal.com/matches/football/20260421/",
+            url="https://www.oddsportal.com/matches/",
             target_date=date(2026, 4, 21),
         )

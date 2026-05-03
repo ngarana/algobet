@@ -22,12 +22,15 @@ interface UseJobOperationsOptions {
 interface UseJobOperationsReturn {
   fetchUpcoming: (request?: {
     tournament_id?: number;
+    tournament_url?: string;
     scope?: "all" | "league";
   }) => Promise<void>;
   fetchResults: (request: {
     tournament_id?: number;
     tournament_url?: string;
     period?: string;
+    period_start?: string;
+    period_end?: string;
     max_pages?: number;
   }) => Promise<void>;
   fetchByDate: (request?: {
@@ -87,7 +90,7 @@ export function useJobOperations(
    * Execute a mutation with unified error handling
    */
   const executeMutation = useCallback(
-    async <T>(
+    async (
       mutation: () => Promise<{ id: string }>,
       logPrefix: string
     ): Promise<void> => {
@@ -110,11 +113,16 @@ export function useJobOperations(
    * Fetch upcoming matches
    */
   const fetchUpcoming = useCallback(
-    async (request?: { tournament_id?: number; scope?: "all" | "league" }) => {
+    async (request?: {
+      tournament_id?: number;
+      tournament_url?: string;
+      scope?: "all" | "league";
+    }) => {
       await executeMutation(
         () =>
           fetchUpcomingMutation.mutateAsync({
             tournament_id: request?.tournament_id,
+            tournament_url: request?.tournament_url,
             scope: request?.scope ?? "all",
           }),
         `${FetchDialogType.UPCOMING} fixtures fetch${
@@ -133,6 +141,8 @@ export function useJobOperations(
       tournament_id?: number;
       tournament_url?: string;
       period?: string;
+      period_start?: string;
+      period_end?: string;
       max_pages?: number;
     }) => {
       if (!request.tournament_id && !request.tournament_url) {
@@ -146,6 +156,8 @@ export function useJobOperations(
             tournament_id: request.tournament_id,
             tournament_url: request.tournament_url,
             period: request.period,
+            period_start: request.period_start,
+            period_end: request.period_end,
             max_pages: request.max_pages,
           }),
         `${FetchDialogType.RESULTS} fetch for selected league`

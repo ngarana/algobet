@@ -22,6 +22,24 @@ from playwright.sync_api import (
 logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
+NETWORK_ERROR_MARKERS = (
+    "err_name_not_resolved",
+    "err_internet_disconnected",
+    "err_connection_refused",
+    "err_connection_reset",
+    "err_connection_timed_out",
+    "err_network_changed",
+    "net::",
+    "networkidle",
+)
+
+
+def is_retryable_network_error(error: Exception) -> bool:
+    """Return True when an exception looks like a transient network failure."""
+    error_message = str(error).lower()
+    return isinstance(error, ConnectionError | PlaywrightTimeoutError) or any(
+        marker in error_message for marker in NETWORK_ERROR_MARKERS
+    )
 
 
 def retry_on_network_error(
@@ -50,25 +68,9 @@ def retry_on_network_error(
                     return func(*args, **kwargs)
                 except exceptions as e:
                     last_exception = e
-                    error_msg = str(e)
+                    is_network_error = is_retryable_network_error(e)
 
-                    # Check if it's a network-related error
-                    is_network_error = any(
-                        err in error_msg.lower()
-                        for err in [
-                            "err_name_not_resolved",
-                            "err_internet_disconnected",
-                            "err_connection_refused",
-                            "err_connection_reset",
-                            "err_connection_timed_out",
-                            "err_network_changed",
-                            "net::",
-                            "timeout",
-                            "networkidle",
-                        ]
-                    )
-
-                    if not is_network_error and attempt >= max_retries:
+                    if not is_network_error:
                         raise
 
                     if attempt < max_retries:
@@ -279,7 +281,7 @@ class OddsPortalScraper:
 
             # Extract URL suffix for past seasons
             url_suffix = None
-            match = re.search(r"premier-league-(\d{4}-\d{4})", href)
+            match = re.search(r"-(\d{4}-\d{4})(?:/|$)", href)
             if match:
                 url_suffix = match.group(1)
 
@@ -304,9 +306,10 @@ class OddsPortalScraper:
 
         # Replace league slug with season-specific slug
         # e.g., /premier-league/results/ -> /premier-league-2023-2024/results/
+        normalized_base_url = re.sub(r"-(\d{4}-\d{4})(?=/results/)", "", base_url)
         pattern = r"/([^/]+)/results/"
         replacement = f"/\\1-{season.url_suffix}/results/"
-        return re.sub(pattern, replacement, base_url)
+        return re.sub(pattern, replacement, normalized_base_url)
 
     def scrape_current_page(self) -> list[ScrapedMatch]:
         """Scrape all matches from the current page.
@@ -455,10 +458,12 @@ class OddsPortalScraper:
     def navigate_to_upcoming(
         self, url: str = "https://www.oddsportal.com/matches/"
     ) -> None:
-        """Navigate to upcoming matches page.
+        """Navigate to upcoming matches page (global or league-specific).
 
         Args:
-            url: The URL of the matches page.
+            url: The URL of the matches page. Can be:
+                - Global: https://www.oddsportal.com/matches/
+                - League: https://www.oddsportal.com/football/england/premier-league/
 
         Raises:
             ConnectionError: If DNS resolution fails
@@ -775,6 +780,23 @@ class OddsPortalScraper:
 
         return max_page
 
+    def _page_rows_signature(self) -> str:
+        """Return a lightweight signature for the currently visible result rows."""
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
+        signature = self._page.evaluate(
+            """
+            (selector) => {
+                const rows = Array.from(document.querySelectorAll(selector));
+                const first = rows[0]?.innerText?.trim() ?? "";
+                const last = rows[rows.length - 1]?.innerText?.trim() ?? "";
+                return `${rows.length}::${first}::${last}`;
+            }
+            """,
+            self.MATCH_ROW_SELECTOR,
+        )
+        return str(signature)
+
     def go_to_page(self, page_num: int) -> bool:
         """Navigate to a specific pagination page.
 
@@ -787,17 +809,37 @@ class OddsPortalScraper:
         if self._page is None:
             raise RuntimeError("Browser not started. Call start() first.")
         try:
+            previous_url = self._page.url
+            previous_signature = self._page_rows_signature()
+
             # Find the pagination link with the page number
             link = self._page.query_selector(
                 f'{self.PAGINATION_SELECTOR}:text-is("{page_num}")'
             )
-            if link:
-                link.click()
-                # Wait for content to update
-                self._page.wait_for_load_state("networkidle")
-                with contextlib.suppress(Exception):
-                    self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=10000)
-                return True
+            if not link:
+                logger.warning(f"Pagination link not found for page {page_num}")
+                return False
+
+            link.scroll_into_view_if_needed()
+            link.click()
+            # Wait for content to update
+            with contextlib.suppress(Exception):
+                self._page.wait_for_load_state("networkidle", timeout=15000)
+            with contextlib.suppress(Exception):
+                self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=10000)
+
+            current_signature = self._page_rows_signature()
+            navigation_changed = (
+                current_signature != previous_signature
+                or self._page.url != previous_url
+            )
+            if not navigation_changed:
+                logger.warning(
+                    f"Could not confirm pagination transition to page {page_num}"
+                )
+                return False
+
+            return True
         except Exception as e:
             logger.error(f"Error navigating to page {page_num}: {e}")
 

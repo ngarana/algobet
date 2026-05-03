@@ -121,6 +121,7 @@ export default function FetchDataPage() {
             type: "upcoming";
             scope: "all" | "league";
             tournament_id?: number;
+            tournament_url?: string;
             team_id?: number;
           }
         | {
@@ -128,6 +129,8 @@ export default function FetchDataPage() {
             tournament_id?: number;
             tournament_url?: string;
             period?: string;
+            period_start?: string;
+            period_end?: string;
             max_pages?: number;
             team_id?: number;
           }
@@ -142,6 +145,7 @@ export default function FetchDataPage() {
       if (data.type === "upcoming") {
         void fetchUpcoming({
           tournament_id: data.tournament_id,
+          tournament_url: data.tournament_url,
           scope: data.scope,
         });
       } else if (data.type === "results") {
@@ -149,6 +153,8 @@ export default function FetchDataPage() {
           tournament_id: data.tournament_id,
           tournament_url: data.tournament_url,
           period: data.period,
+          period_start: data.period_start,
+          period_end: data.period_end,
           max_pages: data.max_pages,
         });
       } else if (data.type === "by-date") {

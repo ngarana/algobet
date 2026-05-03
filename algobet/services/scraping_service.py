@@ -1,6 +1,7 @@
 """Scraping service for orchestrating data collection from OddsPortal."""
 
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date as date_cls, datetime, timezone
@@ -11,8 +12,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from algobet.models import Match, Team, Tournament
-from algobet.scraper import OddsPortalScraper, ScrapedMatch
+from algobet.models import Match, Season, Team, Tournament
+from algobet.scraper import OddsPortalScraper, ScrapedMatch, is_retryable_network_error
 from algobet.services.base import BaseService
 
 logger = logging.getLogger(__name__)
@@ -162,6 +163,36 @@ class ScrapingService(BaseService[Any]):
 
         return tournament
 
+    def get_or_create_season(
+        self, tournament: Tournament, season_label: str | None
+    ) -> Season | None:
+        """Get or create a season for a tournament from a YYYY/YYYY label."""
+        season_info = self._parse_season_label(season_label)
+        if season_info is None:
+            return None
+
+        season = self.session.execute(
+            select(Season).where(
+                Season.tournament_id == tournament.id,
+                Season.name == str(season_info["name"]),
+            )
+        ).scalar_one_or_none()
+
+        if not season:
+            season = Season(
+                tournament_id=tournament.id,
+                name=str(season_info["name"]),
+                start_year=int(season_info["start_year"]),
+                end_year=int(season_info["end_year"]),
+                url_suffix=str(season_info["url_suffix"]),
+            )
+            self.session.add(season)
+            self.session.flush()
+        elif season.url_suffix != str(season_info["url_suffix"]):
+            season.url_suffix = str(season_info["url_suffix"])
+
+        return season
+
     def get_or_create_team(self, name: str) -> Team:
         """Get or create a team.
 
@@ -181,6 +212,87 @@ class ScrapingService(BaseService[Any]):
             self.session.flush()
 
         return team
+
+    def _parse_season_label(
+        self, season_label: str | None
+    ) -> dict[str, str | int] | None:
+        """Normalize a season label into database-ready fields."""
+        if season_label is None:
+            return None
+
+        normalized = season_label.strip()
+        if not normalized:
+            return None
+
+        match = re.fullmatch(r"(\d{4})[-/](\d{4})", normalized)
+        if not match:
+            logger.warning(f"Ignoring unsupported season label: {season_label}")
+            return None
+
+        start_year = int(match.group(1))
+        end_year = int(match.group(2))
+        if end_year != start_year + 1:
+            logger.warning(f"Ignoring invalid season range: {season_label}")
+            return None
+
+        return {
+            "name": f"{start_year}/{end_year}",
+            "start_year": start_year,
+            "end_year": end_year,
+            "url_suffix": f"{start_year}-{end_year}",
+        }
+
+    def _season_label_from_results_url(self, url: str) -> str | None:
+        """Infer a YYYY/YYYY season label from a results URL when present."""
+        match = re.search(r"-(\d{4})-(\d{4})(?=/results/)", url)
+        if not match:
+            return None
+        return f"{match.group(1)}/{match.group(2)}"
+
+    def _base_results_url(self, url: str) -> str:
+        """Strip any season suffix from a results URL."""
+        normalized_url = url.rstrip("/") + "/"
+        return re.sub(r"-(\d{4}-\d{4})(?=/results/)", "", normalized_url)
+
+    def _build_results_url_for_season(self, url: str, season_label: str) -> str:
+        """Build a season-specific results URL from a base tournament results URL."""
+        season_info = self._parse_season_label(season_label)
+        base_url = self._base_results_url(url)
+        if season_info is None:
+            return base_url
+
+        pattern = r"/([^/]+)/results/$"
+        replacement = f"/\\1-{season_info['url_suffix']}/results/"
+        return re.sub(pattern, replacement, base_url)
+
+    def _results_progress_value(
+        self,
+        page_num: int,
+        total_pages: int,
+        *,
+        season_index: int = 1,
+        total_seasons: int = 1,
+    ) -> float:
+        """Compute progress for page-based historical scraping."""
+        season_span = 85.0 / max(total_seasons, 1)
+        season_base = 5.0 + (season_index - 1) * season_span
+        return min(90.0, season_base + (page_num / max(total_pages, 1)) * season_span)
+
+    def _results_progress_prefix(
+        self,
+        season_name: str | None,
+        *,
+        season_index: int = 1,
+        total_seasons: int = 1,
+    ) -> str:
+        """Build a human-readable prefix for progress messages."""
+        if total_seasons > 1 and season_name:
+            return f"Season {season_name} ({season_index}/{total_seasons})"
+        if total_seasons > 1:
+            return f"Season {season_index}/{total_seasons}"
+        if season_name:
+            return f"Season {season_name}"
+        return "Results"
 
     def scrape_upcoming(
         self,
@@ -396,6 +508,7 @@ class ScrapingService(BaseService[Any]):
         max_pages: int | None = None,
         headless: bool = True,
         target_team_id: int | None = None,
+        season: str | None = None,
     ) -> ScrapingProgress:
         """Scrape historical results.
 
@@ -419,54 +532,28 @@ class ScrapingService(BaseService[Any]):
 
         try:
             with OddsPortalScraper(headless=headless) as scraper:
-                scraper.navigate_to_results(url)
-
-                # Get total pages
-                total_pages = scraper.get_page_count()
-                if max_pages:
-                    total_pages = min(total_pages, max_pages)
-                progress.total_pages = total_pages
-                progress.message = f"Loaded results board with {total_pages} pages."
-                self._emit_progress(progress)
-
-                # Parse league info from URL
-                country, league_name, slug = self._parse_league_info(url)
-                tournament = self.get_or_create_tournament(country, league_name, slug)
-
-                # Scrape each page
-                all_matches = []
-                for page_num in range(1, total_pages + 1):
-                    progress.current_page = page_num
-                    progress.message = f"Scraping page {page_num}/{total_pages}..."
-
-                    if page_num > 1:
-                        scraper.go_to_page(page_num)
-
-                    matches = scraper.scrape_current_page()
-                    all_matches.extend(matches)
-                    progress.matches_scraped = len(all_matches)
-                    progress.progress = min(
-                        90.0, 5.0 + (page_num / max(total_pages, 1)) * 85.0
-                    )
-                    self._emit_progress(progress)
-
-                # Save all matches
-                progress.progress = 95.0
-                progress.message = (
-                    f"Saving {len(all_matches)} matches from {total_pages} pages..."
+                (
+                    season_matches_scraped,
+                    season_matches_saved,
+                    total_pages,
+                    season_name,
+                ) = self._scrape_results_pages(
+                    scraper,
+                    url,
+                    progress,
+                    max_pages=max_pages,
+                    target_team_id=target_team_id,
+                    season=season,
                 )
-                self._emit_progress(progress)
-                saved_count = self._save_result_matches(
-                    all_matches, tournament, target_team_id
-                )
-                progress.matches_saved = saved_count
 
                 progress.status = JobStatus.COMPLETED
                 progress.progress = 100.0
                 progress.completed_at = datetime.now(timezone.utc)
+                completed_scope = season_name or "requested results"
                 progress.message = (
-                    f"Completed! Scraped {len(all_matches)} matches from "
-                    f"{total_pages} pages, saved {saved_count}."
+                    f"Completed! Scraped {season_matches_scraped} matches from "
+                    f"{total_pages} pages for {completed_scope}, "
+                    f"saved {season_matches_saved}."
                 )
 
         except ConnectionError as e:
@@ -483,21 +570,95 @@ class ScrapingService(BaseService[Any]):
             logger.error(f"Connection error in scrape_results: {e}")
         except Exception as e:
             error_msg = str(e)
-            # Check for common network errors
-            is_network_error = any(
-                err in error_msg.lower()
-                for err in [
-                    "err_name_not_resolved",
-                    "err_internet_disconnected",
-                    "err_connection_refused",
-                    "err_connection_reset",
-                    "err_connection_timed_out",
-                    "timeout",
-                    "net::",
-                ]
+            if is_retryable_network_error(e):
+                progress.status = JobStatus.FAILED
+                progress.progress = 100.0
+                progress.error = error_msg
+                progress.message = (
+                    f"Network error during scraping: {e}. "
+                    "Please check your network connection and DNS settings."
+                )
+            else:
+                progress.status = JobStatus.FAILED
+                progress.progress = 100.0
+                progress.error = error_msg
+                progress.message = f"Failed: {e}"
+            progress.completed_at = datetime.now(timezone.utc)
+
+        self._emit_progress(progress)
+        job.status = progress.status
+        job.progress = progress
+
+        return progress
+
+    def scrape_results_range(
+        self,
+        url: str,
+        seasons: list[str],
+        max_pages: int | None = None,
+        headless: bool = True,
+        target_team_id: int | None = None,
+    ) -> ScrapingProgress:
+        """Scrape multiple historical seasons while reusing one browser session."""
+        if not seasons:
+            raise ValueError(
+                "At least one season is required for batch results scraping"
             )
 
-            if is_network_error:
+        job = self.create_job("results", url)
+        progress = ScrapingProgress(
+            job_id=job.id,
+            status=JobStatus.RUNNING,
+            progress=5.0,
+            started_at=datetime.now(timezone.utc),
+            message="Starting batched results scrape...",
+        )
+        self._emit_progress(progress)
+
+        try:
+            with OddsPortalScraper(headless=headless) as scraper:
+                total_seasons = len(seasons)
+                for season_index, season_label in enumerate(seasons, start=1):
+                    season_url = self._build_results_url_for_season(url, season_label)
+                    progress.current_page = 0
+                    progress.total_pages = 0
+                    progress.message = (
+                        f"Loading season {season_label} "
+                        f"({season_index}/{total_seasons})..."
+                    )
+                    self._emit_progress(progress)
+                    self._scrape_results_pages(
+                        scraper,
+                        season_url,
+                        progress,
+                        max_pages=max_pages,
+                        target_team_id=target_team_id,
+                        season=season_label,
+                        season_index=season_index,
+                        total_seasons=total_seasons,
+                    )
+
+                progress.status = JobStatus.COMPLETED
+                progress.progress = 100.0
+                progress.completed_at = datetime.now(timezone.utc)
+                progress.message = (
+                    f"Completed! Scraped {progress.matches_scraped} matches across "
+                    f"{len(seasons)} seasons, saved {progress.matches_saved}."
+                )
+        except ConnectionError as e:
+            progress.status = JobStatus.FAILED
+            progress.progress = 100.0
+            progress.error = str(e)
+            progress.message = (
+                f"Network connection failed: {e}. "
+                "Please check your network connection and DNS settings. "
+                "The target site may be unreachable."
+            )
+            progress.completed_at = datetime.now(timezone.utc)
+            logger.error(f"Connection error in scrape_results_range: {e}")
+        except Exception as e:
+            error_msg = str(e)
+            if is_retryable_network_error(e):
                 progress.status = JobStatus.FAILED
                 progress.progress = 100.0
                 progress.error = error_msg
@@ -527,8 +688,6 @@ class ScrapingService(BaseService[Any]):
         Returns:
             Tuple of (country, league_name, slug)
         """
-        import re
-
         match = re.search(r"/football/([^/]+)/([^/]+?)(?:-\d{4}-\d{4})?/results/", url)
         if not match:
             raise ValueError(f"Cannot parse league info from URL: {url}")
@@ -617,6 +776,7 @@ class ScrapingService(BaseService[Any]):
                 )
 
             # Check for existing match (compare by date and tournament if available)
+            # Use defensive check with both team IDs and exact date
             existing_query = select(Match).where(
                 Match.home_team_id == home_team.id,
                 Match.away_team_id == away_team.id,
@@ -640,6 +800,23 @@ class ScrapingService(BaseService[Any]):
                 if existing.tournament_id is None and tournament:
                     existing.tournament_id = tournament.id
             else:
+                # Verify no duplicate exists (defensive check before insert)
+                dup_check = self.session.execute(
+                    select(Match).where(
+                        Match.home_team_id == home_team.id,
+                        Match.away_team_id == away_team.id,
+                        func.date(Match.match_date)
+                        == func.date(match_data["match_date"]),
+                    )
+                ).scalar_one_or_none()
+                if dup_check:
+                    match_date_str = match_data["match_date"].date()
+                    logger.warning(
+                        f"Duplicate upcoming match: {home_team.name} vs "
+                        f"{away_team.name} on {match_date_str}, skipping"
+                    )
+                    continue
+
                 # Create new match
                 match = Match(
                     tournament_id=tournament.id if tournament else None,
@@ -661,6 +838,7 @@ class ScrapingService(BaseService[Any]):
         self,
         matches: list[ScrapedMatch],
         tournament: Tournament,
+        season: Season | None = None,
         target_team_id: int | None = None,
     ) -> int:
         """Save result matches to database.
@@ -686,32 +864,140 @@ class ScrapingService(BaseService[Any]):
             ):
                 continue
 
-            # Check for existing match
-            existing = self.session.execute(
+            match_lookup = select(Match).where(
+                Match.tournament_id == tournament.id,
+                Match.home_team_id == home_team.id,
+                Match.away_team_id == away_team.id,
+                Match.match_date == scraped.match_date,
+            )
+            if season is not None:
+                existing = self.session.execute(
+                    match_lookup.where(Match.season_id == season.id)
+                ).scalar_one_or_none()
+                if existing is None:
+                    existing = self.session.execute(
+                        match_lookup.where(Match.season_id.is_(None))
+                    ).scalar_one_or_none()
+            else:
+                existing = self.session.execute(
+                    match_lookup.where(Match.season_id.is_(None))
+                ).scalar_one_or_none()
+
+            if existing:
+                if season is not None and existing.season_id is None:
+                    existing.season_id = season.id
+                existing.home_score = scraped.home_score
+                existing.away_score = scraped.away_score
+                existing.status = "FINISHED"
+                existing.odds_home = scraped.odds_home
+                existing.odds_draw = scraped.odds_draw
+                existing.odds_away = scraped.odds_away
+                existing.num_bookmakers = scraped.num_bookmakers
+                continue
+
+            # Verify no duplicate exists (defensive check before insert)
+            duplicate_check = self.session.execute(
                 select(Match).where(
                     Match.tournament_id == tournament.id,
+                    Match.season_id == (season.id if season else None),
                     Match.home_team_id == home_team.id,
                     Match.away_team_id == away_team.id,
-                    Match.match_date == scraped.match_date,
+                    func.date(Match.match_date) == func.date(scraped.match_date),
                 )
             ).scalar_one_or_none()
-
-            if not existing:
-                match = Match(
-                    tournament_id=tournament.id,
-                    home_team_id=home_team.id,
-                    away_team_id=away_team.id,
-                    match_date=scraped.match_date,
-                    home_score=scraped.home_score,
-                    away_score=scraped.away_score,
-                    status="FINISHED",
-                    odds_home=scraped.odds_home,
-                    odds_draw=scraped.odds_draw,
-                    odds_away=scraped.odds_away,
-                    num_bookmakers=scraped.num_bookmakers,
+            if duplicate_check:
+                logger.warning(
+                    f"Duplicate match detected: {home_team.name} vs {away_team.name} "
+                    f"on {scraped.match_date.date()}, skipping"
                 )
-                self.session.add(match)
-                saved += 1
+                continue
+
+            match = Match(
+                tournament_id=tournament.id,
+                season_id=season.id if season else None,
+                home_team_id=home_team.id,
+                away_team_id=away_team.id,
+                match_date=scraped.match_date,
+                home_score=scraped.home_score,
+                away_score=scraped.away_score,
+                status="FINISHED",
+                odds_home=scraped.odds_home,
+                odds_draw=scraped.odds_draw,
+                odds_away=scraped.odds_away,
+                num_bookmakers=scraped.num_bookmakers,
+            )
+            self.session.add(match)
+            saved += 1
 
         self.session.flush()
         return saved
+
+    def _scrape_results_pages(
+        self,
+        scraper: OddsPortalScraper,
+        url: str,
+        progress: ScrapingProgress,
+        *,
+        max_pages: int | None = None,
+        target_team_id: int | None = None,
+        season: str | None = None,
+        season_index: int = 1,
+        total_seasons: int = 1,
+    ) -> tuple[int, int, int, str | None]:
+        """Scrape and persist a results board page by page."""
+        scraper.navigate_to_results(url)
+
+        total_pages = scraper.get_page_count()
+        if max_pages:
+            total_pages = min(total_pages, max_pages)
+        progress.total_pages = total_pages
+
+        country, league_name, slug = self._parse_league_info(url)
+        tournament = self.get_or_create_tournament(country, league_name, slug)
+        season_record = self.get_or_create_season(
+            tournament, season or self._season_label_from_results_url(url)
+        )
+        season_name = season_record.name if season_record else None
+        progress_prefix = self._results_progress_prefix(
+            season_name,
+            season_index=season_index,
+            total_seasons=total_seasons,
+        )
+        progress.message = f"{progress_prefix}: loaded {total_pages} pages."
+        self._emit_progress(progress)
+
+        season_matches_scraped = 0
+        season_matches_saved = 0
+
+        for page_num in range(1, total_pages + 1):
+            progress.current_page = page_num
+            if page_num > 1 and not scraper.go_to_page(page_num):
+                raise RuntimeError(f"Failed to navigate to page {page_num}")
+
+            matches = scraper.scrape_current_page()
+            saved_count = self._save_result_matches(
+                matches,
+                tournament,
+                season=season_record,
+                target_team_id=target_team_id,
+            )
+            self.session.commit()
+
+            season_matches_scraped += len(matches)
+            season_matches_saved += saved_count
+            progress.matches_scraped += len(matches)
+            progress.matches_saved += saved_count
+            progress.progress = self._results_progress_value(
+                page_num,
+                total_pages,
+                season_index=season_index,
+                total_seasons=total_seasons,
+            )
+            progress.message = (
+                f"{progress_prefix}: page {page_num}/{total_pages}, "
+                f"{len(matches)} scraped, {saved_count} saved "
+                f"({season_matches_saved} saved this season)."
+            )
+            self._emit_progress(progress)
+
+        return season_matches_scraped, season_matches_saved, total_pages, season_name

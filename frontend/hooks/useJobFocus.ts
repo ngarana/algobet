@@ -2,7 +2,7 @@
  * Hook for managing focused job state and WebSocket subscription logic
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FetchJob } from "@/lib/api/fetch";
 import { ACTIVE_JOB_STATUSES } from "@/lib/constants/fetch";
 

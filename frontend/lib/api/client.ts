@@ -72,7 +72,8 @@ async function handleResponse<T>(
       throw new Error(
         `Invalid API response format: ${
           error instanceof Error ? error.message : "Schema validation failed"
-        }`
+        }`,
+        { cause: error }
       );
     }
   }

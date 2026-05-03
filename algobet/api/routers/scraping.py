@@ -142,13 +142,22 @@ def _lookup_tournament(
 
     url_parts = str(tournament_url).rstrip("/").split("/")
     slug = url_parts[-1]
+    country_slug = None
+
     if slug == "results" and len(url_parts) >= 2:
         slug = url_parts[-2]
+        if len(url_parts) >= 3:
+            country_slug = url_parts[-3]
+    elif len(url_parts) >= 2:
+        country_slug = url_parts[-2]
+
     slug = re.sub(r"-\d{4}-\d{4}$", "", slug)
 
-    return db.execute(
-        select(Tournament).where(Tournament.url_slug == slug)
-    ).scalar_one_or_none()
+    query = select(Tournament).where(Tournament.url_slug == slug)
+    if country_slug:
+        query = query.where(Tournament.country.ilike(country_slug.replace("-", " ")))
+
+    return db.execute(query).scalar_one_or_none()
 
 
 def _lookup_season(
@@ -356,49 +365,19 @@ def run_scraping_job(
                     seasons = _generate_seasons(
                         job_create.period_start, job_create.period_end
                     )
-
-                    # Parse base URL to extract components
-                    import re
-
-                    url_str = str(job_create.tournament_url)
-                    match = re.match(
-                        r"(https://www\.oddsportal\.com/football/[^/]+/[^/]+)",
-                        url_str,
-                    )
-                    if not match:
-                        raise ValueError(f"Invalid tournament URL: {url_str}")
-
-                    base_url = match.group(1)
-                    # Remove any season suffix from the slug
-                    base_url = re.sub(r"-(\d{4}-\d{4})$", "", base_url)
-
-                    # Scrape each season and aggregate results
-                    total_matches_saved = 0
-                    total_matches_scraped = 0
-
-                    for season in seasons:
-                        season_url = f"{base_url}-{season}/results/"
-                        logger.info(f"[BG TASK] Scraping season: {season}")
-
-                        season_result = service.scrape_results(
-                            url=season_url,
-                            max_pages=max_pages,
-                        )
-                        total_matches_scraped += season_result.matches_scraped
-                        total_matches_saved += season_result.matches_saved
-
-                    # Create combined result
-                    result = ServiceScrapingProgress(
-                        job_id=uuid.UUID(job_id),
-                        status=JobStatus.COMPLETED,
-                        matches_scraped=total_matches_scraped,
-                        matches_saved=total_matches_saved,
+                    result = service.scrape_results_range(
+                        url=str(job_create.tournament_url),
+                        seasons=seasons,
+                        max_pages=max_pages,
+                        target_team_id=job_create.team_id,
                     )
                 else:
                     # No period range, just scrape the provided URL
                     result = service.scrape_results(
                         url=str(job_create.tournament_url),
                         max_pages=max_pages,
+                        target_team_id=job_create.team_id,
+                        season=job_create.period,
                     )
             elif job_create.scraping_type == ScrapingType.BY_DATE:
                 target_date = (

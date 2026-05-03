@@ -29,6 +29,7 @@ type FetchDialogSubmitData =
       type: "upcoming";
       scope: "all" | "league";
       tournament_id?: number;
+      tournament_url?: string;
       team_id?: number;
     }
   | {
@@ -72,7 +73,11 @@ export function FetchDialog({
   const [period, setPeriod] = useState("");
   const [maxPages, setMaxPages] = useState("");
   const [resultsInputMode, setResultsInputMode] = useState<"select" | "link">("select");
+  const [upcomingInputMode, setUpcomingInputMode] = useState<"select" | "link">(
+    "select"
+  );
   const [leagueLink, setLeagueLink] = useState("");
+  const [upcomingLeagueLink, setUpcomingLeagueLink] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
 
@@ -100,7 +105,9 @@ export function FetchDialog({
     setPeriod("");
     setMaxPages("");
     setResultsInputMode("select");
+    setUpcomingInputMode("select");
     setLeagueLink("");
+    setUpcomingLeagueLink("");
     setPeriodStart("");
     setPeriodEnd("");
   }, [type]);
@@ -136,7 +143,10 @@ export function FetchDialog({
 
   const requiresLeague =
     (type === FetchDialogType.RESULTS && resultsInputMode === "select") ||
-    scope === LEAGUE_SCOPE;
+    (type === FetchDialogType.UPCOMING &&
+      scope === LEAGUE_SCOPE &&
+      upcomingInputMode === "select") ||
+    (type === FetchDialogType.BY_DATE && scope === LEAGUE_SCOPE);
   const hasSeasonSuggestions = seasons.length > 0;
 
   const handleClose = () => {
@@ -145,12 +155,20 @@ export function FetchDialog({
 
   const handleConfirm = () => {
     if (type === FetchDialogType.UPCOMING) {
-      onConfirm({
-        type: "upcoming",
-        scope,
-        tournament_id: requiresLeague ? (tournamentId ?? undefined) : undefined,
-        team_id: requiresLeague ? (teamId ?? undefined) : undefined,
-      });
+      if (scope === LEAGUE_SCOPE && upcomingInputMode === "link") {
+        onConfirm({
+          type: "upcoming",
+          scope: LEAGUE_SCOPE,
+          tournament_url: upcomingLeagueLink,
+        });
+      } else {
+        onConfirm({
+          type: "upcoming",
+          scope,
+          tournament_id: requiresLeague ? (tournamentId ?? undefined) : undefined,
+          team_id: requiresLeague ? (teamId ?? undefined) : undefined,
+        });
+      }
     } else if (type === FetchDialogType.RESULTS) {
       if (resultsInputMode === "link") {
         onConfirm({
@@ -165,6 +183,8 @@ export function FetchDialog({
           type: "results",
           tournament_id: tournamentId,
           period: period || undefined,
+          period_start: periodStart || undefined,
+          period_end: periodEnd || undefined,
           max_pages: maxPages ? Number(maxPages) : undefined,
           team_id: teamId ?? undefined,
         });
@@ -183,6 +203,10 @@ export function FetchDialog({
 
   const isConfirmDisabled =
     isLoading ||
+    (type === FetchDialogType.UPCOMING &&
+      scope === LEAGUE_SCOPE &&
+      upcomingInputMode === "link" &&
+      !upcomingLeagueLink.trim()) ||
     (type === FetchDialogType.RESULTS && resultsInputMode === "link"
       ? !leagueLink.trim()
       : requiresLeague && !tournamentId) ||
@@ -237,6 +261,52 @@ export function FetchDialog({
             </div>
           )}
 
+          {type === FetchDialogType.UPCOMING && scope === LEAGUE_SCOPE && (
+            <div className="space-y-2">
+              <Label>League Selection Mode</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 text-sm text-[#e0e6f0]">
+                  <input
+                    type="radio"
+                    name="upcomingInputMode"
+                    checked={upcomingInputMode === "select"}
+                    onChange={() => setUpcomingInputMode("select")}
+                    className="h-4 w-4 accent-[#4ade80]"
+                  />
+                  Select from dropdown
+                </label>
+                <label className="flex items-center gap-2 text-sm text-[#e0e6f0]">
+                  <input
+                    type="radio"
+                    name="upcomingInputMode"
+                    checked={upcomingInputMode === "link"}
+                    onChange={() => setUpcomingInputMode("link")}
+                    className="h-4 w-4 accent-[#4ade80]"
+                  />
+                  Paste league link
+                </label>
+              </div>
+            </div>
+          )}
+
+          {type === FetchDialogType.UPCOMING &&
+            scope === LEAGUE_SCOPE &&
+            upcomingInputMode === "link" && (
+              <div className="space-y-2">
+                <Label htmlFor="upcoming-league-link">League URL</Label>
+                <Input
+                  id="upcoming-league-link"
+                  value={upcomingLeagueLink}
+                  onChange={(e) => setUpcomingLeagueLink(e.target.value)}
+                  placeholder="https://www.oddsportal.com/football/england/premier-league/"
+                  className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
+                />
+                <p className="text-xs text-[#9ca3af]">
+                  Paste the OddsPortal league URL to scrape upcoming matches.
+                </p>
+              </div>
+            )}
+
           {type === FetchDialogType.RESULTS && (
             <div className="space-y-2">
               <Label>League Selection Mode</Label>
@@ -265,53 +335,56 @@ export function FetchDialog({
             </div>
           )}
 
-          {requiresLeague &&
-            type === FetchDialogType.RESULTS &&
-            resultsInputMode === "link" && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="league-link">League Results URL</Label>
-                  <Input
-                    id="league-link"
-                    value={leagueLink}
-                    onChange={(e) => setLeagueLink(e.target.value)}
-                    placeholder="https://www.oddsportal.com/football/england/premier-league/results/"
-                    className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
-                  />
-                  <p className="text-xs text-[#9ca3af]">
-                    Paste the full OddsPortal results URL for the league you want to
-                    scrape.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="period-start">Period Start</Label>
-                    <Input
-                      id="period-start"
-                      value={periodStart}
-                      onChange={(e) => setPeriodStart(e.target.value)}
-                      placeholder="e.g. 2010-2011"
-                      className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="period-end">Period End</Label>
-                    <Input
-                      id="period-end"
-                      value={periodEnd}
-                      onChange={(e) => setPeriodEnd(e.target.value)}
-                      placeholder="e.g. 2019-2020"
-                      className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
-                    />
-                  </div>
-                </div>
+          {type === FetchDialogType.RESULTS &&
+            resultsInputMode === "link" &&
+            requiresLeague && (
+              <div className="space-y-2">
+                <Label htmlFor="league-link">League Results URL</Label>
+                <Input
+                  id="league-link"
+                  value={leagueLink}
+                  onChange={(e) => setLeagueLink(e.target.value)}
+                  placeholder="https://www.oddsportal.com/football/england/premier-league/results/"
+                  className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
+                />
                 <p className="text-xs text-[#9ca3af]">
-                  Specify a period range to scrape multiple seasons. Leave blank to
-                  scrape only the current season from the URL.
+                  Paste the full OddsPortal results URL for the league you want to
+                  scrape.
                 </p>
               </div>
             )}
+
+          {type === FetchDialogType.RESULTS && requiresLeague && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="period-start">Period Start (Optional)</Label>
+                <Input
+                  id="period-start"
+                  value={periodStart}
+                  onChange={(e) => setPeriodStart(e.target.value)}
+                  placeholder="e.g. 2010-2011"
+                  className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="period-end">Period End (Optional)</Label>
+                <Input
+                  id="period-end"
+                  value={periodEnd}
+                  onChange={(e) => setPeriodEnd(e.target.value)}
+                  placeholder="e.g. 2024-2025"
+                  className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
+                />
+              </div>
+            </div>
+          )}
+
+          {type === FetchDialogType.RESULTS && requiresLeague && (
+            <p className="text-xs text-[#9ca3af]">
+              Specify a period range to batch scrape multiple seasons. Leave blank for
+              single season.
+            </p>
+          )}
 
           {requiresLeague &&
             !(type === FetchDialogType.RESULTS && resultsInputMode === "link") && (

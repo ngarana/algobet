@@ -137,6 +137,8 @@ export async function fetchResults(
       tournament_id: request.tournament_id,
       tournament_url: request.tournament_url,
       period: request.period,
+      period_start: request.period_start,
+      period_end: request.period_end,
       max_pages: request.max_pages,
     },
     z.record(z.unknown())
