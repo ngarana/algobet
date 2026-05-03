@@ -123,6 +123,7 @@ services:
       - NEXT_PUBLIC_API_URL=/api/v1
       - NEXT_PUBLIC_WS_URL=ws://localhost:8010
       - API_INTERNAL_URL=http://api:8010
+      - GPU_API_INTERNAL_URL=http://gpu-trainer:8010
     depends_on:
       api:
         condition: service_healthy

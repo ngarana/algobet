@@ -6,6 +6,7 @@ export interface TrainingConfig {
   description: string;
   tune: boolean;
   activate: boolean;
+  useGpuWorker: boolean;
   // Data range
   startDate: string;
   endDate: string;

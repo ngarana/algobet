@@ -11,10 +11,16 @@ const nextConfig = {
     // On host: use localhost for browser-side requests
     const apiUrl = process.env.API_INTERNAL_URL || "http://localhost:8010";
 
+    const gpuApiUrl = process.env.GPU_API_INTERNAL_URL || "http://localhost:8011";
+
     return [
       {
         source: "/api/:path*",
         destination: `${apiUrl}/api/:path*`,
+      },
+      {
+        source: "/gpu-api/:path*",
+        destination: `${gpuApiUrl}/api/:path*`,
       },
     ];
   },

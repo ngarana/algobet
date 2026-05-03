@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import type { BasicSettingsProps } from "./types";
 
 export function BasicSettings({ config, onConfigChange }: BasicSettingsProps) {
@@ -83,6 +84,31 @@ export function BasicSettings({ config, onConfigChange }: BasicSettingsProps) {
             <div className="text-xs text-muted-foreground">
               Apply {config.calibrationMethod} calibration for better probability
               estimates
+            </div>
+          </div>
+        </label>
+
+        <label
+          className={`flex cursor-pointer items-center gap-3 rounded-md border p-3 hover:bg-muted/50 ${
+            config.useGpuWorker ? "border-blue-500/50 bg-blue-500/5" : ""
+          }`}
+        >
+          <Checkbox
+            checked={config.useGpuWorker}
+            onCheckedChange={(checked) =>
+              onConfigChange("useGpuWorker", Boolean(checked))
+            }
+          />
+          <div className="flex-1">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              Use GPU worker
+              <Badge variant="secondary" className="text-xs">
+                Intel iGPU · :8011
+              </Badge>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Routes training to the Intel iGPU-accelerated worker (XGBoost SYCL /
+              LightGBM OpenCL)
             </div>
           </div>
         </label>

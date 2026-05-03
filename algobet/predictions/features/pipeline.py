@@ -80,6 +80,7 @@ class FeaturePipeline:
         self._fitted = False
         self._feature_schema: FeatureSchema | None = None
         self._feature_names: list[str] | None = None
+        self._last_raw_features: pd.DataFrame | None = None  # cached from last fit()
 
     @property
     def feature_names(self) -> list[str]:
@@ -123,8 +124,9 @@ class FeaturePipeline:
         # Fit transformers
         self.transformers.fit(raw_features, y)
 
-        # Store schema
+        # Store schema and raw features for reuse (avoids redundant generate_raw call)
         self._feature_schema = self.generators.get_schema()
+        self._last_raw_features = raw_features
         self._fitted = True
 
         return self

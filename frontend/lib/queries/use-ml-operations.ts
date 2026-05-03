@@ -38,7 +38,13 @@ export function useTrainModel() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (request: TrainModelRequest) => runTrainModel(request),
+    mutationFn: ({
+      request,
+      useGpuWorker,
+    }: {
+      request: TrainModelRequest;
+      useGpuWorker?: boolean;
+    }) => runTrainModel(request, { useGpuWorker }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["models"] });
       queryClient.invalidateQueries({ queryKey: ["predictions"] });

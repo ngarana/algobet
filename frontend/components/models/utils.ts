@@ -28,6 +28,7 @@ export const defaultConfig = {
   description: "",
   tune: false,
   activate: true,
+  useGpuWorker: false,
   // Data range
   startDate: "",
   endDate: "",

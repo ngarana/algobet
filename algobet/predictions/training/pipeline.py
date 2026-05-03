@@ -412,6 +412,25 @@ class TrainingPipeline:
         # Convert to DataFrame
         matches_df = prepare_match_dataframe(matches)
 
+        # Preload all team match history and H2H data into memory to avoid
+        # per-match DB queries during feature generation (N+1 → 2 bulk queries)
+        all_team_ids = list(
+            set(
+                matches_df["home_team_id"].tolist()
+                + matches_df["away_team_id"].tolist()
+            )
+        )
+        max_match_date = matches_df["match_date"].max()
+        self.repo.preload_team_matches(all_team_ids, before_date=max_match_date)
+        team_pairs = list(
+            zip(
+                matches_df["home_team_id"].tolist(),
+                matches_df["away_team_id"].tolist(),
+                strict=False,
+            )
+        )
+        self.repo.preload_h2h_matches(team_pairs, before_date=max_match_date)
+
         # Add result column
         matches_df["result"] = matches_df.apply(
             lambda m: "H"
@@ -460,10 +479,17 @@ class TrainingPipeline:
         X_val = self.feature_pipeline.transform(val_df, self.repo)
         X_test = self.feature_pipeline.transform(test_df, self.repo)
 
-        # Cache raw features if enabled
+        # Cache raw features if enabled — reuse what fit() already computed
+        # for train_df, then generate for val+test (no redundant full-dataset pass)
         if self.config.use_feature_cache:
             try:
-                raw_features = self.feature_pipeline.generate_raw(matches_df, self.repo)
+                import pandas as pd
+
+                # fit() stored raw features for train_df; generate for val+test
+                train_raw = self.feature_pipeline._last_raw_features
+                val_raw = self.feature_pipeline.generators.generate(val_df, self.repo)
+                test_raw = self.feature_pipeline.generators.generate(test_df, self.repo)
+                raw_features = pd.concat([train_raw, val_raw, test_raw])
                 from algobet.predictions.features.store import features_to_store_format
 
                 features_list = features_to_store_format(

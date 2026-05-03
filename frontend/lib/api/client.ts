@@ -93,9 +93,11 @@ export async function apiGet<T>(endpoint: string, schema?: z.ZodType<T>): Promis
 export async function apiPost<T>(
   endpoint: string,
   body: unknown,
-  schema?: z.ZodType<T>
+  schema?: z.ZodType<T>,
+  baseUrlOverride?: string
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const base = baseUrlOverride ?? API_BASE_URL;
+  const response = await fetch(`${base}${endpoint}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

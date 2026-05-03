@@ -89,47 +89,50 @@ export default function ModelsPage() {
 
       try {
         const trained = await trainMutation.mutateAsync({
-          model_type: config.modelType,
-          tune_hyperparameters: config.tune,
-          description: config.description.trim() || undefined,
-          activate: config.activate,
-          start_date: config.startDate || undefined,
-          end_date: config.endDate || undefined,
-          min_matches: config.minMatches,
-          tournament_ids:
-            config.tournamentIds.length > 0 ? config.tournamentIds : undefined,
-          team_ids: config.teamIds.length > 0 ? config.teamIds : undefined,
-          venue_filter: config.venueFilter,
-          require_odds: config.requireOdds,
-          min_total_goals: config.minTotalGoals ?? undefined,
-          max_total_goals: config.maxTotalGoals ?? undefined,
-          train_ratio: config.trainRatio,
-          val_ratio: config.valRatio,
-          test_ratio: config.testRatio,
-          random_seed: config.randomSeed,
-          early_stopping_rounds: config.earlyStoppingRounds,
-          tuning_trials: config.tuningTrials,
-          calibrate_probabilities: config.calibrateProbabilities,
-          calibration_method: config.calibrationMethod,
-          outcome_balance: config.outcomeBalance,
-          feature_groups:
-            config.featureGroups.length > 0 ? config.featureGroups : undefined,
-          use_ensemble: config.useEnsemble,
-          ensemble_types: config.useEnsemble ? config.ensembleTypes : undefined,
-          split_strategy: config.splitStrategy,
-          gap_days: config.gapDays,
-          min_train_size: config.minTrainSize,
-          ew_val_size: config.ewValSize,
-          ew_test_size: config.ewTestSize,
-          step_size: config.stepSize,
-          train_seasons: config.trainSeasons,
-          val_seasons: config.valSeasons,
-          test_seasons: config.testSeasons,
-          tags: {},
-          hyperparameters:
-            Object.keys(config.customHyperparameters).length > 0
-              ? config.customHyperparameters
-              : {},
+          request: {
+            model_type: config.modelType,
+            tune_hyperparameters: config.tune,
+            description: config.description.trim() || undefined,
+            activate: config.activate,
+            start_date: config.startDate || undefined,
+            end_date: config.endDate || undefined,
+            min_matches: config.minMatches,
+            tournament_ids:
+              config.tournamentIds.length > 0 ? config.tournamentIds : undefined,
+            team_ids: config.teamIds.length > 0 ? config.teamIds : undefined,
+            venue_filter: config.venueFilter,
+            require_odds: config.requireOdds,
+            min_total_goals: config.minTotalGoals ?? undefined,
+            max_total_goals: config.maxTotalGoals ?? undefined,
+            train_ratio: config.trainRatio,
+            val_ratio: config.valRatio,
+            test_ratio: config.testRatio,
+            random_seed: config.randomSeed,
+            early_stopping_rounds: config.earlyStoppingRounds,
+            tuning_trials: config.tuningTrials,
+            calibrate_probabilities: config.calibrateProbabilities,
+            calibration_method: config.calibrationMethod,
+            outcome_balance: config.outcomeBalance,
+            feature_groups:
+              config.featureGroups.length > 0 ? config.featureGroups : undefined,
+            use_ensemble: config.useEnsemble,
+            ensemble_types: config.useEnsemble ? config.ensembleTypes : undefined,
+            split_strategy: config.splitStrategy,
+            gap_days: config.gapDays,
+            min_train_size: config.minTrainSize,
+            ew_val_size: config.ewValSize,
+            ew_test_size: config.ewTestSize,
+            step_size: config.stepSize,
+            train_seasons: config.trainSeasons,
+            val_seasons: config.valSeasons,
+            test_seasons: config.testSeasons,
+            tags: {},
+            hyperparameters:
+              Object.keys(config.customHyperparameters).length > 0
+                ? config.customHyperparameters
+                : {},
+          },
+          useGpuWorker: config.useGpuWorker,
         });
         setResult(trained);
         refetch();

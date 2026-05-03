@@ -421,6 +421,7 @@ class LightGBMPredictor(MatchPredictor):
                     "min_child_samples": 20,
                     "reg_alpha": 0.1,
                     "reg_lambda": 1.0,
+                    "num_threads": -1,  # use all CPU cores
                 },
             )
         super().__init__(config)
@@ -450,12 +451,15 @@ class LightGBMPredictor(MatchPredictor):
             **self.config.hyperparameters,
         }
 
-        # Add class weights if provided
+        # Convert class weights to per-sample weights for lgb.Dataset
+        sample_weight = None
         if self.config.class_weights:
-            params["class_weight"] = self.config.class_weights
+            sample_weight = [
+                self.config.class_weights.get(int(yi), 1.0) for yi in y_encoded
+            ]
 
         # Create dataset
-        train_data = lgb.Dataset(X, label=y_encoded)
+        train_data = lgb.Dataset(X, label=y_encoded, weight=sample_weight)
 
         # Validation set
         valid_sets = [train_data]

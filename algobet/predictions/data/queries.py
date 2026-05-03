@@ -1,5 +1,6 @@
 """SQL queries and repository for match data access."""
 
+from collections import defaultdict
 from datetime import datetime
 
 from sqlalchemy import and_, desc, func, or_, select
@@ -22,6 +23,99 @@ class MatchRepository:
             session: SQLAlchemy database session
         """
         self.session = session
+        # In-memory caches populated by preload_* methods
+        self._team_matches_cache: dict[int, list[Match]] = {}
+        self._h2h_cache: dict[tuple[int, int], list[Match]] = {}
+
+    def preload_team_matches(self, team_ids: list[int], before_date: datetime) -> None:
+        """Bulk-load all finished matches for a set of teams into memory.
+
+        Call this once before feature generation to avoid per-match DB queries.
+
+        Args:
+            team_ids: List of team IDs to preload
+            before_date: Only load matches before this date
+        """
+        if not team_ids:
+            return
+
+        stmt = (
+            select(Match)
+            .where(
+                and_(
+                    or_(
+                        Match.home_team_id.in_(team_ids),
+                        Match.away_team_id.in_(team_ids),
+                    ),
+                    Match.match_date < before_date,
+                    Match.status == "FINISHED",
+                    Match.home_score.is_not(None),
+                    Match.away_score.is_not(None),
+                )
+            )
+            .order_by(desc(Match.match_date))
+        )
+
+        all_matches = list(self.session.execute(stmt).scalars().all())
+
+        # Index by team_id (both home and away)
+        by_team: dict[int, list[Match]] = defaultdict(list)
+        for m in all_matches:
+            if m.home_team_id in team_ids:
+                by_team[m.home_team_id].append(m)
+            if m.away_team_id in team_ids:
+                by_team[m.away_team_id].append(m)
+
+        self._team_matches_cache = dict(by_team)
+
+    def preload_h2h_matches(
+        self, team_pairs: list[tuple[int, int]], before_date: datetime
+    ) -> None:
+        """Bulk-load H2H history for a set of team pairs into memory.
+
+        Args:
+            team_pairs: List of (home_team_id, away_team_id) tuples
+            before_date: Only load matches before this date
+        """
+        if not team_pairs:
+            return
+
+        all_team_ids = {tid for pair in team_pairs for tid in pair}
+
+        stmt = (
+            select(Match)
+            .where(
+                and_(
+                    or_(
+                        Match.home_team_id.in_(all_team_ids),
+                        Match.away_team_id.in_(all_team_ids),
+                    ),
+                    Match.match_date < before_date,
+                    Match.status == "FINISHED",
+                    Match.home_score.is_not(None),
+                    Match.away_score.is_not(None),
+                )
+            )
+            .order_by(desc(Match.match_date))
+        )
+
+        all_matches = list(self.session.execute(stmt).scalars().all())
+
+        # Index by canonical pair key (min_id, max_id) for both orderings
+        by_pair: dict[tuple[int, int], list[Match]] = defaultdict(list)
+        for m in all_matches:
+            key = (
+                min(m.home_team_id, m.away_team_id),
+                max(m.home_team_id, m.away_team_id),
+            )
+            by_pair[key].append(m)
+
+        self._h2h_cache = dict(by_pair)
+
+    def clear_cache(self) -> None:
+        """Clear in-memory caches."""
+        self._team_matches_cache.clear()
+        self._h2h_cache.clear()
 
     def get_historical_matches(
         self,
@@ -112,6 +206,8 @@ class MatchRepository:
     ) -> list[Match]:
         """Get team's recent matches before a given date.
 
+        Serves from in-memory cache if preload_team_matches() was called.
+
         Args:
             team_id: ID of the team
             before_date: Only return matches before this date
@@ -122,7 +218,17 @@ class MatchRepository:
         Returns:
             List of Match objects ordered by date (most recent first)
         """
-        # Build venue filter
+        if team_id in self._team_matches_cache:
+            matches = self._team_matches_cache[team_id]
+            if before_date:
+                matches = [m for m in matches if m.match_date < before_date]
+            if home_only:
+                matches = [m for m in matches if m.home_team_id == team_id]
+            elif away_only:
+                matches = [m for m in matches if m.away_team_id == team_id]
+            return matches[:limit]
+
+        # Fall back to DB query
         if home_only:
             venue_filter = Match.home_team_id == team_id
         elif away_only:
@@ -137,7 +243,6 @@ class MatchRepository:
         if before_date:
             stmt = stmt.where(Match.match_date < before_date)
 
-        # Only include finished matches
         stmt = stmt.where(
             and_(
                 Match.status == "FINISHED",
@@ -159,6 +264,8 @@ class MatchRepository:
     ) -> list[Match]:
         """Get head-to-head history between two teams.
 
+        Serves from in-memory cache if preload_h2h_matches() was called.
+
         Args:
             team1_id: ID of first team
             team2_id: ID of second team
@@ -168,7 +275,14 @@ class MatchRepository:
         Returns:
             List of Match objects ordered by date (most recent first)
         """
-        # H2H matches where these two teams played each other
+        cache_key = (min(team1_id, team2_id), max(team1_id, team2_id))
+        if cache_key in self._h2h_cache:
+            matches = self._h2h_cache[cache_key]
+            if before_date:
+                matches = [m for m in matches if m.match_date < before_date]
+            return matches[:limit]
+
+        # Fall back to DB query
         stmt = select(Match).where(
             or_(
                 and_(Match.home_team_id == team1_id, Match.away_team_id == team2_id),
@@ -179,7 +293,6 @@ class MatchRepository:
         if before_date:
             stmt = stmt.where(Match.match_date < before_date)
 
-        # Only include finished matches
         stmt = stmt.where(
             and_(
                 Match.status == "FINISHED",

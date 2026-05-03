@@ -23,9 +23,11 @@ import {
  * Train a new prediction model
  */
 export async function runTrainModel(
-  request: TrainModelRequest
+  request: TrainModelRequest,
+  options?: { useGpuWorker?: boolean }
 ): Promise<TrainModelResult> {
-  return apiPost("/ml/train", request, TrainModelResultSchema);
+  const baseUrl = options?.useGpuWorker ? "/gpu-api/v1" : undefined;
+  return apiPost("/ml/train", request, TrainModelResultSchema, baseUrl);
 }
 
 /**
