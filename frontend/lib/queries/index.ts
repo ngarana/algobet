@@ -3,6 +3,7 @@
  */
 
 export * from "./use-dashboard-stats";
+export * from "./use-workflow";
 export * from "./use-matches";
 export * from "./use-ml-operations";
 export * from "./use-models";

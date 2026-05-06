@@ -53,8 +53,8 @@ export const PredictedOutcomeSchema = z.enum(["H", "D", "A"]);
 
 export const MatchSchema = z.object({
   id: z.number(),
-  tournament_id: z.number(),
-  season_id: z.number(),
+  tournament_id: z.number().nullable(),
+  season_id: z.number().nullable(),
   home_team_id: z.number(),
   away_team_id: z.number(),
   match_date: z.string(),
@@ -68,6 +68,10 @@ export const MatchSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   result: PredictedOutcomeSchema.nullable(),
+  home_team_name: z.string().nullable().optional(),
+  away_team_name: z.string().nullable().optional(),
+  tournament_name: z.string().nullable().optional(),
+  season_name: z.string().nullable().optional(),
 });
 
 export const MatchDetailSchema = MatchSchema.extend({
@@ -156,6 +160,154 @@ export const ValueBetSchema = z.object({
   expected_value: z.number(),
   kelly_fraction: z.number(),
   confidence: z.number().min(0).max(1),
+});
+
+export const WatchlistEntryTypeSchema = z.enum(["team", "tournament", "match"]);
+export const TotalGoalsPickSchema = z.enum(["OVER", "UNDER"]);
+
+export const ProfilePreferencesSchema = z.object({
+  profile_key: z.string(),
+  display_name: z.string(),
+  default_days_ahead: z.number(),
+  min_confidence: z.number(),
+  min_ev: z.number(),
+  favorite_bookie: z.string().nullable(),
+  followed_tournament_ids: z.array(z.number()),
+});
+
+export const WatchlistEntrySchema = z.object({
+  id: z.number(),
+  entry_type: WatchlistEntryTypeSchema,
+  entry_id: z.number(),
+  label: z.string(),
+  meta: z.string().nullable(),
+  created_at: z.string(),
+});
+
+export const WatchlistSchema = z.object({
+  teams: z.array(WatchlistEntrySchema),
+  tournaments: z.array(WatchlistEntrySchema),
+  matches: z.array(WatchlistEntrySchema),
+});
+
+export const UserPredictionSchema: z.ZodType<import("./api").UserPrediction> =
+  z.object({
+    id: z.number(),
+    match_id: z.number(),
+    pick_1x2: PredictedOutcomeSchema.nullable(),
+    home_score: z.number().nullable(),
+    away_score: z.number().nullable(),
+    total_goals_line: z.number().nullable(),
+    total_goals_pick: TotalGoalsPickSchema.nullable(),
+    notes: z.string().nullable(),
+    model_prediction: z.lazy(() => PredictionRecordSchema).nullable(),
+    is_correct_1x2: z.boolean().nullable(),
+    is_exact_score: z.boolean().nullable(),
+    points: z.number(),
+    created_at: z.string(),
+    updated_at: z.string(),
+  });
+
+export const ResultsSummarySchema = z.object({
+  label: z.string(),
+  start_date: z.string(),
+  end_date: z.string(),
+  model_predictions: z.number(),
+  model_correct: z.number(),
+  model_accuracy: z.number().nullable(),
+  user_predictions: z.number(),
+  user_correct: z.number(),
+  user_accuracy: z.number().nullable(),
+});
+
+export const DailyWorkflowSchema = z.object({
+  date: z.string(),
+  today_matches: z.array(z.lazy(() => PredictionRecordSchema)),
+  high_confidence: z.array(z.lazy(() => PredictionRecordSchema)),
+  value_bets: z.array(ValueBetSchema),
+  watched_fixtures: z.array(MatchDetailSchema),
+  results_summary: ResultsSummarySchema,
+  watchlist: WatchlistSchema,
+});
+
+export const ResultsReviewItemSchema = z.object({
+  match: MatchSchema,
+  model_prediction: z.lazy(() => PredictionRecordSchema).nullable(),
+  user_prediction: UserPredictionSchema.nullable(),
+  actual_result: PredictedOutcomeSchema.nullable(),
+  model_correct: z.boolean().nullable(),
+  user_correct: z.boolean().nullable(),
+});
+
+export const ResultsReviewSchema = z.object({
+  summaries: z.array(ResultsSummarySchema),
+  items: z.array(ResultsReviewItemSchema),
+});
+
+export const MatchOddsRowSchema = z.object({
+  bookmaker: z.string(),
+  odds_home: z.number(),
+  odds_draw: z.number(),
+  odds_away: z.number(),
+  scraped_at: z.string().nullable(),
+  source: z.string().nullable(),
+});
+
+export const RecentTeamMatchSchema = z.object({
+  match_id: z.number(),
+  match_date: z.string(),
+  opponent_name: z.string(),
+  venue: z.string(),
+  goals_for: z.number(),
+  goals_against: z.number(),
+  result: z.string(),
+});
+
+export const RecentFormSchema = z.object({
+  home: z.array(RecentTeamMatchSchema),
+  away: z.array(RecentTeamMatchSchema),
+});
+
+export const TeamStatsComparisonSchema = z.object({
+  team_id: z.number(),
+  team_name: z.string(),
+  matches: z.number(),
+  avg_goals_for: z.number(),
+  avg_goals_against: z.number(),
+  avg_shots: z.number().nullable(),
+  avg_shots_on_target: z.number().nullable(),
+  avg_corners: z.number().nullable(),
+});
+
+export const StatsComparisonSchema = z.object({
+  home: TeamStatsComparisonSchema,
+  away: TeamStatsComparisonSchema,
+});
+
+export const ModelFeatureExplanationSchema = z.object({
+  feature: z.string(),
+  label: z.string(),
+  value: z.number(),
+  direction: z.string(),
+  impact: z.number(),
+});
+
+export const SimilarAccuracySchema = z.object({
+  sample_size: z.number(),
+  correct: z.number(),
+  accuracy: z.number().nullable(),
+  description: z.string(),
+});
+
+export const MatchWorkflowDetailSchema = z.object({
+  match: MatchDetailSchema,
+  odds_comparison: z.array(MatchOddsRowSchema),
+  recent_form: RecentFormSchema,
+  stats_comparison: StatsComparisonSchema,
+  model_explanation: z.array(ModelFeatureExplanationSchema),
+  similar_accuracy: SimilarAccuracySchema,
+  user_prediction: UserPredictionSchema.nullable(),
+  watched: z.boolean(),
 });
 
 // Model schemas

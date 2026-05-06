@@ -7,6 +7,7 @@ import {
   fetchUpcomingMatches,
   fetchResults,
   fetchByDate,
+  importFootballData,
   getFetchJobs,
   getFetchJob,
   getFetchStats,
@@ -15,6 +16,7 @@ import type {
   FetchUpcomingRequest,
   FetchResultsRequest,
   FetchByDateRequest,
+  FootballDataImportRequest,
 } from "@/lib/api/fetch";
 
 export const fetchKeys = {
@@ -87,6 +89,22 @@ export function useFetchByDate() {
 
   return useMutation({
     mutationFn: (request: FetchByDateRequest) => fetchByDate(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: fetchKeys.jobs() });
+      queryClient.invalidateQueries({ queryKey: fetchKeys.stats() });
+    },
+  });
+}
+
+/**
+ * Hook to import from Football-Data.co.uk
+ */
+export function useImportFootballData() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (request: FootballDataImportRequest) =>
+      importFootballData(request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: fetchKeys.jobs() });
       queryClient.invalidateQueries({ queryKey: fetchKeys.stats() });

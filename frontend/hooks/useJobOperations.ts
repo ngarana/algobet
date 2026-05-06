@@ -5,10 +5,11 @@
 import { useCallback } from "react";
 import {
   useFetchByDate,
-  useFetchResults,
-  useFetchUpcoming,
   useFetchJobs,
+  useFetchResults,
   useFetchStats,
+  useFetchUpcoming,
+  useImportFootballData,
 } from "@/lib/queries/use-fetch";
 import type { LogLevelValue } from "@/lib/constants/fetch";
 import { FetchDialogType, ERROR_MESSAGES } from "@/lib/constants/fetch";
@@ -37,6 +38,10 @@ interface UseJobOperationsReturn {
     date?: string;
     tournament_id?: number;
     scope?: "all" | "league";
+  }) => Promise<void>;
+  importFootballData: (request: {
+    division: string;
+    season: string;
   }) => Promise<void>;
   refreshAll: () => Promise<void>;
   isPending: boolean;
@@ -70,11 +75,13 @@ export function useJobOperations(
   const fetchUpcomingMutation = useFetchUpcoming();
   const fetchResultsMutation = useFetchResults();
   const fetchByDateMutation = useFetchByDate();
+  const importFootballDataMutation = useImportFootballData();
 
   const isPending =
     fetchUpcomingMutation.isPending ||
     fetchResultsMutation.isPending ||
-    fetchByDateMutation.isPending;
+    fetchByDateMutation.isPending ||
+    importFootballDataMutation.isPending;
 
   const isRefreshing = jobsFetching || statsFetching;
 
@@ -188,10 +195,34 @@ export function useJobOperations(
     [executeMutation, fetchByDateMutation]
   );
 
+  /**
+   * Import data from Football-Data.co.uk
+   */
+  const importFootballData = useCallback(
+    async (request: { division: string; season: string }) => {
+      addLog("INF", `Starting Football-Data import...`);
+      try {
+        const result = await importFootballDataMutation.mutateAsync({
+          division: request.division,
+          season: request.season,
+        });
+        addLog("SUC", `Import job created: ${result.job_id}`);
+        onJobCreated?.(result.job_id);
+        await refreshAll();
+      } catch (error) {
+        console.error("Error starting Football-Data import:", error);
+        addLog("ERR", "Failed to start import operation");
+        onError?.(ERROR_MESSAGES.FETCH_FAILED);
+      }
+    },
+    [addLog, importFootballDataMutation, onJobCreated, onError, refreshAll]
+  );
+
   return {
     fetchUpcoming,
     fetchResults,
     fetchByDate,
+    importFootballData,
     refreshAll,
     isPending,
     isRefreshing,

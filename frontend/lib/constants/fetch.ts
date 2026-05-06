@@ -7,6 +7,7 @@ export const FetchDialogType = {
   UPCOMING: "upcoming",
   RESULTS: "results",
   BY_DATE: "by-date",
+  IMPORT: "import",
 } as const;
 
 export type FetchDialogTypeValue =
@@ -62,6 +63,11 @@ export const FETCH_DIALOG_CONFIG = {
     title: "New Date Fetch Job",
     endpoint: "SCRAPE /by-date",
     color: "#8b5cf6",
+  },
+  [FetchDialogType.IMPORT]: {
+    title: "New Football-Data Import",
+    endpoint: "IMPORT /football-data",
+    color: "#06b6d4",
   },
 } as const;
 

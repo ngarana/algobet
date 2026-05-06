@@ -160,6 +160,28 @@ export async function fetchByDate(request: FetchByDateRequest = {}): Promise<Fet
   return normalizeJob(response);
 }
 
+export interface FootballDataImportRequest {
+  division: string;
+  season: string;
+}
+
+export async function importFootballData(
+  request: FootballDataImportRequest
+): Promise<{ job_id: string; message: string }> {
+  const response = await apiPost(
+    "/scraping/import/football-data",
+    {
+      division: request.division,
+      season: request.season,
+    },
+    z.object({
+      job_id: z.string(),
+      message: z.string(),
+    })
+  );
+  return response;
+}
+
 export async function getFetchJobs(
   status?: string
 ): Promise<PaginatedResponse<FetchJob>> {
