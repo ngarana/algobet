@@ -47,8 +47,14 @@ RUN playwright install-deps chromium
 # Copy application code
 COPY algobet/ ./algobet/
 
-# Create data directory
-RUN mkdir -p /app/data
+# Copy soccerdata team name configuration
+COPY data/teamname_replacements.json /root/.soccerdata/config/teamname_replacements.json
+
+# Set soccerdata cache directory
+ENV SOCCERDATA_DIR=/root/.soccerdata
+
+# Create data and config directories
+RUN mkdir -p /app/data /root/.soccerdata/config
 
 # Expose API port
 EXPOSE 8010

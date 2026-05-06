@@ -1,21 +1,15 @@
-"""CLI commands for importing football data from Football-Data.co.uk.
-
-This module provides commands for importing historical match data and
-betting odds from Football-Data.co.uk CSV files.
+"""CLI commands for importing football data from Football-Data.co.uk and FBref.
 
 Usage:
-    # Import from local file
+    # Football-Data.co.uk
     algobet import-data file data.csv --season 2023/2024
+    algobet import-data season E0 --season 2023/2024
+    algobet import-data historical E0 --from 2020 --to 2023
 
-    # Import from URL
-    algobet import-data url https://football-data.co.uk/mmz4281/2324/E0.csv \
-        --season 2023/2024
-
-    # Import a season (auto-URL construction)
-    algobet import-data season E0 --season 2023/2024  # Premier League 23/24
-
-    # Import multiple historical seasons
-    algobet import-data historical E0 --from 2020 --to 2023  # 20/21-23/24
+    # FBref (soccerdata)
+    algobet import-data fbref ENG-Premier\\ League --season 2425
+    algobet import-data fbref-multi --leagues \"ENG-Premier\\ League\" \\
+        --seasons 2324,2425
 """
 
 from __future__ import annotations
@@ -31,6 +25,10 @@ from algobet.importers.football_data import (
     DIVISION_MAPPING,
     FootballDataImporter,
     ImportProgress,
+)
+from algobet.importers.soccerdata_importer import (
+    LEAGUE_MAPPING as FBREF_LEAGUE_MAPPING,
+    SoccerDataImporter,
 )
 from algobet.infrastructure.database import session_scope
 
@@ -478,5 +476,129 @@ def list_divisions() -> None:
         click.echo(f"\n{country}:")
         for code, name in by_country[country]:
             click.echo(f"  {code:4s} - {name}")
+
+    click.echo("\n" + "=" * 50)
+
+
+# ---------------------------------------------------------------------------
+# FBref import commands (soccerdata)
+# ---------------------------------------------------------------------------
+
+
+@import_cli.command(name="fbref")
+@click.argument("league")
+@click.option("--season", required=True, help="Season (e.g., '2425', '2024')")
+@click.option("--no-cache", is_flag=True, help="Bypass soccerdata cache")
+@handle_errors
+def import_fbref(league: str, season: str, no_cache: bool) -> None:
+    """Import match schedule from FBref via soccerdata.
+
+    LEAGUE is the FBref league ID (e.g., 'ENG-Premier League').
+
+    \\b
+    Examples:
+        algobet import-data fbref "ENG-Premier League" --season 2425
+        algobet import-data fbref "ESP-La Liga" --season 2024
+        algobet import-data fbref "FRA-Ligue 1" --season 2324 --no-cache
+    """
+    if league not in FBREF_LEAGUE_MAPPING:
+        valid = "\n  ".join(sorted(FBREF_LEAGUE_MAPPING.keys()))
+        error(f"Unknown league: {league}\nValid leagues:\n  {valid}")
+        return
+
+    tournament_name = FBREF_LEAGUE_MAPPING[league]["name"]
+    info(f"Importing {tournament_name} ({league}) season {season}")
+
+    with session_scope() as session:
+        importer = SoccerDataImporter(session)
+        result = importer.import_schedule(
+            league=league, season=season, no_cache=no_cache
+        )
+
+    if result.success:
+        success(result.message)
+        click.echo(f"  Matches created: {result.progress.matches_created}")
+        click.echo(f"  Matches skipped: {result.progress.matches_skipped}")
+    else:
+        error(f"Import failed: {result.message}")
+        if result.progress.errors:
+            for err in result.progress.errors[:10]:
+                click.echo(f"  - {err}")
+
+
+@import_cli.command(name="fbref-multi")
+@click.option(
+    "--leagues",
+    required=True,
+    help="Comma-separated league IDs (e.g., 'ENG-Premier League,ESP-La Liga')",
+)
+@click.option(
+    "--seasons",
+    required=True,
+    help="Comma-separated seasons (e.g., '2324,2425')",
+)
+@click.option("--no-cache", is_flag=True, help="Bypass soccerdata cache")
+@handle_errors
+def import_fbref_multi(leagues: str, seasons: str, no_cache: bool) -> None:
+    """Import match data for multiple leagues and seasons.
+
+    \\b
+    Example:
+        algobet import-data fbref-multi \\
+            --leagues "ENG-Premier League,ESP-La Liga" \\
+            --seasons "2324,2425"
+    """
+    league_list = [lg.strip() for lg in leagues.split(",") if lg.strip()]
+    season_list = [s.strip() for s in seasons.split(",") if s.strip()]
+
+    for league in league_list:
+        if league not in FBREF_LEAGUE_MAPPING:
+            error(f"Unknown league: {league}")
+            return
+
+    info(f"Leagues: {', '.join(league_list)}")
+    info(f"Seasons: {', '.join(season_list)}")
+
+    total_created = 0
+    total_skipped = 0
+
+    with session_scope() as session:
+        importer = SoccerDataImporter(session)
+        for league in league_list:
+            for season in season_list:
+                info(f"  Importing {league} {season}...")
+                result = importer.import_schedule(
+                    league=league, season=season, no_cache=no_cache
+                )
+                if result.success:
+                    total_created += result.progress.matches_created
+                    total_skipped += result.progress.matches_skipped
+                    click.echo(
+                        f"    Created: {result.progress.matches_created}, "
+                        f"Skipped: {result.progress.matches_skipped}"
+                    )
+                else:
+                    error(f"    Failed: {result.message}")
+
+    click.echo(f"\nTotal: {total_created} created, {total_skipped} skipped")
+
+
+@import_cli.command(name="fbref-leagues")
+def list_fbref_leagues() -> None:
+    """List available FBref league codes."""
+    click.echo("\nAvailable FBref League Codes:")
+    click.echo("=" * 50)
+
+    by_country: dict[str, list[tuple[str, str]]] = {}
+    for code, league_info in sorted(FBREF_LEAGUE_MAPPING.items()):
+        country = league_info["country"]
+        if country not in by_country:
+            by_country[country] = []
+        by_country[country].append((code, league_info["name"]))
+
+    for country in sorted(by_country.keys()):
+        click.echo(f"\n{country}:")
+        for code, name in by_country[country]:
+            click.echo(f"  {code} — {name}")
 
     click.echo("\n" + "=" * 50)

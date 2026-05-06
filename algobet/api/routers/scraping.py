@@ -28,6 +28,11 @@ from algobet.api.schemas.scraping import (
     UpcomingScrapeRequest,
 )
 from algobet.api.websockets import manager
+from algobet.importers.football_data import DIVISION_MAPPING, FootballDataImporter
+from algobet.importers.soccerdata_importer import (
+    LEAGUE_MAPPING as FBREF_LEAGUE_MAPPING,
+    SoccerDataImporter,
+)
 from algobet.models import Season, Tournament
 from algobet.services.scraping_service import (
     JobStatus,
@@ -865,3 +870,298 @@ async def get_stats(db: Session = Depends(get_db)) -> ScrapingStats:
         average_duration_seconds=avg_duration,
         success_rate=success_rate,
     )
+
+
+@router.post("/import/football-data")
+async def import_football_data(
+    background_tasks: BackgroundTasks,
+    division: str,
+    season: str,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Import match data from Football-Data.co.uk.
+
+    Downloads CSV data from Football-Data.co.uk and imports matches
+    including detailed match statistics (shots, corners, cards, etc.).
+
+    Args:
+        division: Football-Data.co.uk division code (e.g., E0 for Premier League)
+        season: Season code (e.g., '2324' for 2023/24)
+
+    Returns:
+        Import result with counts
+
+    Raises:
+        HTTPException: If division code is invalid
+    """
+    if division not in DIVISION_MAPPING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid division code: {division}. "
+            f"Valid codes: {', '.join(DIVISION_MAPPING.keys())}",
+        )
+
+    job_id = str(uuid.uuid4())
+
+    job = ScrapingJobResponse(
+        id=job_id,
+        status=ScrapingJobStatus.PENDING,
+        progress=0.0,
+        message=f"Import queued for {DIVISION_MAPPING[division]['name']} {season}",
+        created_at=datetime.now(timezone.utc),
+        scraping_type="import",
+        tournament_name=DIVISION_MAPPING[division]["name"],
+        period=season,
+    )
+
+    scraping_jobs[job_id] = job
+    background_tasks.add_task(
+        run_football_data_import,
+        job_id,
+        division,
+        season,
+    )
+
+    return {
+        "job_id": job_id,
+        "message": f"Import started for {DIVISION_MAPPING[division]['name']} {season}",
+    }
+
+
+def run_football_data_import(
+    job_id: str,
+    division: str,
+    season: str,
+) -> None:
+    """Execute Football-Data.co.uk import job.
+
+    This runs as a background task after the request completes.
+    """
+    import logging
+
+    from algobet.infrastructure.database import session_scope
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"[BG TASK] Starting Football-Data import job {job_id}")
+
+    try:
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.RUNNING,
+                progress=10.0,
+                message="Connecting to Football-Data.co.uk...",
+                matches_scraped=0,
+                matches_saved=0,
+                errors=[],
+                started_at=datetime.now(timezone.utc),
+                completed_at=None,
+            ),
+        )
+
+        with session_scope() as db:
+            importer = FootballDataImporter(db)
+            logger.info(f"[BG TASK] Downloading {division}/{season} CSV")
+
+            update_job_status(
+                job_id,
+                ScrapingJobUpdate(
+                    status=ScrapingJobStatus.RUNNING,
+                    progress=30.0,
+                    message="Downloading CSV data...",
+                ),
+            )
+
+            content = importer.download_csv(season, division)
+            rows = importer.parse_csv(content)
+
+            update_job_status(
+                job_id,
+                ScrapingJobUpdate(
+                    status=ScrapingJobStatus.RUNNING,
+                    progress=50.0,
+                    message=f"Processing {len(rows)} matches...",
+                ),
+            )
+
+            result = importer.import_from_url(season, [division])
+
+            matches_imported = result.progress.matches_created
+            matches_skipped = result.progress.matches_skipped
+
+            logger.info(
+                f"[BG TASK] Import complete: {matches_imported} created, "
+                f"{matches_skipped} skipped"
+            )
+
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.COMPLETED,
+                progress=100.0,
+                message=f"Import completed: {matches_imported} matches imported, "
+                f"{matches_skipped} duplicates skipped",
+                matches_scraped=matches_imported,
+                matches_saved=matches_imported,
+                errors=result.progress.errors if result.progress.errors else [],
+                started_at=scraping_jobs[job_id].started_at
+                if job_id in scraping_jobs
+                else datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )
+
+    except Exception as e:
+        import traceback
+
+        logger.error(f"[BG TASK] Import job {job_id} failed: {e}")
+        logger.error(traceback.format_exc())
+
+        current_job = scraping_jobs.get(job_id)
+        started_failed = (
+            current_job.started_at if current_job else datetime.now(timezone.utc)
+        )
+
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.FAILED,
+                progress=0.0,
+                message=f"Import failed: {str(e)}",
+                matches_scraped=0,
+                matches_saved=0,
+                errors=[str(e)],
+                started_at=started_failed,
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# FBref import (soccerdata)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/import/fbref")
+async def import_fbref(
+    background_tasks: BackgroundTasks,
+    league: str = "ENG-Premier League",
+    season: str = "2425",
+    no_cache: bool = False,
+) -> dict[str, Any]:
+    """Import match schedules from FBref via soccerdata."""
+    if league not in FBREF_LEAGUE_MAPPING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid league: {league}. "
+            f"Valid: {', '.join(FBREF_LEAGUE_MAPPING.keys())}",
+        )
+
+    job_id = str(uuid.uuid4())
+
+    job = ScrapingJobResponse(
+        id=job_id,
+        status=ScrapingJobStatus.PENDING,
+        progress=0.0,
+        message=f"FBref import queued for {league} {season}",
+        created_at=datetime.now(timezone.utc),
+        scraping_type="import",
+        tournament_name=FBREF_LEAGUE_MAPPING[league]["name"],
+        period=season,
+    )
+
+    scraping_jobs[job_id] = job
+    background_tasks.add_task(run_fbref_import, job_id, league, season, no_cache)
+
+    return {
+        "job_id": job_id,
+        "message": (
+            f"FBref import started for {FBREF_LEAGUE_MAPPING[league]['name']} {season}"
+        ),
+    }
+
+
+def run_fbref_import(
+    job_id: str,
+    league: str,
+    season: str,
+    no_cache: bool,
+) -> None:
+    """Execute FBref import job as a background task."""
+    import logging
+
+    logger = logging.getLogger("algobet.api.import_fbref")
+
+    try:
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.RUNNING,
+                progress=10.0,
+                message=f"Starting FBref import for {league} {season}...",
+                started_at=datetime.now(timezone.utc),
+            ),
+        )
+
+        from algobet.infrastructure.database import session_scope
+
+        with session_scope() as session:
+            importer = SoccerDataImporter(session)
+            result = importer.import_schedule(
+                league=league, season=season, no_cache=no_cache
+            )
+
+            matches_imported = result.progress.matches_created
+            matches_skipped = result.progress.matches_skipped
+
+            logger.info(
+                "[BG TASK] FBref import complete: %d created, %d skipped",
+                matches_imported,
+                matches_skipped,
+            )
+
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.COMPLETED,
+                progress=100.0,
+                message=(
+                    f"FBref import completed: {matches_imported} matches imported, "
+                    f"{matches_skipped} duplicates skipped"
+                ),
+                matches_scraped=matches_imported,
+                matches_saved=matches_imported,
+                errors=result.progress.errors if result.progress.errors else [],
+                started_at=(
+                    scraping_jobs[job_id].started_at
+                    if job_id in scraping_jobs
+                    else datetime.now(timezone.utc)
+                ),
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )
+
+    except Exception as e:
+        import traceback
+
+        logger.error("[BG TASK] FBref import %s failed: %s", job_id, e)
+        logger.error(traceback.format_exc())
+
+        current_job = scraping_jobs.get(job_id)
+        started_failed = (
+            current_job.started_at if current_job else datetime.now(timezone.utc)
+        )
+
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.FAILED,
+                progress=0.0,
+                message=f"FBref import failed: {str(e)}",
+                matches_scraped=0,
+                matches_saved=0,
+                errors=[str(e)],
+                started_at=started_failed,
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )

@@ -33,6 +33,7 @@ dependencies = [
     "redis>=7.4.0",
     "fastapi-cache2>=0.2.2",
     "jinja2>=3.1.6",
+    "soccerdata>=1.9.0",
 ]
 
 [project.optional-dependencies]
@@ -143,6 +144,8 @@ module = [
     "optuna.*",
     "xgboost.*",
     "lightgbm.*",
+    "soccerdata.*",
+    "pandas.*",
 ]
 ignore_missing_imports = true
 

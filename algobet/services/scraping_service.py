@@ -12,9 +12,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from algobet.models import Match, Season, Team, Tournament
+from algobet.models import Match, Season, Team, TeamAlias, Tournament
 from algobet.scraper import OddsPortalScraper, ScrapedMatch, is_retryable_network_error
 from algobet.services.base import BaseService
+from algobet.utils.team_resolver import TeamResolver
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ class ScrapingService(BaseService[Any]):
         """
         super().__init__(session)
         self.progress_callback = progress_callback
+        self._resolver = TeamResolver()
 
     def _emit_progress(self, progress: ScrapingProgress) -> None:
         """Emit progress update to callback if registered.
@@ -193,25 +195,63 @@ class ScrapingService(BaseService[Any]):
 
         return season
 
-    def get_or_create_team(self, name: str) -> Team:
-        """Get or create a team.
+    def get_or_create_team(self, name: str, source: str = "oddsportal") -> Team:
+        """Get or create a team with normalized name and alias.
+
+        Uses TeamResolver for canonical name normalization and creates
+        TeamAlias records for source-specific lookups.
 
         Args:
-            name: Team name
+            name: Team name from the data source
+            source: Source identifier (default: 'oddsportal')
 
         Returns:
             Team instance
         """
+        normalized = self._resolver.resolve(name)
+
+        # Check TeamAlias first (source-specific)
+        alias = self.session.execute(
+            select(TeamAlias).where(TeamAlias.alias == name, TeamAlias.source == source)
+        ).scalar_one_or_none()
+        if alias:
+            return alias.team
+
+        # Try normalized name
         team = self.session.execute(
-            select(Team).where(Team.name == name)
+            select(Team).where(Team.name == normalized)
         ).scalar_one_or_none()
 
-        if not team:
-            team = Team(name=name)
-            self.session.add(team)
-            self.session.flush()
+        if team:
+            if name != team.name:
+                self._ensure_alias(team, name, source)
+            return team
+
+        team = Team(name=normalized)
+        self.session.add(team)
+        self.session.flush()
+
+        if name != normalized:
+            alias_record = TeamAlias(team_id=team.id, alias=name, source=source)
+            self.session.add(alias_record)
 
         return team
+
+    def _ensure_alias(self, team: Team, alias_name: str, source: str) -> None:
+        """Ensure a TeamAlias exists for the given team and source."""
+        existing = self.session.execute(
+            select(TeamAlias).where(
+                TeamAlias.team_id == team.id,
+                TeamAlias.alias == alias_name,
+                TeamAlias.source == source,
+            )
+        ).scalar_one_or_none()
+
+        if not existing:
+            self.session.add(
+                TeamAlias(team_id=team.id, alias=alias_name, source=source)
+            )
+            self.session.flush()
 
     def _parse_season_label(
         self, season_label: str | None

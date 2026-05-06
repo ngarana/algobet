@@ -57,6 +57,18 @@ DEFAULT_SCHEDULES = [
         "description": "Weekly results scrape on Monday at 3 AM",
         "is_active": True,
     },
+    {
+        "name": "weekly_fbref_import",
+        "task_type": "import_fbref",
+        "cron_expression": "0 4 * * 1",
+        "parameters": {
+            "league": "ENG-Premier League",
+            "season": None,
+            "no_cache": False,
+        },
+        "description": "Weekly FBref import on Monday at 4 AM",
+        "is_active": False,  # Off by default, enable manually
+    },
 ]
 
 

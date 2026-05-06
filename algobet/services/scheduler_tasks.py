@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from algobet.importers.football_data import DIVISION_MAPPING, FootballDataImporter
+from algobet.importers.soccerdata_importer import SoccerDataImporter
 from algobet.services.prediction_service import PredictionService
 from algobet.services.scheduler_service import SchedulerService, TaskDefinition
 from algobet.services.scraping_service import ScrapingService
@@ -64,6 +66,63 @@ def execute_generate_predictions(
     }
 
 
+def execute_import_football_data(
+    session: Any, parameters: dict[str, Any]
+) -> dict[str, Any]:
+    """Execute Football-Data.co.uk import task."""
+    division = parameters.get("division", "E0")
+    season = parameters.get("season")
+
+    if not season:
+        return {
+            "status": "failed",
+            "error": "Season parameter is required",
+        }
+
+    if division not in DIVISION_MAPPING:
+        return {
+            "status": "failed",
+            "error": f"Invalid division code: {division}",
+        }
+
+    importer = FootballDataImporter(session)
+    importer.download_csv(season, division)
+    result = importer.import_from_url(season, [division])
+
+    return {
+        "status": "completed",
+        "league": DIVISION_MAPPING[division]["name"],
+        "season": season,
+        "matches_imported": result.progress.matches_created,
+        "matches_skipped": result.progress.matches_skipped,
+    }
+
+
+def execute_import_fbref(session: Any, parameters: dict[str, Any]) -> dict[str, Any]:
+    """Execute FBref import task via soccerdata."""
+    league = parameters.get("league", "ENG-Premier League")
+    season = parameters.get("season")
+    no_cache = parameters.get("no_cache", False)
+
+    if not season:
+        return {
+            "status": "failed",
+            "error": "Season parameter is required (e.g., '2425', '2024')",
+        }
+
+    importer = SoccerDataImporter(session)
+    result = importer.import_schedule(league=league, season=season, no_cache=no_cache)
+
+    return {
+        "status": "completed" if result.success else "failed",
+        "league": league,
+        "season": season,
+        "matches_imported": result.progress.matches_created,
+        "matches_skipped": result.progress.matches_skipped,
+        "errors": result.progress.errors,
+    }
+
+
 def register_default_tasks() -> None:
     """Register all default task types with the SchedulerService."""
     SchedulerService.register_task(
@@ -106,5 +165,32 @@ def register_default_tasks() -> None:
                 "models_path": "data/models",
             },
             execute=execute_generate_predictions,
+        )
+    )
+
+    SchedulerService.register_task(
+        TaskDefinition(
+            name="Import Football-Data.co.uk",
+            task_type="import_football_data",
+            description="Import match data and statistics from Football-Data.co.uk",
+            default_parameters={
+                "division": "E0",
+                "season": None,
+            },
+            execute=execute_import_football_data,
+        )
+    )
+
+    SchedulerService.register_task(
+        TaskDefinition(
+            name="Import from FBref",
+            task_type="import_fbref",
+            description="Import match schedules from FBref via soccerdata",
+            default_parameters={
+                "league": "ENG-Premier League",
+                "season": None,
+                "no_cache": False,
+            },
+            execute=execute_import_fbref,
         )
     )
