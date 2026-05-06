@@ -18,6 +18,7 @@ from algobet.api.routers import (
     teams_router,
     tournaments_router,
     value_bets_router,
+    workflow_router,
 )
 from algobet.api.websockets import websocket_endpoint
 from algobet.services.scheduler_service import SchedulerService
@@ -160,6 +161,12 @@ app.include_router(
     value_bets_router,
     prefix="/api/v1/value-bets",
     tags=["value-bets"],
+)
+
+app.include_router(
+    workflow_router,
+    prefix="/api/v1/workflow",
+    tags=["workflow"],
 )
 
 app.include_router(

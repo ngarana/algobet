@@ -10,6 +10,7 @@ from .seasons import router as seasons_router
 from .teams import router as teams_router
 from .tournaments import router as tournaments_router
 from .value_bets import router as value_bets_router
+from .workflow import router as workflow_router
 
 __all__ = [
     "matches_router",
@@ -19,6 +20,7 @@ __all__ = [
     "predictions_router",
     "models_router",
     "value_bets_router",
+    "workflow_router",
     "scraping_router",
     "schedules_router",
     "ml_operations_router",

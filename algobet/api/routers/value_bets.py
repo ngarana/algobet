@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
 from algobet.api.schemas import ValueBetResponse
-from algobet.api.schemas.match import MatchResponse
 from algobet.models import Match, ModelVersion, Prediction
 from algobet.predictions.models.registry import ModelRegistry
+from algobet.user_workflow.service import build_match_response
 
 router = APIRouter()
 
@@ -58,34 +58,18 @@ def calculate_kelly_fraction(predicted_probability: float, market_odds: float) -
     return max(0.0, kelly)  # Don't recommend negative Kelly (don't bet)
 
 
-@router.get("", response_model=list[ValueBetResponse])
-def get_value_bets(
-    min_ev: float = Query(0.05, ge=0, description="Minimum expected value"),
-    max_odds: float = Query(10.0, ge=1.0, description="Maximum odds"),
-    days: int = Query(7, ge=1, le=30, description="Days ahead to look for value bets"),
-    model_version: str | None = Query(None, description="Model version to use"),
-    min_confidence: float | None = Query(
-        None, ge=0, le=1, description="Minimum confidence"
-    ),
-    max_matches: int = Query(20, ge=1, le=100, description="Maximum number of matches"),
-    db: Session = Depends(get_db),
+def build_value_bets(
+    db: Session,
+    min_ev: float = 0.05,
+    max_odds: float = 10.0,
+    days: int = 7,
+    model_version: str | None = None,
+    min_confidence: float | None = None,
+    max_matches: int = 20,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
 ) -> list[ValueBetResponse]:
-    """Find value betting opportunities.
-
-    Identifies matches where the model's predicted probability suggests
-    positive expected value compared to market odds.
-
-    Args:
-        min_ev: Minimum expected value threshold (default: 0.05 = 5%)
-        max_odds: Maximum odds to consider (default: 10.0)
-        days: Days ahead to look for value bets (default: 7)
-        model_version: Specific model version to use (default: active model)
-        min_confidence: Minimum confidence for predictions
-        max_matches: Maximum number of value bets to return
-
-    Returns:
-        List of value betting opportunities sorted by expected value
-    """
+    """Build value-bet responses for a date window."""
     # Get the model version to use
     if model_version:
         model_record = (
@@ -101,7 +85,7 @@ def get_value_bets(
                 .filter(ModelVersion.version == metadata.version)
                 .first()
             )
-        except ValueError:
+        except (ValueError, FileNotFoundError):
             # No active model
             return []
 
@@ -109,8 +93,8 @@ def get_value_bets(
         return []
 
     # Get date range for upcoming matches
-    now = datetime.now(timezone.utc)
-    end_date = now + timedelta(days=days)
+    now = start_date or datetime.now(timezone.utc)
+    end = end_date or now + timedelta(days=days)
 
     # Query predictions for upcoming matches with the specified model
     predictions_query = (
@@ -120,7 +104,7 @@ def get_value_bets(
             and_(
                 Prediction.model_version_id == model_record.id,
                 Match.match_date >= now,
-                Match.match_date <= end_date,
+                Match.match_date <= end,
                 Match.status == "SCHEDULED",
                 Match.odds_home.isnot(None),
                 Match.odds_draw.isnot(None),
@@ -163,29 +147,9 @@ def get_value_bets(
         if ev >= min_ev:
             kelly = calculate_kelly_fraction(predicted_prob, market_odds)
 
-            # Build MatchResponse
-            match_response = MatchResponse(
-                id=match.id,
-                tournament_id=match.tournament_id,
-                season_id=match.season_id,
-                home_team_id=match.home_team_id,
-                away_team_id=match.away_team_id,
-                match_date=match.match_date,
-                home_score=match.home_score,
-                away_score=match.away_score,
-                status=match.status,
-                odds_home=match.odds_home,
-                odds_draw=match.odds_draw,
-                odds_away=match.odds_away,
-                num_bookmakers=match.num_bookmakers,
-                created_at=match.created_at,
-                updated_at=match.updated_at,
-                result=None,
-            )
-
             value_bets.append(
                 ValueBetResponse(
-                    match=match_response,
+                    match=build_match_response(match),
                     prediction_id=pred.id,
                     predicted_outcome=pred.predicted_outcome,
                     predicted_probability=predicted_prob,
@@ -199,3 +163,42 @@ def get_value_bets(
     # Sort by expected value (descending) and return top matches
     value_bets.sort(key=lambda x: x.expected_value, reverse=True)
     return value_bets[:max_matches]
+
+
+@router.get("", response_model=list[ValueBetResponse])
+def get_value_bets(
+    min_ev: float = Query(0.05, ge=0, description="Minimum expected value"),
+    max_odds: float = Query(10.0, ge=1.0, description="Maximum odds"),
+    days: int = Query(7, ge=1, le=30, description="Days ahead to look for value bets"),
+    model_version: str | None = Query(None, description="Model version to use"),
+    min_confidence: float | None = Query(
+        None, ge=0, le=1, description="Minimum confidence"
+    ),
+    max_matches: int = Query(20, ge=1, le=100, description="Maximum number of matches"),
+    db: Session = Depends(get_db),
+) -> list[ValueBetResponse]:
+    """Find value betting opportunities.
+
+    Identifies matches where the model's predicted probability suggests
+    positive expected value compared to market odds.
+
+    Args:
+        min_ev: Minimum expected value threshold (default: 0.05 = 5%)
+        max_odds: Maximum odds to consider (default: 10.0)
+        days: Days ahead to look for value bets (default: 7)
+        model_version: Specific model version to use (default: active model)
+        min_confidence: Minimum confidence for predictions
+        max_matches: Maximum number of value bets to return
+
+    Returns:
+        List of value betting opportunities sorted by expected value
+    """
+    return build_value_bets(
+        db,
+        min_ev=min_ev,
+        max_odds=max_odds,
+        days=days,
+        model_version=model_version,
+        min_confidence=min_confidence,
+        max_matches=max_matches,
+    )
