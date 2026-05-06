@@ -48,6 +48,11 @@ type FetchDialogSubmitData =
       date?: string;
       tournament_id?: number;
       team_id?: number;
+    }
+  | {
+      type: "import";
+      division: string;
+      season: string;
     };
 
 interface FetchDialogProps {
@@ -80,6 +85,8 @@ export function FetchDialog({
   const [upcomingLeagueLink, setUpcomingLeagueLink] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
+  const [importDivision, setImportDivision] = useState("");
+  const [importSeason, setImportSeason] = useState("");
 
   const config = FETCH_DIALOG_CONFIG[type];
   const { data: tournaments = [], isLoading: tournamentsLoading } = useTournaments();
@@ -110,6 +117,8 @@ export function FetchDialog({
     setUpcomingLeagueLink("");
     setPeriodStart("");
     setPeriodEnd("");
+    setImportDivision("");
+    setImportSeason("");
   }, [type]);
 
   const countries = useMemo(
@@ -197,6 +206,12 @@ export function FetchDialog({
         tournament_id: requiresLeague ? (tournamentId ?? undefined) : undefined,
         team_id: requiresLeague ? (teamId ?? undefined) : undefined,
       });
+    } else if (type === FetchDialogType.IMPORT) {
+      onConfirm({
+        type: "import",
+        division: importDivision,
+        season: importSeason,
+      });
     }
     handleClose();
   };
@@ -212,7 +227,8 @@ export function FetchDialog({
       : requiresLeague && !tournamentId) ||
     (type === FetchDialogType.RESULTS &&
       resultsInputMode === "select" &&
-      tournamentsLoading);
+      tournamentsLoading) ||
+    (type === FetchDialogType.IMPORT && (!importDivision || !importSeason));
 
   return (
     <Card className="border-[#252a37] bg-[#12151d]">
@@ -569,6 +585,61 @@ export function FetchDialog({
                 onChange={(event) => setDate(event.target.value)}
                 className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
               />
+            </div>
+          )}
+
+          {type === FetchDialogType.IMPORT && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-[#06b6d4]/30 bg-[#06b6d4]/10 p-4">
+                <p className="text-sm text-[#9ca3af]">
+                  Import historical match data and statistics from Football-Data.co.uk.
+                  This includes shots, corners, fouls, cards, and more.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="import-division">League</Label>
+                <Select
+                  value={importDivision}
+                  onValueChange={setImportDivision}
+                >
+                  <SelectTrigger
+                    id="import-division"
+                    className="border-[#252a37] bg-[#161a25]"
+                  >
+                    <SelectValue placeholder="Select league" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="E0">Premier League (England)</SelectItem>
+                    <SelectItem value="E1">Championship (England)</SelectItem>
+                    <SelectItem value="D1">Bundesliga (Germany)</SelectItem>
+                    <SelectItem value="D2">2. Bundesliga (Germany)</SelectItem>
+                    <SelectItem value="I1">Serie A (Italy)</SelectItem>
+                    <SelectItem value="I2">Serie B (Italy)</SelectItem>
+                    <SelectItem value="SP1">La Liga (Spain)</SelectItem>
+                    <SelectItem value="SP2">La Liga 2 (Spain)</SelectItem>
+                    <SelectItem value="F1">Ligue 1 (France)</SelectItem>
+                    <SelectItem value="F2">Ligue 2 (France)</SelectItem>
+                    <SelectItem value="N1">Eredivisie (Netherlands)</SelectItem>
+                    <SelectItem value="B1">First Division A (Belgium)</SelectItem>
+                    <SelectItem value="P1">Primeira Liga (Portugal)</SelectItem>
+                    <SelectItem value="T1">Super Lig (Turkey)</SelectItem>
+                    <SelectItem value="G1">Super League (Greece)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="import-season">Season</Label>
+                <Input
+                  id="import-season"
+                  value={importSeason}
+                  onChange={(event) => setImportSeason(event.target.value)}
+                  placeholder="e.g. 2324 for 2023/24"
+                  className="border-[#252a37] bg-[#161a25] text-[#e0e6f0]"
+                />
+                <p className="text-xs text-[#9ca3af]">
+                  Use format: YYYY (e.g., 2324 for 2023/24, 2425 for 2024/25)
+                </p>
+              </div>
             </div>
           )}
 

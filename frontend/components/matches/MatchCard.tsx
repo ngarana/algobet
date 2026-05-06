@@ -39,6 +39,8 @@ function getStatusLabel(status: MatchStatus): string {
 export function MatchCard({ match }: MatchCardProps) {
   const isFinished = match.status === "FINISHED";
   const isLive = match.status === "LIVE";
+  const homeName = match.home_team_name ?? `Team ${match.home_team_id}`;
+  const awayName = match.away_team_name ?? `Team ${match.away_team_id}`;
 
   return (
     <Link href={`/matches/${match.id}`}>
@@ -56,8 +58,8 @@ export function MatchCard({ match }: MatchCardProps) {
           <div className="flex items-center justify-between gap-4">
             {/* Home Team */}
             <div className="flex-1 text-right">
-              <p className="font-semibold">Home Team</p>
-              <p className="text-sm text-muted-foreground">ID: {match.home_team_id}</p>
+              <p className="font-semibold">{homeName}</p>
+              <p className="text-sm text-muted-foreground">Home</p>
             </div>
 
             {/* Score */}
@@ -75,10 +77,16 @@ export function MatchCard({ match }: MatchCardProps) {
 
             {/* Away Team */}
             <div className="flex-1 text-left">
-              <p className="font-semibold">Away Team</p>
-              <p className="text-sm text-muted-foreground">ID: {match.away_team_id}</p>
+              <p className="font-semibold">{awayName}</p>
+              <p className="text-sm text-muted-foreground">Away</p>
             </div>
           </div>
+
+          {match.tournament_name && (
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              {match.tournament_name}
+            </p>
+          )}
 
           {/* Odds */}
           {match.odds_home && match.odds_draw && match.odds_away && (

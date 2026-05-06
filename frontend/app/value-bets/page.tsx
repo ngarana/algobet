@@ -137,7 +137,13 @@ function ValueBetsTable({ valueBets }: { valueBets: ValueBet[] }) {
         {valueBets.map((vb, index) => (
           <TableRow key={`${vb.match.id}-${vb.predicted_outcome}-${index}`}>
             <TableCell className="font-medium">
-              Team {vb.match.home_team_id} vs Team {vb.match.away_team_id}
+              {vb.match.home_team_name ?? `Team ${vb.match.home_team_id}`} vs{" "}
+              {vb.match.away_team_name ?? `Team ${vb.match.away_team_id}`}
+              {vb.match.tournament_name && (
+                <p className="text-xs text-muted-foreground">
+                  {vb.match.tournament_name}
+                </p>
+              )}
             </TableCell>
             <TableCell>{new Date(vb.match.match_date).toLocaleDateString()}</TableCell>
             <TableCell>
@@ -242,10 +248,10 @@ export default function ValueBetsPage() {
         <div>
           <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <TrendingUp className="h-8 w-8" />
-            Value Bets
+            Smart Tips
           </h1>
           <p className="text-muted-foreground">
-            Find betting opportunities with positive expected value
+            Curated value bets where model probability beats market implied odds
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -304,7 +310,8 @@ export default function ValueBetsPage() {
               <CardHeader>
                 <CardTitle>Value Betting Opportunities</CardTitle>
                 <CardDescription>
-                  {valueBets.length} matches with positive expected value
+                  {valueBets.length} matches with positive expected value. Kelly
+                  fractions are informational, not financial advice.
                 </CardDescription>
               </CardHeader>
               <CardContent>

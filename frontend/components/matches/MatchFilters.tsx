@@ -26,6 +26,25 @@ const statusOptions: { value: MatchStatus | "all"; label: string }[] = [
   { value: "FINISHED", label: "Finished" },
 ];
 
+const sortOptions = [
+  { value: "kickoff", label: "Kick-off time" },
+  { value: "confidence", label: "Highest confidence" },
+  { value: "value", label: "Best value" },
+  { value: "favorites", label: "Favorite leagues" },
+];
+
+function formatDateValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function toStartOfDay(value: string) {
+  return `${value}T00:00:00Z`;
+}
+
+function toEndOfDay(value: string) {
+  return `${value}T23:59:59Z`;
+}
+
 export function MatchFilters({ onFilterChange }: MatchFiltersProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -60,6 +79,33 @@ export function MatchFilters({ onFilterChange }: MatchFiltersProps) {
   const currentTournament = searchParams.get("tournament_id") || "";
   const currentTeam = searchParams.get("team_id") || "";
   const currentDaysAhead = searchParams.get("days_ahead") || "";
+  const currentFromDate = searchParams.get("from_date")?.slice(0, 10) || "";
+  const currentToDate = searchParams.get("to_date")?.slice(0, 10) || "";
+  const currentSort = searchParams.get("sort") || "kickoff";
+
+  const applyDatePreset = (preset: "today" | "three-days" | "weekend") => {
+    const now = new Date();
+    const from = new Date(now);
+    const to = new Date(now);
+
+    if (preset === "three-days") {
+      to.setDate(now.getDate() + 2);
+    }
+
+    if (preset === "weekend") {
+      const day = now.getDay();
+      const daysUntilSaturday = (6 - day + 7) % 7;
+      from.setDate(now.getDate() + daysUntilSaturday);
+      to.setTime(from.getTime());
+      to.setDate(from.getDate() + 1);
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("from_date", toStartOfDay(formatDateValue(from)));
+    params.set("to_date", toEndOfDay(formatDateValue(to)));
+    params.delete("days_ahead");
+    router.push(`/matches?${params.toString()}`);
+  };
 
   return (
     <div className="space-y-4 rounded-lg border bg-card p-4">
@@ -70,6 +116,22 @@ export function MatchFilters({ onFilterChange }: MatchFiltersProps) {
             Clear All
           </Button>
         )}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={() => applyDatePreset("today")}>
+          Today
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => applyDatePreset("three-days")}
+        >
+          Next 3 Days
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => applyDatePreset("weekend")}>
+          Weekend
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -129,6 +191,52 @@ export function MatchFilters({ onFilterChange }: MatchFiltersProps) {
             value={currentDaysAhead}
             onChange={(e) => updateFilter("days_ahead", e.target.value || null)}
           />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="from-date">From Date</Label>
+          <Input
+            id="from-date"
+            type="date"
+            value={currentFromDate}
+            onChange={(e) =>
+              updateFilter(
+                "from_date",
+                e.target.value ? toStartOfDay(e.target.value) : null
+              )
+            }
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="to-date">To Date</Label>
+          <Input
+            id="to-date"
+            type="date"
+            value={currentToDate}
+            onChange={(e) =>
+              updateFilter(
+                "to_date",
+                e.target.value ? toEndOfDay(e.target.value) : null
+              )
+            }
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="sort">Sort By</Label>
+          <Select value={currentSort} onValueChange={(value) => updateFilter("sort", value)}>
+            <SelectTrigger id="sort">
+              <SelectValue placeholder="Sort matches" />
+            </SelectTrigger>
+            <SelectContent>
+              {sortOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

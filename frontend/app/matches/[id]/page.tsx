@@ -1,359 +1,383 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { format } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Calendar } from "lucide-react";
+
+import { UserPredictionPanel, WatchlistToggle, formatPercent } from "@/components/workflow";
 import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useMatch, useMatchH2H } from "@/lib/queries/use-matches";
-import type { MatchStatus } from "@/lib/types/api";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { useMatchWorkflowDetail } from "@/lib/queries/use-workflow";
+import type { PredictedOutcome } from "@/lib/types/api";
 
-function getStatusColor(status: MatchStatus): string {
-  switch (status) {
-    case "LIVE":
-      return "bg-red-500 text-white animate-pulse";
-    case "FINISHED":
-      return "bg-muted text-muted-foreground";
-    case "SCHEDULED":
-      return "bg-blue-500 text-white";
-    default:
-      return "bg-muted text-muted-foreground";
-  }
-}
+const outcomeLabels: Record<PredictedOutcome, string> = {
+  H: "Home win",
+  D: "Draw",
+  A: "Away win",
+};
 
-function MatchInfo() {
-  const params = useParams();
-  const matchId = parseInt(params.id as string);
-  const { data: match, isLoading } = useMatch(matchId);
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex flex-col items-center space-y-4">
-            <Skeleton className="h-8 w-48" />
-            <Skeleton className="h-6 w-32" />
-            <div className="flex w-full items-center justify-center gap-8">
-              <div className="space-y-2 text-center">
-                <Skeleton className="h-12 w-32" />
-                <Skeleton className="h-4 w-24" />
-              </div>
-              <Skeleton className="h-16 w-24" />
-              <div className="space-y-2 text-center">
-                <Skeleton className="h-12 w-32" />
-                <Skeleton className="h-4 w-24" />
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!match) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <p className="text-center text-muted-foreground">Match not found</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const isFinished = match.status === "FINISHED";
-  const isLive = match.status === "LIVE";
-
+function LoadingState() {
   return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex flex-col items-center space-y-4">
-          <Badge className={getStatusColor(match.status)}>{match.status}</Badge>
-
-          <p className="text-sm text-muted-foreground">
-            {format(new Date(match.match_date), "EEEE, MMMM d, yyyy HH:mm")}
-          </p>
-
-          <div className="flex w-full items-center justify-center gap-8">
-            {/* Home Team */}
-            <div className="flex-1 text-center">
-              <h2 className="text-2xl font-bold">
-                {match.home_team?.name || `Team ${match.home_team_id}`}
-              </h2>
-              <p className="text-sm text-muted-foreground">Home</p>
-            </div>
-
-            {/* Score */}
-            <div className="px-8 text-center">
-              {isFinished || isLive ? (
-                <div className="text-5xl font-bold">
-                  {match.home_score} - {match.away_score}
-                </div>
-              ) : (
-                <div className="text-3xl font-bold text-muted-foreground">VS</div>
-              )}
-            </div>
-
-            {/* Away Team */}
-            <div className="flex-1 text-center">
-              <h2 className="text-2xl font-bold">
-                {match.away_team?.name || `Team ${match.away_team_id}`}
-              </h2>
-              <p className="text-sm text-muted-foreground">Away</p>
-            </div>
-          </div>
-
-          {/* Odds */}
-          {match.odds_home && match.odds_draw && match.odds_away && (
-            <div className="flex w-full items-center justify-center gap-6 border-t pt-4">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Home Win</p>
-                <p className="text-xl font-bold">{match.odds_home.toFixed(2)}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Draw</p>
-                <p className="text-xl font-bold">{match.odds_draw.toFixed(2)}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Away Win</p>
-                <p className="text-xl font-bold">
-                  {match.away_score?.toFixed(2) || match.odds_away.toFixed(2)}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Tournament Info */}
-          {match.tournament && (
-            <div className="pt-4 text-center">
-              <p className="text-sm text-muted-foreground">
-                {match.tournament.name} • {match.season?.name}
-              </p>
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <Skeleton className="h-12 w-72" />
+      <Skeleton className="h-64" />
+      <Skeleton className="h-96" />
+    </div>
   );
 }
 
-function H2HTable() {
+export default function MatchDetailPage() {
   const params = useParams();
-  const matchId = parseInt(params.id as string);
-  const { data, isLoading } = useMatchH2H(matchId);
+  const matchId = Number(params.id);
+  const { data, isLoading, error } = useMatchWorkflowDetail(matchId);
 
   if (isLoading) {
+    return <LoadingState />;
+  }
+
+  if (error || !data) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Head to Head</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
-          </div>
+      <Card className="border-destructive">
+        <CardContent className="p-6 text-destructive">
+          Failed to load match workflow detail.
         </CardContent>
       </Card>
     );
   }
 
-  const h2hMatches = data?.items?.slice(0, 5) || [];
+  const match = data.match;
+  const latestPrediction = match.predictions[0] ?? null;
 
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="space-y-6 p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge>{match.status}</Badge>
+                {match.tournament && <Badge variant="outline">{match.tournament.name}</Badge>}
+              </div>
+              <h1 className="text-3xl font-bold tracking-tight">
+                {match.home_team.name} vs {match.away_team.name}
+              </h1>
+              <p className="flex items-center gap-2 text-muted-foreground">
+                <Calendar className="h-4 w-4" />
+                {new Date(match.match_date).toLocaleString()}
+              </p>
+            </div>
+            <WatchlistToggle
+              entryType="match"
+              entryId={match.id}
+              watched={data.watched}
+              label={data.watched ? "Watching" : "Watch match"}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-md border p-4 text-center">
+              <p className="text-sm text-muted-foreground">Home</p>
+              <p className="text-2xl font-semibold">{match.home_team.name}</p>
+              {match.odds_home && (
+                <p className="text-sm text-muted-foreground">
+                  Odds {match.odds_home.toFixed(2)}
+                </p>
+              )}
+            </div>
+            <div className="rounded-md border p-4 text-center">
+              <p className="text-sm text-muted-foreground">Score</p>
+              <p className="text-3xl font-bold">
+                {match.status === "FINISHED"
+                  ? `${match.home_score} - ${match.away_score}`
+                  : "vs"}
+              </p>
+            </div>
+            <div className="rounded-md border p-4 text-center">
+              <p className="text-sm text-muted-foreground">Away</p>
+              <p className="text-2xl font-semibold">{match.away_team.name}</p>
+              {match.odds_away && (
+                <p className="text-sm text-muted-foreground">
+                  Odds {match.odds_away.toFixed(2)}
+                </p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Tabs defaultValue="prediction" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-6">
+          <TabsTrigger value="prediction">Prediction</TabsTrigger>
+          <TabsTrigger value="form">Form</TabsTrigger>
+          <TabsTrigger value="stats">Stats</TabsTrigger>
+          <TabsTrigger value="odds">Odds</TabsTrigger>
+          <TabsTrigger value="explain">Explain</TabsTrigger>
+          <TabsTrigger value="h2h">H2H</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="prediction" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Model Prediction</CardTitle>
+              <CardDescription>
+                Latest model probabilities and similar-match accuracy.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {latestPrediction ? (
+                <>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <ProbabilityBox label="Home" value={latestPrediction.prob_home} />
+                    <ProbabilityBox label="Draw" value={latestPrediction.prob_draw} />
+                    <ProbabilityBox label="Away" value={latestPrediction.prob_away} />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge>
+                      Pick {outcomeLabels[latestPrediction.predicted_outcome]}
+                    </Badge>
+                    <Badge variant="secondary">
+                      Confidence {formatPercent(latestPrediction.confidence)}
+                    </Badge>
+                    <Badge variant="outline">
+                      Similar accuracy {formatPercent(data.similar_accuracy.accuracy)}
+                    </Badge>
+                  </div>
+                </>
+              ) : (
+                <p className="text-muted-foreground">
+                  No model prediction is available for this match.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <UserPredictionPanel
+            matchId={match.id}
+            userPrediction={data.user_prediction}
+          />
+        </TabsContent>
+
+        <TabsContent value="form" className="mt-4 grid gap-4 lg:grid-cols-2">
+          <RecentFormCard title={match.home_team.name} rows={data.recent_form.home} />
+          <RecentFormCard title={match.away_team.name} rows={data.recent_form.away} />
+        </TabsContent>
+
+        <TabsContent value="stats" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Key Stats Comparison</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Metric</TableHead>
+                    <TableHead>{data.stats_comparison.home.team_name}</TableHead>
+                    <TableHead>{data.stats_comparison.away.team_name}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <StatsRow
+                    label="Avg goals for"
+                    home={data.stats_comparison.home.avg_goals_for}
+                    away={data.stats_comparison.away.avg_goals_for}
+                  />
+                  <StatsRow
+                    label="Avg goals against"
+                    home={data.stats_comparison.home.avg_goals_against}
+                    away={data.stats_comparison.away.avg_goals_against}
+                  />
+                  <StatsRow
+                    label="Avg shots"
+                    home={data.stats_comparison.home.avg_shots}
+                    away={data.stats_comparison.away.avg_shots}
+                  />
+                  <StatsRow
+                    label="Avg shots on target"
+                    home={data.stats_comparison.home.avg_shots_on_target}
+                    away={data.stats_comparison.away.avg_shots_on_target}
+                  />
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="odds" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Odds Comparison</CardTitle>
+              <CardDescription>
+                Available bookmaker rows, or the market aggregate when only match odds
+                exist.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data.odds_comparison.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Bookmaker</TableHead>
+                      <TableHead>Home</TableHead>
+                      <TableHead>Draw</TableHead>
+                      <TableHead>Away</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.odds_comparison.map((row) => (
+                      <TableRow key={`${row.bookmaker}-${row.scraped_at ?? "market"}`}>
+                        <TableCell>{row.bookmaker}</TableCell>
+                        <TableCell>{row.odds_home.toFixed(2)}</TableCell>
+                        <TableCell>{row.odds_draw.toFixed(2)}</TableCell>
+                        <TableCell>{row.odds_away.toFixed(2)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="text-muted-foreground">No odds are available.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="explain" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Model Explanation</CardTitle>
+              <CardDescription>
+                Top available cached features for this match.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {data.model_explanation.length > 0 ? (
+                data.model_explanation.map((item) => (
+                  <div
+                    key={item.feature}
+                    className="flex items-center justify-between rounded-md border p-3"
+                  >
+                    <div>
+                      <p className="font-medium">{item.label}</p>
+                      <p className="text-sm text-muted-foreground">{item.direction}</p>
+                    </div>
+                    <Badge variant="outline">{item.value.toFixed(2)}</Badge>
+                  </div>
+                ))
+              ) : (
+                <p className="text-muted-foreground">
+                  No cached model features are available for explanation.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="h2h" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Head To Head</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {match.h2h_matches.length > 0 ? (
+                match.h2h_matches.map((row) => (
+                  <div
+                    key={row.id}
+                    className="flex items-center justify-between rounded-md border p-3"
+                  >
+                    <span>{new Date(row.match_date).toLocaleDateString()}</span>
+                    <span className="font-mono">
+                      {row.home_score} - {row.away_score}
+                    </span>
+                    {row.result && <Badge variant="outline">{row.result}</Badge>}
+                  </div>
+                ))
+              ) : (
+                <p className="text-muted-foreground">No previous meetings found.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function ProbabilityBox({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border p-4 text-center">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="text-2xl font-bold">{formatPercent(value)}</p>
+    </div>
+  );
+}
+
+function RecentFormCard({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: { match_id: number; match_date: string; opponent_name: string; result: string }[];
+}) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Head to Head (Last 5)</CardTitle>
+        <CardTitle className="text-lg">{title} Recent Form</CardTitle>
       </CardHeader>
-      <CardContent>
-        {h2hMatches.length === 0 ? (
-          <p className="py-4 text-center text-muted-foreground">
-            No previous meetings found
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {h2hMatches.map((match) => (
-              <div
-                key={match.id}
-                className="flex items-center justify-between rounded-lg border p-3"
-              >
-                <span className="text-sm text-muted-foreground">
-                  {format(new Date(match.match_date), "MMM d, yyyy")}
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{match.home_score}</span>
-                  <span className="text-muted-foreground">-</span>
-                  <span className="font-medium">{match.away_score}</span>
-                </div>
-                <Badge variant={match.result === "H" ? "default" : "secondary"}>
-                  {match.result === "H" ? "H" : match.result === "A" ? "A" : "D"}
-                </Badge>
+      <CardContent className="space-y-3">
+        {rows.length > 0 ? (
+          rows.map((row) => (
+            <div
+              key={row.match_id}
+              className="flex items-center justify-between rounded-md border p-3"
+            >
+              <div>
+                <p className="font-medium">vs {row.opponent_name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {new Date(row.match_date).toLocaleDateString()}
+                </p>
               </div>
-            ))}
-          </div>
+              <Badge variant={row.result === "W" ? "success" : "secondary"}>
+                {row.result}
+              </Badge>
+            </div>
+          ))
+        ) : (
+          <p className="text-muted-foreground">No recent form available.</p>
         )}
       </CardContent>
     </Card>
   );
 }
 
-function PredictionsCard() {
-  const params = useParams();
-  const matchId = parseInt(params.id as string);
-  const { data: match, isLoading } = useMatch(matchId);
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>AI Prediction</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-32 w-full" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const predictions = match?.predictions || [];
-
-  if (predictions.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>AI Prediction</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="py-4 text-center text-muted-foreground">
-            No predictions available for this match
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const latestPrediction = predictions[0];
-
+function StatsRow({
+  label,
+  home,
+  away,
+}: {
+  label: string;
+  home: number | null;
+  away: number | null;
+}) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>AI Prediction</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {/* Probability Bars */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Home Win</span>
-              <span className="font-bold">
-                {(latestPrediction.prob_home * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-blue-500"
-                style={{ width: `${latestPrediction.prob_home * 100}%` }}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Draw</span>
-              <span className="font-bold">
-                {(latestPrediction.prob_draw * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-yellow-500"
-                style={{ width: `${latestPrediction.prob_draw * 100}%` }}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Away Win</span>
-              <span className="font-bold">
-                {(latestPrediction.prob_away * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-red-500"
-                style={{ width: `${latestPrediction.prob_away * 100}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Prediction Result */}
-          <div className="border-t pt-4">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Predicted Outcome</span>
-              <Badge
-                variant={
-                  latestPrediction.predicted_outcome === "H" ? "default" : "secondary"
-                }
-                className="text-lg"
-              >
-                {latestPrediction.predicted_outcome === "H"
-                  ? "Home Win"
-                  : latestPrediction.predicted_outcome === "A"
-                    ? "Away Win"
-                    : "Draw"}
-              </Badge>
-            </div>
-            <div className="mt-2 flex items-center justify-between">
-              <span className="text-muted-foreground">Confidence</span>
-              <span className="font-bold">
-                {(latestPrediction.confidence * 100).toFixed(1)}%
-              </span>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-export default function MatchDetailPage() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Match Details</h1>
-        <p className="text-muted-foreground">
-          View match information, statistics, and predictions
-        </p>
-      </div>
-
-      <MatchInfo />
-
-      <Tabs defaultValue="h2h" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="h2h">Head to Head</TabsTrigger>
-          <TabsTrigger value="predictions">Predictions</TabsTrigger>
-          <TabsTrigger value="stats">Statistics</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="h2h" className="mt-4">
-          <H2HTable />
-        </TabsContent>
-
-        <TabsContent value="predictions" className="mt-4">
-          <PredictionsCard />
-        </TabsContent>
-
-        <TabsContent value="stats" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Team Statistics</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="py-4 text-center text-muted-foreground">
-                Team form charts and statistics will be displayed here
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
+    <TableRow>
+      <TableCell className="font-medium">{label}</TableCell>
+      <TableCell>{home !== null ? home.toFixed(2) : "N/A"}</TableCell>
+      <TableCell>{away !== null ? away.toFixed(2) : "N/A"}</TableCell>
+    </TableRow>
   );
 }

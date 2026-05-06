@@ -12,6 +12,8 @@ import {
   Brain,
   TrendingUp,
   Settings,
+  Star,
+  ClipboardCheck,
 } from "lucide-react";
 
 const navigation = [
@@ -19,6 +21,8 @@ const navigation = [
   { name: "Matches", href: "/matches", icon: Calendar },
   { name: "Predictions", href: "/predictions", icon: Brain },
   { name: "Value Bets", href: "/value-bets", icon: TrendingUp },
+  { name: "Results", href: "/results", icon: ClipboardCheck },
+  { name: "Watchlist", href: "/watchlist", icon: Star },
   { name: "Models", href: "/models", icon: Trophy },
   { name: "Teams", href: "/teams", icon: Users },
   { name: "Scraping", href: "/scraping", icon: Settings },

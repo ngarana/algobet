@@ -42,6 +42,7 @@ export default function FetchDataPage() {
     fetchUpcoming,
     fetchResults,
     fetchByDate,
+    importFootballData,
     refreshAll,
     isPending,
     isRefreshing,
@@ -141,6 +142,11 @@ export default function FetchDataPage() {
             tournament_id?: number;
             team_id?: number;
           }
+        | {
+            type: "import";
+            division: string;
+            season: string;
+          }
     ) => {
       if (data.type === "upcoming") {
         void fetchUpcoming({
@@ -163,9 +169,14 @@ export default function FetchDataPage() {
           tournament_id: data.tournament_id,
           scope: data.scope,
         });
+      } else if (data.type === "import") {
+        void importFootballData({
+          division: data.division,
+          season: data.season,
+        });
       }
     },
-    [fetchUpcoming, fetchResults, fetchByDate]
+    [fetchUpcoming, fetchResults, fetchByDate, importFootballData]
   );
 
   // Auto-dismiss error after 6 seconds
@@ -232,6 +243,14 @@ export default function FetchDataPage() {
                 >
                   <PlayIcon className="h-4 w-4" />
                   BY DATE
+                </Button>
+                <Button
+                  onClick={() => setDialogType(FetchDialogType.IMPORT)}
+                  disabled={isPending}
+                  className="gap-2 bg-[#06b6d4] font-semibold text-[#0a0c12] hover:bg-[#0891b2]"
+                >
+                  <PlayIcon className="h-4 w-4" />
+                  IMPORT
                 </Button>
               </div>
             </div>

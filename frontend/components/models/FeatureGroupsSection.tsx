@@ -20,7 +20,16 @@ const AVAILABLE_FEATURE_GROUPS = [
     name: "Market Odds",
     description: "Bookmaker odds, implied probabilities",
   },
-  { id: "temporal", name: "Temporal", description: "Day of week, month, rest days" },
+  {
+    id: "temporal",
+    name: "Temporal",
+    description: "Day of week, month, rest days, season period",
+  },
+  {
+    id: "standings",
+    name: "Standings",
+    description: "League position, points, relegation, Euro spots",
+  },
 ];
 
 export function FeatureGroupsSection({
