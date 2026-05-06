@@ -156,11 +156,68 @@ class MatchStatistics(Base):
     home_xg: Mapped[float | None] = mapped_column(Float, nullable=True)
     away_xg: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Advanced metrics (soccerdata / Understat)
+    home_npxg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    away_npxg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    home_ppda: Mapped[float | None] = mapped_column(Float, nullable=True)
+    away_ppda: Mapped[float | None] = mapped_column(Float, nullable=True)
+    home_deep_completions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    away_deep_completions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     # Other
     referee: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships
     match: Mapped[Match] = relationship("Match", back_populates="statistics")
+
+
+class PlayerMatchStats(Base):
+    """Per-player match statistics from soccerdata (ESPN, FBref, etc.).
+
+    Stores individual player performance data per match including
+    goals, assists, shots, passes, cards, and xG chain.
+    """
+
+    __tablename__ = "player_match_stats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(
+        ForeignKey("matches.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    player_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    is_home: Mapped[bool] = mapped_column(nullable=False)
+
+    # Position
+    position: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_starter: Mapped[bool | None] = mapped_column(nullable=True)
+    minutes_played: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Offense
+    goals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    assists: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shots: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shots_on_target: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Defense / Discipline
+    fouls_committed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fouls_suffered: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    yellow_cards: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    red_cards: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Goalkeeper
+    saves: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    goals_conceded: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Other
+    offsides: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )  # 'espn', 'fbref'
+
+    # Relationships
+    match: Mapped[Match] = relationship("Match", back_populates="player_stats")
+    team: Mapped[Team] = relationship("Team")
 
     def __repr__(self) -> str:
         return (
@@ -176,6 +233,11 @@ Match.statistics = relationship(
     back_populates="match",
     cascade="all, delete-orphan",
     uselist=False,
+)
+Match.player_stats = relationship(
+    "PlayerMatchStats",
+    back_populates="match",
+    cascade="all, delete-orphan",
 )
 if TYPE_CHECKING:
     from algobet.predictions.models.base import ModelFeature, Prediction
