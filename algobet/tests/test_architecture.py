@@ -4,11 +4,8 @@ This module tests that the architecture refactoring was successful
 and validates the new structure.
 """
 
-import ast
-import os
 import sys
 from pathlib import Path
-from typing import Set
 
 import pytest
 
@@ -19,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 class TestArchitectureCompliance:
     """Test suite for validating feature-root architecture compliance."""
 
-    def test_infrastructure_package_exists(self):
+    def test_infrastructure_package_exists(self) -> None:
         """Test that infrastructure package was created."""
         infra_path = Path(__file__).parent.parent / "infrastructure"
         assert infra_path.exists(), "Infrastructure package not found"
@@ -27,7 +24,7 @@ class TestArchitectureCompliance:
             "Infrastructure __init__.py missing"
         )
 
-    def test_feature_packages_exist(self):
+    def test_feature_packages_exist(self) -> None:
         """Test that all feature packages were created."""
         features = ["matches", "teams", "predictions", "scheduling", "scraping"]
         algobet_path = Path(__file__).parent.parent
@@ -40,13 +37,13 @@ class TestArchitectureCompliance:
             )
             assert (feature_path / "models.py").exists(), f"{feature} models.py missing"
 
-    def test_models_imported_from_features(self):
+    def test_models_imported_from_features(self) -> None:
         """Test that models can be imported from feature packages."""
-        from algobet.teams.models import Team, Tournament, Season
         from algobet.matches.models import Match, MatchStatistics
-        from algobet.predictions.models import Prediction, ModelVersion
+        from algobet.predictions.models import ModelVersion, Prediction
         from algobet.scheduling.models import ScheduledTask, TaskExecution
         from algobet.scraping.models import ScrapingJob
+        from algobet.teams.models import Season, Team, Tournament
 
         # Test that classes are importable
         assert Team is not None
@@ -64,13 +61,13 @@ class TestArchitectureCompliance:
 class TestImportStructure:
     """Test that imports follow feature-root architecture."""
 
-    def test_no_deep_imports_from_other_features(self):
+    def test_no_deep_imports_from_other_features(self) -> None:
         """Test that features don't import internal modules from other features."""
         # This would require analyzing all Python files - simplified version
         features_path = Path(__file__).parent.parent
 
         # Features that should have public APIs
-        public_features = ["teams", "matches", "predictions", "scheduling", "scraping"]
+        public_features = ["matches", "teams", "predictions", "scheduling", "scraping"]
 
         for feature in public_features:
             init_file = features_path / feature / "__init__.py"
@@ -80,7 +77,7 @@ class TestImportStructure:
                     f"{feature} __init__.py should define __all__"
                 )
 
-    def test_infrastructure_exports(self):
+    def test_infrastructure_exports(self) -> None:
         """Test that infrastructure package exports expected items."""
         from algobet import infrastructure
 
@@ -94,7 +91,7 @@ class TestImportStructure:
 class TestFeatureCohesion:
     """Test that features are properly self-contained."""
 
-    def test_matches_feature_has_required_files(self):
+    def test_matches_feature_has_required_files(self) -> None:
         """Test that matches feature has all required components."""
         matches_path = Path(__file__).parent.parent / "matches"
 
@@ -102,7 +99,7 @@ class TestFeatureCohesion:
         for file in required_files:
             assert (matches_path / file).exists(), f"matches/{file} missing"
 
-    def test_teams_feature_has_required_files(self):
+    def test_teams_feature_has_required_files(self) -> None:
         """Test that teams feature has all required components."""
         teams_path = Path(__file__).parent.parent / "teams"
 
@@ -110,7 +107,7 @@ class TestFeatureCohesion:
         for file in required_files:
             assert (teams_path / file).exists(), f"teams/{file} missing"
 
-    def test_predictions_feature_has_required_files(self):
+    def test_predictions_feature_has_required_files(self) -> None:
         """Test that predictions feature has all required components."""
         pred_path = Path(__file__).parent.parent / "predictions"
 
@@ -118,7 +115,7 @@ class TestFeatureCohesion:
         for file in required_files:
             assert (pred_path / file).exists(), f"predictions/{file} missing"
 
-    def test_scheduling_feature_has_required_files(self):
+    def test_scheduling_feature_has_required_files(self) -> None:
         """Test that scheduling feature has all required components."""
         sched_path = Path(__file__).parent.parent / "scheduling"
 
@@ -126,7 +123,7 @@ class TestFeatureCohesion:
         for file in required_files:
             assert (sched_path / file).exists(), f"scheduling/{file} missing"
 
-    def test_scraping_feature_has_required_files(self):
+    def test_scraping_feature_has_required_files(self) -> None:
         """Test that scraping feature has all required components."""
         scrap_path = Path(__file__).parent.parent / "scraping"
 
@@ -138,7 +135,7 @@ class TestFeatureCohesion:
 class TestCircularImportPrevention:
     """Test that circular imports are prevented."""
 
-    def test_no_circular_imports_between_features(self):
+    def test_no_circular_imports_between_features(self) -> None:
         """Test that features don't have circular import dependencies."""
         # This is a basic test - comprehensive check would require import analysis
         features = ["teams", "matches", "predictions", "scheduling", "scraping"]
@@ -155,7 +152,7 @@ class TestCircularImportPrevention:
 class TestModelIntegrity:
     """Test that models maintain their structure after refactoring."""
 
-    def test_team_model_has_expected_attributes(self):
+    def test_team_model_has_expected_attributes(self) -> None:
         """Test that Team model has expected attributes."""
         from algobet.teams.models import Team
 
@@ -163,7 +160,7 @@ class TestModelIntegrity:
         for attr in expected_attrs:
             assert hasattr(Team, attr), f"Team missing attribute: {attr}"
 
-    def test_match_model_has_expected_attributes(self):
+    def test_match_model_has_expected_attributes(self) -> None:
         """Test that Match model has expected attributes."""
         from algobet.matches.models import Match
 
@@ -183,7 +180,7 @@ class TestModelIntegrity:
         for attr in expected_attrs:
             assert hasattr(Match, attr), f"Match missing attribute: {attr}"
 
-    def test_prediction_model_has_expected_attributes(self):
+    def test_prediction_model_has_expected_attributes(self) -> None:
         """Test that Prediction model has expected attributes."""
         from algobet.predictions.models import Prediction
 
@@ -205,22 +202,22 @@ class TestModelIntegrity:
 class TestNoOldImports:
     """Test that old import paths are completely removed."""
 
-    def test_old_models_file_removed(self):
+    def test_old_models_file_removed(self) -> None:
         """Test that old centralized models.py is removed."""
         models_file = Path(__file__).parent.parent / "models.py"
         assert not models_file.exists(), "Old models.py should be removed"
 
-    def test_old_config_file_removed(self):
+    def test_old_config_file_removed(self) -> None:
         """Test that old config.py is removed."""
         config_file = Path(__file__).parent.parent / "config.py"
         assert not config_file.exists(), "Old config.py should be removed"
 
-    def test_old_database_file_removed(self):
+    def test_old_database_file_removed(self) -> None:
         """Test that old database.py is removed."""
         database_file = Path(__file__).parent.parent / "database.py"
         assert not database_file.exists(), "Old database.py should be removed"
 
-    def test_old_exceptions_file_removed(self):
+    def test_old_exceptions_file_removed(self) -> None:
         """Test that old exceptions.py is removed."""
         exceptions_file = Path(__file__).parent.parent / "exceptions.py"
         assert not exceptions_file.exists(), "Old exceptions.py should be removed"

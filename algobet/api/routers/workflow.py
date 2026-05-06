@@ -73,7 +73,11 @@ def _serialize_user_prediction(
 
 
 def _watchlist_response(db: Session, profile_id: int) -> WatchlistResponse:
-    grouped = {"team": [], "tournament": [], "match": []}
+    grouped: dict[str, list[WatchlistEntryResponse]] = {
+        "team": [],
+        "tournament": [],
+        "match": [],
+    }
     entries = (
         db.query(WatchlistEntry)
         .filter(WatchlistEntry.profile_id == profile_id)
@@ -480,6 +484,6 @@ def get_results_review(
 def get_match_workflow_detail(
     match_id: int,
     db: Session = Depends(get_db),
-):
+) -> MatchWorkflowDetailResponse:
     """Return enriched workflow detail for a match."""
     return build_match_workflow_detail(db, match_id)

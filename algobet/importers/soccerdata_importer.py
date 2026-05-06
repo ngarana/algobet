@@ -23,6 +23,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import func, select
@@ -395,7 +396,7 @@ class SoccerDataImporter:
             except ValueError:
                 continue
 
-        return pd.to_datetime(date_str).to_pydatetime()
+        return pd.to_datetime(date_str).to_pydatetime()  # type: ignore[no-any-return]
 
     def import_schedule(
         self,
@@ -630,7 +631,7 @@ class SoccerDataImporter:
             .all()
         )
 
-        match_by_key: dict[tuple, Match] = {}
+        match_by_key: dict[tuple[Any, ...], Match] = {}
         for m in db_matches:
             match_by_key[(m.match_date.date(), m.home_team.name, m.away_team.name)] = m
 
@@ -713,7 +714,7 @@ class SoccerDataImporter:
             .all()
         )
 
-        match_by_key: dict[tuple, Match] = {}
+        match_by_key: dict[tuple[Any, ...], Match] = {}
         for m in db_matches:
             match_by_key[(m.match_date.date(), m.home_team.name, m.away_team.name)] = m
 

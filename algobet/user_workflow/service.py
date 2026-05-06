@@ -2,10 +2,12 @@
 
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.sql.elements import ColumnElement
 
 from algobet.api.schemas.match import MatchResponse, MatchStatus
 from algobet.models import Match, Prediction, Team, Tournament
@@ -197,9 +199,9 @@ def upcoming_watchlist_filter(
     watched_team_ids: Iterable[int],
     watched_tournament_ids: Iterable[int],
     watched_match_ids: Iterable[int],
-) -> list[object]:
+) -> list[ColumnElement[bool]]:
     """Build SQLAlchemy filters for watched fixtures."""
-    filters: list[object] = []
+    filters: list[ColumnElement[bool]] = []
     team_ids = list(watched_team_ids)
     tournament_ids = list(watched_tournament_ids)
     match_ids = list(watched_match_ids)
@@ -216,7 +218,7 @@ def upcoming_watchlist_filter(
     return filters
 
 
-def query_predictions_with_context(db: Session):
+def query_predictions_with_context(db: Session) -> Any:
     """Base prediction query with match/model context loaded."""
     return db.query(Prediction).options(
         joinedload(Prediction.match).joinedload(Match.home_team),
@@ -227,7 +229,7 @@ def query_predictions_with_context(db: Session):
     )
 
 
-def query_matches_with_context(db: Session):
+def query_matches_with_context(db: Session) -> Any:
     """Base match query with display context loaded."""
     return db.query(Match).options(
         joinedload(Match.home_team),

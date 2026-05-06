@@ -37,16 +37,16 @@ class ModelMetadata:
         data = asdict(self)
         data["created_at"] = self.created_at.isoformat()
         data["artifact_path"] = str(self.artifact_path)
-        return self._convert_numpy_types(data)
+        result = self._convert_numpy_types(data)
+        return result  # type: ignore[no-any-return]
 
-    @staticmethod
-    def _convert_numpy_types(obj: Any) -> Any:
+    def _convert_numpy_types(self, obj: Any) -> Any:
         """Recursively convert numpy types to native Python types."""
         if isinstance(obj, dict):
-            return {k: ModelMetadata._convert_numpy_types(v) for k, v in obj.items()}
-        elif isinstance(obj, (list, tuple)):
-            return type(obj)(ModelMetadata._convert_numpy_types(item) for item in obj)
-        elif isinstance(obj, (np.floating, np.integer)):
+            return {k: self._convert_numpy_types(v) for k, v in obj.items()}
+        elif isinstance(obj, list | tuple):
+            return type(obj)(self._convert_numpy_types(item) for item in obj)
+        elif isinstance(obj, np.floating | np.integer):
             return float(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()

@@ -899,9 +899,25 @@ async def enrich_match_stats(
             f"Enrichment queued for {FBREF_LEAGUE_MAPPING[league]['name']} {season}"
         ),
         created_at=datetime.now(timezone.utc),
-        scraping_type="import",
+        scraping_type=ScrapingType.IMPORT,
         tournament_name=FBREF_LEAGUE_MAPPING[league]["name"],
-        period=season,
+        season=season,
+        matches_scraped=0,
+        matches_saved=0,
+        errors=[],
+        tournament_url=None,
+        tournament_id=None,
+        team_id=None,
+        start_date=None,
+        end_date=None,
+        scope=ScrapeScope.ALL,
+        country=None,
+        league_name=None,
+        period=None,
+        period_start=None,
+        period_end=None,
+        started_at=None,
+        completed_at=None,
     )
 
     scraping_jobs[job_id] = job
@@ -931,6 +947,10 @@ def run_enrich_stats(job_id: str, league: str, season: str) -> None:
                     f"Enriching {FBREF_LEAGUE_MAPPING[league]['name']} {season}..."
                 ),
                 started_at=datetime.now(timezone.utc),
+                matches_scraped=None,
+                matches_saved=None,
+                errors=None,
+                completed_at=None,
             ),
         )
 

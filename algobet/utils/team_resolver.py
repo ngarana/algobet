@@ -64,4 +64,4 @@ def _load_mappings(config_path: str | Path) -> dict[str, list[str]]:
         logger.warning("teamname_replacements.json not found at %s", path)
         return {}
     with open(path) as f:
-        return json.load(f)
+        return json.load(f)  # type: ignore[no-any-return]

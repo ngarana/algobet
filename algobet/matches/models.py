@@ -79,6 +79,9 @@ class Match(Base):
     model_features: Mapped[list[ModelFeature]] = relationship(
         "ModelFeature", back_populates="match", cascade="all, delete-orphan"
     )
+    statistics: Mapped[MatchStatistics | None] = relationship(
+        "MatchStatistics", back_populates="match", uselist=False
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -221,9 +224,9 @@ class PlayerMatchStats(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<MatchStatistics(id={self.id}, match_id={self.match_id}, "
-            f"ht_score={self.ht_home_score}-{self.ht_away_score}, "
-            f"shots={self.home_shots}-{self.away_shots})>"
+            f"<PlayerMatchStats(id={self.id}, match_id={self.match_id}, "
+            f"player_name='{self.player_name}', team_id={self.team_id}, "
+            f"is_home={self.is_home})>"
         )
 
 

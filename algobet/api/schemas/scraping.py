@@ -36,7 +36,9 @@ class ScrapeScope(str, Enum):
 class ScrapingJobBase(BaseModel):
     """Base schema for scraping job."""
 
-    scraping_type: ScrapingType = Field(..., description="Type of scraping operation")
+    scraping_type: ScrapingType | None = Field(
+        None, description="Type of scraping operation"
+    )
     tournament_url: HttpUrl | None = Field(
         None, description="URL of tournament to scrape"
     )
