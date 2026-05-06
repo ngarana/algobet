@@ -65,31 +65,6 @@ def execute_generate_predictions(
     }
 
 
-def execute_import_fbref(session: Any, parameters: dict[str, Any]) -> dict[str, Any]:
-    """Execute FBref import task via soccerdata."""
-    league = parameters.get("league", "ENG-Premier League")
-    season = parameters.get("season")
-    no_cache = parameters.get("no_cache", False)
-
-    if not season:
-        return {
-            "status": "failed",
-            "error": "Season parameter is required (e.g., '2425', '2024')",
-        }
-
-    importer = SoccerDataImporter(session)
-    result = importer.import_schedule(league=league, season=season, no_cache=no_cache)
-
-    return {
-        "status": "completed" if result.success else "failed",
-        "league": league,
-        "season": season,
-        "matches_imported": result.progress.matches_created,
-        "matches_skipped": result.progress.matches_skipped,
-        "errors": result.progress.errors,
-    }
-
-
 def execute_enrich_stats(session: Any, parameters: dict[str, Any]) -> dict[str, Any]:
     """Execute soccerdata stats enrichment (Understat + ESPN)."""
     league = parameters.get("league", "ENG-Premier League")
@@ -148,20 +123,6 @@ def register_default_tasks() -> None:
                 "models_path": "data/models",
             },
             execute=execute_generate_predictions,
-        )
-    )
-
-    SchedulerService.register_task(
-        TaskDefinition(
-            name="Import from FBref",
-            task_type="import_fbref",
-            description="Import match schedules from FBref via soccerdata",
-            default_parameters={
-                "league": "ENG-Premier League",
-                "season": None,
-                "no_cache": False,
-            },
-            execute=execute_import_fbref,
         )
     )
 

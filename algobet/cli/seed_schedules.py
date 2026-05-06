@@ -58,15 +58,14 @@ DEFAULT_SCHEDULES = [
         "is_active": True,
     },
     {
-        "name": "weekly_fbref_import",
-        "task_type": "import_fbref",
-        "cron_expression": "0 4 * * 1",
+        "name": "weekly_stats_enrichment",
+        "task_type": "enrich_stats",
+        "cron_expression": "0 5 * * 1",
         "parameters": {
             "league": "ENG-Premier League",
-            "season": None,
-            "no_cache": False,
+            "season": "2024",
         },
-        "description": "Weekly stats enrichment (xG + player stats on Monday)",
+        "description": "Weekly stats enrichment (xG + player stats on Monday 5 AM)",
         "is_active": False,
     },
 ]
