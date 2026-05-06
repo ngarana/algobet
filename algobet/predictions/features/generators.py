@@ -761,12 +761,8 @@ class TemporalFeatureGenerator(FeatureGenerator):
                 progress = min(1.0, days_from_start / self.season_length_days)
                 match_features["season_progress"] = progress
                 match_features["is_season_start"] = float(progress <= 0.25)
-                match_features["is_season_mid"] = float(
-                    0.25 < progress <= 0.50
-                )
-                match_features["is_season_late"] = float(
-                    0.50 < progress <= 0.75
-                )
+                match_features["is_season_mid"] = float(0.25 < progress <= 0.50)
+                match_features["is_season_late"] = float(0.50 < progress <= 0.75)
                 match_features["is_season_end"] = float(progress > 0.75)
 
             # Rest days
@@ -998,9 +994,7 @@ class StandingsFeatureGenerator(FeatureGenerator):
         n_played = max(standings.matches_played, 1)
 
         in_relegation = (
-            1.0
-            if standings.position > total_teams - self.relegation_threshold
-            else 0.0
+            1.0 if standings.position > total_teams - self.relegation_threshold else 0.0
         )
         in_euro = (
             1.0

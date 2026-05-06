@@ -82,6 +82,9 @@ class Match(Base):
     statistics: Mapped[MatchStatistics | None] = relationship(
         "MatchStatistics", back_populates="match", uselist=False
     )
+    player_stats: Mapped[list[PlayerMatchStats]] = relationship(
+        "PlayerMatchStats", back_populates="match", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -236,11 +239,6 @@ Match.statistics = relationship(
     back_populates="match",
     cascade="all, delete-orphan",
     uselist=False,
-)
-Match.player_stats = relationship(
-    "PlayerMatchStats",
-    back_populates="match",
-    cascade="all, delete-orphan",
 )
 if TYPE_CHECKING:
     from algobet.predictions.models.base import ModelFeature, Prediction

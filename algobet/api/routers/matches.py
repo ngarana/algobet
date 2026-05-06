@@ -248,7 +248,7 @@ def _model_explanation(
 
     numeric_features = []
     for feature, raw_value in feature_row.features.items():
-        if isinstance(raw_value, (int, float)):
+        if isinstance(raw_value, int | float):
             value = float(raw_value)
             numeric_features.append((feature, value, abs(value)))
 
@@ -259,11 +259,7 @@ def _model_explanation(
             label=feature.replace("_", " ").title(),
             value=value,
             direction=(
-                "positive"
-                if value > 0
-                else "negative"
-                if value < 0
-                else "neutral"
+                "positive" if value > 0 else "negative" if value < 0 else "neutral"
             ),
             impact=impact,
         )

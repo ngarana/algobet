@@ -16,6 +16,21 @@ from sqlalchemy.orm import Session
 from algobet.predictions.models.base import ModelVersion
 
 
+def _convert_numpy_types(obj: Any) -> Any:
+    """Recursively convert numpy/scalar payloads to JSON-safe Python types."""
+    if isinstance(obj, dict):
+        return {k: _convert_numpy_types(v) for k, v in obj.items()}
+    if isinstance(obj, list | tuple):
+        return type(obj)(_convert_numpy_types(item) for item in obj)
+    if isinstance(obj, np.floating | np.integer):
+        return obj.item()
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+
 @dataclass
 class ModelMetadata:
     """Metadata for a registered model."""
@@ -37,20 +52,8 @@ class ModelMetadata:
         data = asdict(self)
         data["created_at"] = self.created_at.isoformat()
         data["artifact_path"] = str(self.artifact_path)
-        result = self._convert_numpy_types(data)
+        result = _convert_numpy_types(data)
         return result  # type: ignore[no-any-return]
-
-    def _convert_numpy_types(self, obj: Any) -> Any:
-        """Recursively convert numpy types to native Python types."""
-        if isinstance(obj, dict):
-            return {k: self._convert_numpy_types(v) for k, v in obj.items()}
-        elif isinstance(obj, list | tuple):
-            return type(obj)(self._convert_numpy_types(item) for item in obj)
-        elif isinstance(obj, np.floating | np.integer):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return obj
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ModelMetadata":
@@ -108,6 +111,8 @@ class ModelRegistry:
         # Generate version string with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         version = f"{model_type}_{timestamp}"
+        metrics = _convert_numpy_types(metrics)
+        hyperparameters = _convert_numpy_types(hyperparameters)
 
         # Create version directory
         version_dir = self.storage_path / model_type / version

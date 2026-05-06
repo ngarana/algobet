@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import and_, desc, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from algobet.matches.models import Match
+from algobet.matches.models import Match, MatchStatistics, PlayerMatchStats
 
 
 @dataclass
@@ -64,6 +64,7 @@ class MatchRepository:
 
         stmt = (
             select(Match)
+            .options(joinedload(Match.statistics), joinedload(Match.player_stats))
             .where(
                 and_(
                     or_(
@@ -79,7 +80,7 @@ class MatchRepository:
             .order_by(desc(Match.match_date))
         )
 
-        all_matches = list(self.session.execute(stmt).scalars().all())
+        all_matches = list(self.session.execute(stmt).unique().scalars().all())
 
         # Index by team_id (both home and away)
         by_team: dict[int, list[Match]] = defaultdict(list)
@@ -362,6 +363,7 @@ class MatchRepository:
         min_total_goals: float | None = None,
         max_total_goals: float | None = None,
         venue_filter: str | None = None,
+        require_enriched_stats: bool = False,
     ) -> list[Match]:
         """Get matches for training within a date range with advanced filtering.
 
@@ -376,6 +378,7 @@ class MatchRepository:
             min_total_goals: Minimum total goals filter (home_score + away_score)
             max_total_goals: Maximum total goals filter
             venue_filter: Venue filter - "home", "away", or "both" (default)
+            require_enriched_stats: Require both Understat and ESPN enrichment
 
         Returns:
             List of Match objects ordered by date
@@ -419,6 +422,24 @@ class MatchRepository:
                     Match.away_score.is_not(None),
                 )
             )
+        if require_enriched_stats:
+            has_understat = (
+                select(MatchStatistics.match_id)
+                .where(
+                    and_(
+                        MatchStatistics.match_id == Match.id,
+                        MatchStatistics.home_xg.is_not(None),
+                        MatchStatistics.away_xg.is_not(None),
+                    )
+                )
+                .exists()
+            )
+            has_player_stats = (
+                select(PlayerMatchStats.match_id)
+                .where(PlayerMatchStats.match_id == Match.id)
+                .exists()
+            )
+            stmt = stmt.where(and_(has_understat, has_player_stats))
         # Goals filters must be applied after results are required (need scores)
         if min_total_goals is not None:
             stmt = stmt.where((Match.home_score + Match.away_score) >= min_total_goals)
@@ -471,7 +492,11 @@ class MatchRepository:
                 Match.home_team_id == team_id, Match.away_team_id == team_id
             )
 
-        stmt = select(Match).where(venue_filter)
+        stmt = (
+            select(Match)
+            .options(joinedload(Match.statistics), joinedload(Match.player_stats))
+            .where(venue_filter)
+        )
 
         if before_date:
             stmt = stmt.where(Match.match_date < before_date)
@@ -486,7 +511,7 @@ class MatchRepository:
 
         stmt = stmt.order_by(desc(Match.match_date)).limit(limit)
         result = self.session.execute(stmt)
-        return list(result.scalars().all())
+        return list(result.unique().scalars().all())
 
     def get_h2h_matches(
         self,

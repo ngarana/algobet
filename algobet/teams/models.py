@@ -4,6 +4,7 @@ from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from algobet.infrastructure.models import Base
+from algobet.matches.models import Match
 
 
 class Tournament(Base):
@@ -94,9 +95,7 @@ class TeamAlias(Base):
     __tablename__ = "team_aliases"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    team_id: Mapped[int] = mapped_column(
-        ForeignKey("teams.id"), nullable=False
-    )
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
     alias: Mapped[str] = mapped_column(String(255), nullable=False)
     source: Mapped[str | None] = mapped_column(
         String(50), nullable=True
@@ -105,16 +104,13 @@ class TeamAlias(Base):
     # Relationships
     team: Mapped["Team"] = relationship(back_populates="aliases")
 
-    __table_args__ = (
-        UniqueConstraint("alias", "source", name="uq_team_alias_source"),
-    )
+    __table_args__ = (UniqueConstraint("alias", "source", name="uq_team_alias_source"),)
 
     def __repr__(self) -> str:
-        return f"<TeamAlias(id={self.id}, alias='{self.alias}', team_id={self.team_id})>"
+        return (
+            f"<TeamAlias(id={self.id}, alias='{self.alias}', team_id={self.team_id})>"
+        )
 
-
-# Forward references for type hints
-from algobet.matches.models import Match
 
 Tournament.matches = relationship("Match", back_populates="tournament")
 Tournament.seasons = relationship("Season", back_populates="tournament")
