@@ -8,6 +8,7 @@ A comprehensive full-stack application for fetching, analyzing, and predicting f
 - 📊 **Database Management**: PostgreSQL with SQLAlchemy ORM for tournaments, seasons, teams, matches, and predictions
 - 🤖 **Machine Learning**: XGBoost/LightGBM ensemble models for match outcome prediction with probability calibration
 - ⚽ **OddsPortal Scraping**: Playwright-based web scraping for fixtures, results, and betting odds
+- 📈 **Advanced Stats**: soccerdata integration (Understat xG/npxG/PPDA + ESPN player stats)
 - 🎯 **Value Bet Detection**: Automated identification of profitable betting opportunities
 - 📅 **Automated Scheduling**: APScheduler integration for daily data fetching and predictions
 - 🔌 **Real-time Updates**: WebSocket support for live job progress and match updates
@@ -70,7 +71,7 @@ A comprehensive full-stack application for fetching, analyzing, and predicting f
 - **Framework**: FastAPI (Python 3.10+)
 - **Database**: PostgreSQL + SQLAlchemy 2.0
 - **ML Libraries**: scikit-learn, XGBoost, LightGBM, Optuna
-- **Data Source**: OddsPortal web scraping (Playwright)
+- **Data Sources**: OddsPortal (Playwright), Understat + ESPN (soccerdata library)
 - **Scheduling**: APScheduler
 - **Testing**: pytest, pytest-asyncio
 
@@ -254,69 +255,67 @@ ws.onmessage = (event) => {
   console.log(`Matches: ${progress.matches_scraped} fetched, ${progress.matches_saved} saved`);
 };
 ```
-
-## Project Structure
-
-```
-algobet/
-├── api/                          # FastAPI application
-│   ├── main.py                  # FastAPI app entry point
-│   ├── dependencies.py          # DB session injection
-│   ├── routers/                 # API route handlers
-│   │   ├── matches.py
-│   │   ├── predictions.py
-│   │   ├── scraping.py
-│   │   ├── schedules.py
-│   │   └── ...
-│   ├── schemas/                 # Pydantic models
-│   └── websockets/              # WebSocket handlers
-│       └── progress.py
-├── services/                     # Business logic layer
-│   ├── base.py                  # Base service class
-│   ├── prediction_service.py
-│   ├── scraping_service.py      # OddsPortal scraping service
-│   └── scheduler_service.py
-├── infrastructure/               # External integrations
-│   ├── config.py                # Configuration management
-│   ├── database.py              # Database connection
-│   └── scraper.py               # OddsPortal web scraper (Playwright)
-├── predictions/                  # ML prediction engine
-│   ├── data/                    # Data queries
-│   ├── features/                # Feature engineering
-│   ├── models/                  # Model registry
-│   └── training/                # Training pipeline
-├── cli/                          # Development CLI tools
-│   ├── dev_tools.py
-│   └── commands/
-│       ├── train.py              # ML training commands
-│       └── ...
-├── scheduler/                    # APScheduler worker
-│   └── worker.py
-├── matches/models.py             # Match ORM model
-├── teams/models.py               # Team/Tournament ORM models
-└── predictions/models.py         # Prediction ORM model
-
-frontend/
-├── app/                          # Next.js App Router pages
-│   ├── page.tsx                 # Dashboard
-│   ├── matches/
-│   ├── predictions/
-│   ├── scraping/
-│   └── schedules/
-├── components/                   # React components
-│   ├── ui/                      # shadcn/ui components
-│   ├── matches/
-│   ├── predictions/
-│   ├── scraping/
-│   └── schedules/
+algobet/                          # Backend Python package (FastAPI)
+├── api/
+│   ├── main.py                   # FastAPI app, registers all routers
+│   ├── dependencies.py           # DB session dependency
+│   ├── routers/
+│   │   ├── ml_operations.py      # POST /api/v1/ml/train, /backtest, /calibrate
+│   │   ├── models.py             # GET/POST/PUT/DELETE /api/v1/models
+│   │   ├── predictions.py        # GET/POST /api/v1/predictions
+│   │   ├── matches.py, teams.py, tournaments.py, seasons.py, scraping.py, ...
+│   │   └── value_bets.py, schedules.py
+│   └── schemas/
+│       └── model.py              # Pydantic ModelVersionResponse
+├── predictions/                  # ** CORE ML MODULE **
+│   ├── data/
+│   │   └── queries.py            # MatchRepository - DB queries for training
+│   ├── features/
+│   │   ├── generators.py         # 4 FeatureGenerator classes + composite
+│   │   ├── form_features.py      # Legacy FormCalculator (6 features)
+│   │   ├── pipeline.py           # FeaturePipeline orchestrator
+│   │   ├── transformers.py       # Scaling, imputation, selection
+│   │   └── store.py              # FeatureStore - caching to DB
+│   ├── models/
+│   │   ├── base.py               # SQLAlchemy: ModelVersion, Prediction, ModelFeature, BacktestHistory
+│   │   └── registry.py           # ModelRegistry - save/load/activate models
+│   ├── training/
+│   │   ├── pipeline.py           # TrainingPipeline - end-to-end orchestration
+│   │   ├── classifiers.py        # XGBoostPredictor, LightGBMPredictor, RandomForestPredictor, EnsemblePredictor
+│   │   ├── calibration.py        # ProbabilityCalibrator (isotonic/sigmoid)
+│   │   ├── split.py              # TemporalSplitter, ExpandingWindowSplitter, SeasonAwareSplitter
+│   │   ├── tuner.py              # HyperparameterTuner (Optuna) + GridSearchTuner
+│   │   └── acceleration.py       # GPU acceleration profiles (Intel iGPU)
+│   └── evaluation/
+│       ├── metrics.py            # ClassificationMetrics, BettingMetrics, evaluate_predictions()
+│       ├── calibration.py        # Calibration analysis, reliability diagrams
+│       └── reports.py            # HTML/Markdown report generation
+├── services/
+│   ├── prediction_service.py     # PredictionService - production inference
+│   ├── analysis_service.py       # AnalysisService - backtest, value bets, calibration
+│   └── model_management_service.py
+├── matches/models.py             # SQLAlchemy Match + MatchStatistics
+├── teams/models.py               # SQLAlchemy Tournament, Season, Team
+├── scraping/models.py            # SQLAlchemy ScrapingJob, ScrapingLog, ScrapedOdds, ScrapingSource
+├── scheduling/models.py          # SQLAlchemy ScheduledTask, TaskExecution
+├── infrastructure/
+│   ├── models.py                 # Base, TimestampMixin, MetadataMixin
+│   └── database.py               # DB connection + session_scope
+├── importers/football_data.py    # CSV importer from Football-Data.co.uk
+├── cli/commands/train.py         # CLI: `algobet train run`
+└── models.py                     # Central re-export of all SQLAlchemy models
+frontend/                         # Next.js App Router frontend
+├── app/models/page.tsx           # Models page with training workspace + registry
 ├── lib/
-│   ├── api/                     # API client functions
-│   │   └── fetch.ts            # OddsPortal scraping client
-│   ├── queries/                 # TanStack Query hooks
-│   ├── types/                   # TypeScript types
-│   └── utils/
-├── hooks/                        # Custom React hooks
-└── stores/                       # Zustand stores
+│   ├── api/ml-operations.ts      # Frontend API client: runTrainModel, runBacktest, runCalibrate
+│   ├── types/ml-operations.ts    # Zod schemas + TS types for ML ops
+│   ├── types/api.ts              # TS types: Match, Prediction, ModelVersion, Team, etc.
+│   └── queries/use-ml-operations.ts  # TanStack Query hooks for ML operations
+└── components/models/            # 20+ training UI components
+    ├── FeatureGroupsSection.tsx   # Toggle 4 feature groups in UI
+    ├── GuidedTrainingWorkspace.tsx
+    ├── TrainingResultDisplay.tsx
+    └── ... (DataSplitSection, HyperparametersSection, EnsembleSection, etc.)
 ```
 
 ## Database Schema
@@ -346,16 +345,89 @@ cd frontend
 npm test
 ```
 
+## Daily Workflow
+
+### Automated (runs via scheduler worker or crontab)
+
+| Time | Task | Source | What Happens |
+|------|------|--------|--------------|
+| 6:00 AM | `scrape_upcoming` | OddsPortal (Playwright) | Scrapes all upcoming matches + odds → creates SCHEDULED `Match` records |
+| 7:00 AM | `generate_predictions` | Active ML model | Runs `predict_upcoming()` for next 7 days → creates `Prediction` records |
+| 6:00 PM | `scrape_upcoming` | OddsPortal (Playwright) | Second odds refresh, catches late schedule changes |
+| Mon 3 AM | `scrape_results` | OddsPortal (Playwright) | Scrapes weekend results → updates scores, sets `status=FINISHED` |
+
+### Soccerdata Enrichment (inactive by default — must be enabled)
+
+After results are in (Mon 3 AM), the enrichment step adds advanced metrics from
+Understat and ESPN. This task is **off by default** — enable it once:
+
+```bash
+# Enable weekly enrichment (Mon 5 AM)
+curl -X PATCH "http://localhost:8010/api/v1/schedules/weekly_stats_enrichment" \
+  -H "Content-Type: application/json" \
+  -d '{"is_active": true, "parameters": {"season": "2025"}}'
+```
+
+| Time | Task | Source | What Happens |
+|------|------|--------|--------------|
+| Mon 5 AM | `enrich_stats` | Understat + ESPN | Enriches `MatchStatistics` (xG, npxG, PPDA, deep completions) and `player_match_stats` (per-player goals, assists, shots, cards) |
+
+**Manual one-off enrichment:**
+
+```bash
+# CLI — all stats (Understat + ESPN)
+algobet import-data enrich "ENG-Premier League" --season 2025
+
+# CLI — xG only
+algobet import-data enrich-understat "ENG-Premier League" --season 2025
+
+# CLI — player stats only
+algobet import-data enrich-players "ENG-Premier League" --season 2025
+
+# API
+curl -X POST "http://localhost:8010/api/v1/scraping/import/enrich-stats?league=ENG-Premier%20League&season=2025"
+```
+
+### Manual (as needed)
+
+```bash
+# After new results are scraped
+algobet train run --model-type xgboost          # Retrain model
+algobet analyze calibrate                       # Recalibrate probabilities
+algobet analyze backtest                        # Evaluate model
+algobet analyze value-bets --min-ev 0.05        # Find betting opportunities
+
+# Check upcoming matches
+algobet list upcoming --days 3
+curl http://localhost:8010/api/v1/predictions/upcoming
+```
+
+### Data Flow
+
+```
+  OddsPortal ──(scrape)──→ Match (odds, scores)
+                                │
+  Understat ──(enrich)──→ MatchStatistics (xG, npxG, PPDA, deep)
+                                │
+  ESPN ───────(enrich)──→ PlayerMatchStats (goals, assists, shots, cards)
+                                │
+                                ▼
+                    Feature Pipeline ──→ Train Model ──→ Predictions
+```
+
 ## Scheduled Tasks
 
-Default scheduled tasks (configurable via API or database):
+Default scheduled tasks seeded into the database:
 
-| Task | Schedule | Description |
-|------|----------|-------------|
-| daily-upcoming-fetch | 6:00 AM daily | Scrape upcoming matches from OddsPortal |
-| evening-upcoming-fetch | 6:00 PM daily | Scrape upcoming matches from OddsPortal |
-| daily-predictions | 7:00 AM daily | Generate predictions |
-| weekly-results-fetch | Monday 3:00 AM | Fetch weekend results |
+| Task Name | Type | Cron | Active |
+|-----------|------|------|--------|
+| `daily_upcoming_scrape_morning` | `scrape_upcoming` | `0 6 * * *` | Yes |
+| `daily_upcoming_scrape_evening` | `scrape_upcoming` | `0 18 * * *` | Yes |
+| `daily_predictions` | `generate_predictions` | `0 7 * * *` | Yes |
+| `weekly_results_scrape` | `scrape_results` | `0 3 * * 1` | Yes |
+| `weekly_stats_enrichment` | `enrich_stats` | `0 5 * * 1` | **No** |
+
+Seed with: `python -m algobet.cli.seed_schedules`
 
 ## Environment Variables
 
