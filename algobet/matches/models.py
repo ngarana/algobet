@@ -116,7 +116,7 @@ class Match(Base):
 class MatchStatistics(Base):
     """Detailed match statistics for feature engineering.
 
-    Stores rich match data from Football-Data.co.uk CSV files including
+    Stores rich match data from various data sources including
     shots, fouls, corners, cards, and half-time scores.
     """
 

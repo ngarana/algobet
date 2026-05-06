@@ -49,6 +49,10 @@ class MatchResponse(BaseModel):
 
     # Computed field - derived from scores if match is finished
     result: str | None = None
+    home_team_name: str | None = None
+    away_team_name: str | None = None
+    tournament_name: str | None = None
+    season_name: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

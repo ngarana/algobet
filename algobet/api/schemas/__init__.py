@@ -22,11 +22,26 @@ from .prediction import (
 )
 from .team import TeamResponse, TeamWithStatsResponse
 from .tournament import SeasonResponse, TournamentResponse
+from .workflow import (
+    DailyWorkflowResponse,
+    MatchWorkflowDetailResponse,
+    ProfilePreferencesRequest,
+    ProfilePreferencesResponse,
+    ResultsReviewResponse,
+    ResultsSummaryResponse,
+    UserPredictionRequest,
+    UserPredictionResponse,
+    WatchlistEntryRequest,
+    WatchlistEntryResponse,
+    WatchlistResponse,
+)
 
 # Rebuild models to resolve forward references
 MatchDetailResponse.model_rebuild()
 PredictionWithMatchResponse.model_rebuild()
 PredictionListItemResponse.model_rebuild()
+DailyWorkflowResponse.model_rebuild()
+MatchWorkflowDetailResponse.model_rebuild()
 
 __all__ = [
     "FormBreakdown",
@@ -47,4 +62,15 @@ __all__ = [
     "PredictionWithMatchResponse",
     "PredictionFilters",
     "ValueBetResponse",
+    "ProfilePreferencesRequest",
+    "ProfilePreferencesResponse",
+    "WatchlistEntryRequest",
+    "WatchlistEntryResponse",
+    "WatchlistResponse",
+    "UserPredictionRequest",
+    "UserPredictionResponse",
+    "DailyWorkflowResponse",
+    "ResultsSummaryResponse",
+    "ResultsReviewResponse",
+    "MatchWorkflowDetailResponse",
 ]

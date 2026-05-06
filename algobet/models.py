@@ -31,7 +31,13 @@ from algobet.scraping.models import (
 )
 
 # Team/Tournament models
-from algobet.teams.models import Season, Team, Tournament
+from algobet.teams.models import Season, Team, TeamAlias, Tournament
+from algobet.user_workflow.models import (
+    ProfilePreference,
+    UserPrediction,
+    UserProfile,
+    WatchlistEntry,
+)
 
 __all__ = [
     # Base
@@ -43,6 +49,7 @@ __all__ = [
     "MatchStatistics",
     # Teams/Tournaments
     "Team",
+    "TeamAlias",
     "Tournament",
     "Season",
     # Predictions
@@ -58,4 +65,9 @@ __all__ = [
     # Scheduling
     "ScheduledTask",
     "TaskExecution",
+    # User workflow
+    "UserProfile",
+    "ProfilePreference",
+    "WatchlistEntry",
+    "UserPrediction",
 ]

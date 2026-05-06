@@ -6,7 +6,7 @@ Commands are organized into logical groups:
 - list: Query/list commands (tournaments, teams, upcoming matches)
 - model: Model management (list, delete)
 - analyze: Prediction analysis (backtest, value-bets, calibrate)
-- import-data: Import football data from Football-Data.co.uk
+- import-data: Import football data from FBref
 - async-db: Async database management commands
 - async-list: Async query/list commands
 """

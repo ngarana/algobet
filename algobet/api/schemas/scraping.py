@@ -23,6 +23,7 @@ class ScrapingType(str, Enum):
     UPCOMING = "upcoming"
     RESULTS = "results"
     BY_DATE = "by-date"
+    IMPORT = "import"
 
 
 class ScrapeScope(str, Enum):

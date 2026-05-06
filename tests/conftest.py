@@ -111,6 +111,18 @@ def test_client(test_session: Session) -> Generator[TestClient, None, None]:
             # Clean up all test data by deleting from tables
             # Delete in reverse order of dependencies
             try:
+                test_session.query(Base.metadata.tables["user_predictions"]).delete(
+                    synchronize_session=False
+                )
+                test_session.query(Base.metadata.tables["watchlist_entries"]).delete(
+                    synchronize_session=False
+                )
+                test_session.query(Base.metadata.tables["profile_preferences"]).delete(
+                    synchronize_session=False
+                )
+                test_session.query(Base.metadata.tables["user_profiles"]).delete(
+                    synchronize_session=False
+                )
                 test_session.query(Base.metadata.tables["predictions"]).delete(
                     synchronize_session=False
                 )

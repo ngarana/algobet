@@ -79,9 +79,38 @@ class Team(Base):
         foreign_keys="Match.away_team_id",
         cascade="all, delete-orphan",
     )
+    aliases: Mapped[list["TeamAlias"]] = relationship(
+        back_populates="team",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Team(id={self.id}, name='{self.name}')>"
+
+
+class TeamAlias(Base):
+    """Alternative name for a team (e.g., from different data sources)."""
+
+    __tablename__ = "team_aliases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id"), nullable=False
+    )
+    alias: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )  # e.g., 'fbref', 'oddsportal'
+
+    # Relationships
+    team: Mapped["Team"] = relationship(back_populates="aliases")
+
+    __table_args__ = (
+        UniqueConstraint("alias", "source", name="uq_team_alias_source"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<TeamAlias(id={self.id}, alias='{self.alias}', team_id={self.team_id})>"
 
 
 # Forward references for type hints

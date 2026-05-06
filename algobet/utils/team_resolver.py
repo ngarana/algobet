@@ -1,7 +1,7 @@
 """Shared team name resolution for cross-source normalization.
 
 Provides a single source of truth for resolving team names from different
-data sources (FBref, WhoScored, OddsPortal, Football-Data.co.uk) to a
+data sources (FBref, WhoScored, OddsPortal) to a
 canonical name, using the teamname_replacements.json config file.
 
 Usage:
