@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -36,7 +37,20 @@ class ModelMetadata:
         data = asdict(self)
         data["created_at"] = self.created_at.isoformat()
         data["artifact_path"] = str(self.artifact_path)
-        return data
+        return self._convert_numpy_types(data)
+
+    @staticmethod
+    def _convert_numpy_types(obj: Any) -> Any:
+        """Recursively convert numpy types to native Python types."""
+        if isinstance(obj, dict):
+            return {k: ModelMetadata._convert_numpy_types(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return type(obj)(ModelMetadata._convert_numpy_types(item) for item in obj)
+        elif isinstance(obj, (np.floating, np.integer)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return obj
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ModelMetadata":

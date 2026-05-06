@@ -20,6 +20,7 @@ from algobet.predictions.features.generators import (
     FeatureGenerator,
     HeadToHeadGenerator,
     OddsFeatureGenerator,
+    StandingsFeatureGenerator,
     TeamFormGenerator,
     TemporalFeatureGenerator,
 )
@@ -241,6 +242,7 @@ class TrainingPipeline:
             "head_to_head": HeadToHeadGenerator,
             "odds": OddsFeatureGenerator,
             "temporal": TemporalFeatureGenerator,
+            "standings": StandingsFeatureGenerator,
         }
 
         generators: list[FeatureGenerator] = []
@@ -430,6 +432,20 @@ class TrainingPipeline:
             )
         )
         self.repo.preload_h2h_matches(team_pairs, before_date=max_match_date)
+
+        # Preload standings for tournament-season pairs
+        tournament_season_pairs = list(
+            set(
+                zip(
+                    matches_df["tournament_id"].tolist(),
+                    matches_df["season_id"].tolist(),
+                    strict=False,
+                )
+            )
+        )
+        self.repo.preload_season_standings(
+            tournament_season_pairs, before_date=max_match_date
+        )
 
         # Add result column
         matches_df["result"] = matches_df.apply(
