@@ -66,8 +66,8 @@ DEFAULT_SCHEDULES = [
             "season": None,
             "no_cache": False,
         },
-        "description": "Weekly FBref import on Monday at 4 AM",
-        "is_active": False,  # Off by default, enable manually
+        "description": "Weekly stats enrichment (xG + player stats on Monday)",
+        "is_active": False,
     },
 ]
 

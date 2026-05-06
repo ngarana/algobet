@@ -4,8 +4,7 @@ This module provides a service for importing football match data using the
 soccerdata library, which scrapes FBref, WhoScored, and other sources with
 built-in team name normalization.
 
-Deprecates the Football-Data.co.uk CSV importer and OddsPortal scraper by
-providing a unified API with consistent team names, caching, and rate limiting.
+Provides a unified API with consistent team names, caching, and rate limiting.
 
 Usage:
     from algobet.importers import SoccerDataImporter
@@ -29,7 +28,7 @@ import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from algobet.matches.models import Match
+from algobet.matches.models import Match, MatchStatistics, PlayerMatchStats
 from algobet.models import Season, Team, TeamAlias, Tournament
 from algobet.utils.team_resolver import TeamResolver
 
@@ -595,3 +594,225 @@ class SoccerDataImporter:
 
         logger.info("Populated %d aliases for source '%s'", aliases_created, source)
         return aliases_created
+
+    def enrich_understat_stats(
+        self, league: str = "ENG-Premier League", season: str = "2024"
+    ) -> int:
+        """Enrich MatchStatistics with Understat xG and advanced metrics.
+
+        Downloads team-level match stats from Understat (xG, npxG, PPDA,
+        deep completions) and saves them to existing MatchStatistics records,
+        matching by team name and date.
+
+        Args:
+            league: soccerdata league ID
+            season: Season string (e.g., '2024' for 2024/25)
+
+        Returns:
+            Number of matches enriched
+        """
+        import soccerdata as sd
+
+        us = sd.Understat(leagues=[league], seasons=[season])
+        stats: pd.DataFrame = us.read_team_match_stats()
+
+        db_matches = (
+            self.session.execute(
+                select(Match).where(
+                    Match.tournament_id.in_(
+                        select(Tournament.id).where(
+                            Tournament.url_slug == LEAGUE_MAPPING[league]["url_slug"]
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        match_by_key: dict[tuple, Match] = {}
+        for m in db_matches:
+            match_by_key[(m.match_date.date(), m.home_team.name, m.away_team.name)] = m
+
+        field_map = {
+            "home_np_xg": "home_npxg",
+            "away_np_xg": "away_npxg",
+            "home_ppda": "home_ppda",
+            "away_ppda": "away_ppda",
+            "home_deep_completions": "home_deep_completions",
+            "away_deep_completions": "away_deep_completions",
+            "home_xg": "home_xg",
+            "away_xg": "away_xg",
+        }
+
+        enriched = 0
+        for _idx, row in stats.iterrows():
+            key = (
+                pd.to_datetime(row["date"]).date(),
+                self._resolver.resolve(str(row["home_team"])),
+                self._resolver.resolve(str(row["away_team"])),
+            )
+            db_match = match_by_key.get(key)
+            if not db_match:
+                continue
+
+            ms = self.session.execute(
+                select(MatchStatistics).where(MatchStatistics.match_id == db_match.id)
+            ).scalar_one_or_none()
+
+            if not ms:
+                ms = MatchStatistics(match_id=db_match.id)
+                self.session.add(ms)
+
+            for src_fld, db_fld in field_map.items():
+                val = row[src_fld]
+                if pd.notna(val):
+                    setattr(ms, db_fld, float(val))
+
+            enriched += 1
+
+        self.session.flush()
+        logger.info("Enriched %d matches with Understat advanced metrics", enriched)
+        return enriched
+
+    def enrich_player_stats(
+        self,
+        league: str = "ENG-Premier League",
+        season: str = "2024",
+        skip_existing: bool = True,
+    ) -> dict[str, int]:
+        """Enrich PlayerMatchStats from ESPN lineup data.
+
+        Downloads per-player match statistics (goals, assists, shots, cards,
+        saves) from ESPN and saves to the player_match_stats table.
+
+        Args:
+            league: soccerdata league ID
+            season: Season string (e.g., '2024' for 2024/25)
+            skip_existing: If True, skip matches that already have player stats
+
+        Returns:
+            Dict with 'players_added' and 'matches_processed' counts
+        """
+        import soccerdata as sd
+
+        espn = sd.ESPN(leagues=[league], seasons=[season])
+        schedule = espn.read_schedule()
+
+        db_matches = (
+            self.session.execute(
+                select(Match).where(
+                    Match.tournament_id.in_(
+                        select(Tournament.id).where(
+                            Tournament.url_slug == LEAGUE_MAPPING[league]["url_slug"]
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        match_by_key: dict[tuple, Match] = {}
+        for m in db_matches:
+            match_by_key[(m.match_date.date(), m.home_team.name, m.away_team.name)] = m
+
+        players_added = 0
+        matches_processed = 0
+
+        for _idx, row in schedule.iterrows():
+            key = (
+                pd.to_datetime(row["date"]).date(),
+                self._resolver.resolve(str(row["home_team"])),
+                self._resolver.resolve(str(row["away_team"])),
+            )
+            db_match = match_by_key.get(key)
+            if not db_match:
+                continue
+
+            game_id = int(row["game_id"])
+
+            if skip_existing:
+                existing = self.session.execute(
+                    select(PlayerMatchStats)
+                    .where(PlayerMatchStats.match_id == db_match.id)
+                    .limit(1)
+                ).scalar_one_or_none()
+                if existing:
+                    matches_processed += 1
+                    continue
+
+            try:
+                lineup = espn.read_lineup(match_id=game_id)
+            except Exception:
+                continue
+
+            home_id = db_match.home_team_id
+            away_id = db_match.away_team_id
+
+            for _p, player in lineup.iterrows():
+                name = player.name[-1]
+
+                def _get_int(col: str, p: pd.Series = player) -> int | None:
+                    val = p.get(col)
+                    return int(val) if val is not None and pd.notna(val) else None
+
+                ps = PlayerMatchStats(
+                    match_id=db_match.id,
+                    player_name=str(name),
+                    team_id=home_id if bool(player["is_home"]) else away_id,
+                    is_home=bool(player["is_home"]),
+                    position=str(player.get("position", "")),
+                    is_starter=True
+                    if str(player.get("sub_in", "")) == "start"
+                    else None,
+                    minutes_played=_get_int("appearances"),
+                    goals=_get_int("total_goals"),
+                    assists=_get_int("goal_assists"),
+                    shots=_get_int("total_shots"),
+                    shots_on_target=_get_int("shots_on_target"),
+                    fouls_committed=_get_int("fouls_committed"),
+                    fouls_suffered=_get_int("fouls_suffered"),
+                    yellow_cards=_get_int("yellow_cards"),
+                    red_cards=_get_int("red_cards"),
+                    saves=_get_int("saves"),
+                    goals_conceded=_get_int("goals_conceded"),
+                    offsides=_get_int("offsides"),
+                    source="espn",
+                )
+                self.session.add(ps)
+                players_added += 1
+
+            matches_processed += 1
+            if matches_processed % 20 == 0:
+                self.session.flush()
+
+        self.session.flush()
+        logger.info(
+            "Enriched %d players in %d matches from ESPN",
+            players_added,
+            matches_processed,
+        )
+        return {"players_added": players_added, "matches_processed": matches_processed}
+
+    def enrich_all(
+        self, league: str = "ENG-Premier League", season: str = "2024"
+    ) -> dict[str, int]:
+        """Run all enrichment methods in sequence.
+
+        Args:
+            league: soccerdata league ID
+            season: Season string
+
+        Returns:
+            Dict with counts from each enrichment step
+        """
+        logger.info("Starting full enrichment for %s season %s", league, season)
+        understat_count = self.enrich_understat_stats(league=league, season=season)
+        player_result = self.enrich_player_stats(league=league, season=season)
+        logger.info("Enrichment complete")
+        return {
+            "understat_enriched": understat_count,
+            "players_added": player_result["players_added"],
+            "matches_processed": player_result["matches_processed"],
+        }

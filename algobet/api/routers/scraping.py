@@ -1165,3 +1165,124 @@ def run_fbref_import(
                 completed_at=datetime.now(timezone.utc),
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Soccerdata stats enrichment (Understat + ESPN)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/import/enrich-stats")
+async def enrich_match_stats(
+    background_tasks: BackgroundTasks,
+    league: str = "ENG-Premier League",
+    season: str = "2024",
+) -> dict[str, Any]:
+    """Enrich existing matches with Understat xG and ESPN player stats."""
+    if league not in FBREF_LEAGUE_MAPPING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid league: {league}",
+        )
+
+    job_id = str(uuid.uuid4())
+
+    job = ScrapingJobResponse(
+        id=job_id,
+        status=ScrapingJobStatus.PENDING,
+        progress=0.0,
+        message=(
+            f"Enrichment queued for {FBREF_LEAGUE_MAPPING[league]['name']} {season}"
+        ),
+        created_at=datetime.now(timezone.utc),
+        scraping_type="import",
+        tournament_name=FBREF_LEAGUE_MAPPING[league]["name"],
+        period=season,
+    )
+
+    scraping_jobs[job_id] = job
+    background_tasks.add_task(run_enrich_stats, job_id, league, season)
+
+    return {
+        "job_id": job_id,
+        "message": (
+            f"Enrichment started for {FBREF_LEAGUE_MAPPING[league]['name']} {season}"
+        ),
+    }
+
+
+def run_enrich_stats(job_id: str, league: str, season: str) -> None:
+    """Execute stats enrichment as a background task."""
+    import logging
+
+    logger = logging.getLogger("algobet.api.enrich_stats")
+
+    try:
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.RUNNING,
+                progress=10.0,
+                message=(
+                    f"Enriching {FBREF_LEAGUE_MAPPING[league]['name']} {season}..."
+                ),
+                started_at=datetime.now(timezone.utc),
+            ),
+        )
+
+        from algobet.infrastructure.database import session_scope
+
+        with session_scope() as session:
+            importer = SoccerDataImporter(session)
+            enr = importer.enrich_all(league=league, season=season)
+
+            logger.info(
+                "[BG TASK] Enrichment: %d xG, %d players in %d matches",
+                enr["understat_enriched"],
+                enr["players_added"],
+                enr["matches_processed"],
+            )
+
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.COMPLETED,
+                progress=100.0,
+                message=(
+                    f"Enriched {enr['understat_enriched']} matches with xG "
+                    f"and {enr['players_added']} player records"
+                ),
+                matches_scraped=enr["understat_enriched"],
+                matches_saved=enr["players_added"],
+                errors=[],
+                started_at=(
+                    scraping_jobs[job_id].started_at
+                    if job_id in scraping_jobs
+                    else datetime.now(timezone.utc)
+                ),
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )
+
+    except Exception as e:
+        import traceback
+
+        logger.error("[BG TASK] Enrichment %s failed: %s", job_id, e)
+        logger.error(traceback.format_exc())
+
+        current_job = scraping_jobs.get(job_id)
+        start_ts = current_job.started_at if current_job else datetime.now(timezone.utc)
+
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.FAILED,
+                progress=0.0,
+                message=f"Enrichment failed: {str(e)}",
+                matches_scraped=0,
+                matches_saved=0,
+                errors=[str(e)],
+                started_at=start_ts,
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )
