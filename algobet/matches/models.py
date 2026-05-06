@@ -1,6 +1,9 @@
 """Match-related database models."""
 
+from __future__ import annotations
+
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     DateTime,
@@ -56,24 +59,24 @@ class Match(Base):
     )
 
     # Relationships - will be set up in teams/models.py
-    tournament: Mapped["Tournament"] = relationship(
+    tournament: Mapped[Tournament] = relationship(
         "Tournament", back_populates="matches"
     )
-    season: Mapped["Season"] = relationship("Season", back_populates="matches")
-    home_team: Mapped["Team"] = relationship(
+    season: Mapped[Season] = relationship("Season", back_populates="matches")
+    home_team: Mapped[Team] = relationship(
         "Team",
         back_populates="home_matches",
         foreign_keys=[home_team_id],
     )
-    away_team: Mapped["Team"] = relationship(
+    away_team: Mapped[Team] = relationship(
         "Team",
         back_populates="away_matches",
         foreign_keys=[away_team_id],
     )
-    predictions: Mapped[list["Prediction"]] = relationship(
+    predictions: Mapped[list[Prediction]] = relationship(
         "Prediction", back_populates="match", cascade="all, delete-orphan"
     )
-    model_features: Mapped[list["ModelFeature"]] = relationship(
+    model_features: Mapped[list[ModelFeature]] = relationship(
         "ModelFeature", back_populates="match", cascade="all, delete-orphan"
     )
 
@@ -149,11 +152,15 @@ class MatchStatistics(Base):
     home_red_cards: Mapped[int | None] = mapped_column(Integer, nullable=True)
     away_red_cards: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Expected goals (soccerdata / Understat)
+    home_xg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    away_xg: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Other
     referee: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships
-    match: Mapped["Match"] = relationship("Match", back_populates="statistics")
+    match: Mapped[Match] = relationship("Match", back_populates="statistics")
 
     def __repr__(self) -> str:
         return (
@@ -170,11 +177,6 @@ Match.statistics = relationship(
     cascade="all, delete-orphan",
     uselist=False,
 )
-
-
-# Import for type hints - avoid circular imports
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     from algobet.predictions.models.base import ModelFeature, Prediction
     from algobet.teams.models import Season, Team, Tournament
