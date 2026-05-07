@@ -42,7 +42,9 @@ class AccelerationProfile:
 def load_acceleration_profile() -> AccelerationProfile:
     """Load the active acceleration profile from environment variables."""
     profile_name = os.getenv("ALGOBET_ACCELERATION_PROFILE", "").strip().lower() or None
-    enabled = profile_name in {"intel_igpu", "intel_gpu"}
+
+    gpu_profiles = {"intel_igpu", "intel_gpu"}
+    enabled = profile_name in gpu_profiles
 
     lightgbm_device = os.getenv("ALGOBET_LIGHTGBM_DEVICE")
     if lightgbm_device:
@@ -59,7 +61,7 @@ def load_acceleration_profile() -> AccelerationProfile:
     xgboost_tree_method = os.getenv("ALGOBET_XGBOOST_TREE_METHOD")
     if xgboost_tree_method:
         xgboost_tree_method = xgboost_tree_method.strip().lower()
-    elif enabled:
+    elif enabled or profile_name == "cpu":
         xgboost_tree_method = "hist"
 
     return AccelerationProfile(

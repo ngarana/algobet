@@ -640,15 +640,31 @@ class OddsFeatureGenerator(FeatureGenerator):
         }
 
     def _default_features(self) -> dict[str, float]:
-        """Return default features when odds unavailable."""
+        """Return default features when odds unavailable.
+
+        Uses neutral estimates reflecting the average distribution across
+        major leagues rather than baking in a strong home-win bias.
+        """
+        prob_home = 0.40
+        prob_draw = 0.30
+        prob_away = 0.30
+        margin = self.default_margin
+        total = prob_home + prob_draw + prob_away
+        prob_home /= total
+        prob_draw /= total
+        prob_away /= total
+
+        probs = [prob_home, prob_draw, prob_away]
+        favorite_idx = int(np.argmax(probs))
+
         return {
-            "implied_prob_home": 0.45,
-            "implied_prob_draw": 0.28,
-            "implied_prob_away": 0.27,
-            "bookmaker_margin": self.default_margin,
+            "implied_prob_home": prob_home,
+            "implied_prob_draw": prob_draw,
+            "implied_prob_away": prob_away,
+            "bookmaker_margin": margin,
             "odds_home_away_ratio": 1.0,
-            "favorite_outcome": 0.0,  # Home
-            "favorite_implied_prob": 0.45,
+            "favorite_outcome": float(favorite_idx),
+            "favorite_implied_prob": probs[favorite_idx],
         }
 
 
@@ -1021,6 +1037,450 @@ class StandingsFeatureGenerator(FeatureGenerator):
         }
 
 
+class EnrichedStatsFeatureGenerator(FeatureGenerator):
+    """Generate rolling team features from enriched match and player statistics."""
+
+    _MATCH_STAT_FIELDS: tuple[tuple[str, str], ...] = (
+        ("xg_for", "xg"),
+        ("xg_against", "xg"),
+        ("npxg_for", "npxg"),
+        ("npxg_against", "npxg"),
+        ("shots_for", "shots"),
+        ("shots_against", "shots"),
+        ("shots_on_target_for", "shots_on_target"),
+        ("shots_on_target_against", "shots_on_target"),
+        ("corners_for", "corners"),
+        ("corners_against", "corners"),
+        ("ppda_for", "ppda"),
+        ("ppda_against", "ppda"),
+        ("deep_completions_for", "deep_completions"),
+        ("deep_completions_against", "deep_completions"),
+    )
+    _PLAYER_STAT_FIELDS: tuple[tuple[str, str], ...] = (
+        ("player_goals", "goals"),
+        ("player_assists", "assists"),
+        ("player_shots", "shots"),
+        ("player_shots_on_target", "shots_on_target"),
+        ("player_minutes", "minutes_played"),
+    )
+
+    def __init__(
+        self,
+        window_sizes: list[int] | None = None,
+        include_diffs: bool = False,
+    ) -> None:
+        self.window_sizes = window_sizes or [3, 5]
+        self.include_diffs = include_diffs
+
+    @property
+    def name(self) -> str:
+        return "enriched_stats"
+
+    @property
+    def feature_names(self) -> list[str]:
+        names = []
+        for prefix in ("home", "away"):
+            for w in self.window_sizes:
+                for feature_name, _ in self._MATCH_STAT_FIELDS:
+                    names.append(f"{prefix}_{feature_name}_avg_{w}")
+                for feature_name, _ in self._PLAYER_STAT_FIELDS:
+                    names.append(f"{prefix}_{feature_name}_avg_{w}")
+                names.append(f"{prefix}_enriched_match_coverage_{w}")
+                names.append(f"{prefix}_player_stats_coverage_{w}")
+        if self.include_diffs:
+            for w in self.window_sizes:
+                for feature_name, _ in self._MATCH_STAT_FIELDS:
+                    names.append(f"{feature_name}_diff_avg_{w}")
+                for feature_name, _ in self._PLAYER_STAT_FIELDS:
+                    names.append(f"{feature_name}_diff_avg_{w}")
+        return names
+
+    def generate(
+        self, matches: pd.DataFrame, repository: MatchRepository
+    ) -> pd.DataFrame:
+        """Generate enriched rolling features for each fixture."""
+        max_window = max(self.window_sizes, default=0)
+        features = []
+
+        for _, match in matches.iterrows():
+            match_id = match["id"]
+            match_date = pd.to_datetime(match["match_date"])
+            home_team_id = int(match["home_team_id"])
+            away_team_id = int(match["away_team_id"])
+
+            match_features: dict[str, Any] = {"match_id": match_id}
+            home_feats = self._build_team_features(
+                repository=repository,
+                team_id=home_team_id,
+                match_date=match_date,
+                prefix="home",
+                max_window=max_window,
+            )
+            away_feats = self._build_team_features(
+                repository=repository,
+                team_id=away_team_id,
+                match_date=match_date,
+                prefix="away",
+                max_window=max_window,
+            )
+            match_features.update(home_feats)
+            match_features.update(away_feats)
+
+            if self.include_diffs:
+                diff_feats = self._compute_diffs(home_feats, away_feats)
+                match_features.update(diff_feats)
+
+            features.append(match_features)
+
+        return pd.DataFrame(features).set_index("match_id")
+
+    def _compute_diffs(
+        self,
+        home_feats: dict[str, float],
+        away_feats: dict[str, float],
+    ) -> dict[str, float]:
+        """Compute differential features (home - away) for each stat."""
+        diffs: dict[str, float] = {}
+        for w in self.window_sizes:
+            suffix = f"_avg_{w}"
+            for feature_name, _ in self._MATCH_STAT_FIELDS:
+                home_key = f"home_{feature_name}{suffix}"
+                away_key = f"away_{feature_name}{suffix}"
+                diffs[f"{feature_name}_diff{suffix}"] = home_feats.get(
+                    home_key, 0.0
+                ) - away_feats.get(away_key, 0.0)
+            for feature_name, _ in self._PLAYER_STAT_FIELDS:
+                home_key = f"home_{feature_name}{suffix}"
+                away_key = f"away_{feature_name}{suffix}"
+                diffs[f"{feature_name}_diff{suffix}"] = home_feats.get(
+                    home_key, 0.0
+                ) - away_feats.get(away_key, 0.0)
+        return diffs
+
+    def _build_team_features(
+        self,
+        repository: MatchRepository,
+        team_id: int,
+        match_date: datetime,
+        prefix: str,
+        max_window: int,
+    ) -> dict[str, float]:
+        history = repository.get_team_matches(
+            team_id=team_id,
+            before_date=match_date,
+            limit=max_window,
+        )
+        team_features: dict[str, float] = {}
+        for window_size in self.window_sizes:
+            recent_matches = history[:window_size]
+            team_features.update(
+                self._summarize_window(
+                    team_id=team_id,
+                    matches=recent_matches,
+                    prefix=prefix,
+                    window_size=window_size,
+                )
+            )
+        return team_features
+
+    def _summarize_window(
+        self,
+        team_id: int,
+        matches: list[Any],
+        prefix: str,
+        window_size: int,
+    ) -> dict[str, float]:
+        match_rows = []
+        player_rows = []
+
+        for match in matches:
+            match_stats = self._extract_team_match_stats(team_id=team_id, match=match)
+            if match_stats is not None:
+                match_rows.append(match_stats)
+
+            player_stats = self._extract_team_player_rollup(
+                team_id=team_id,
+                match=match,
+            )
+            if player_stats is not None:
+                player_rows.append(player_stats)
+
+        denominator = float(len(matches))
+        coverage = len(match_rows) / denominator if denominator else 0.0
+        player_coverage = len(player_rows) / denominator if denominator else 0.0
+
+        features: dict[str, float] = {}
+        for feature_name, _ in self._MATCH_STAT_FIELDS:
+            features[f"{prefix}_{feature_name}_avg_{window_size}"] = self._mean(
+                rows=match_rows,
+                key=feature_name,
+            )
+        for feature_name, _ in self._PLAYER_STAT_FIELDS:
+            features[f"{prefix}_{feature_name}_avg_{window_size}"] = self._mean(
+                rows=player_rows,
+                key=feature_name,
+            )
+        features[f"{prefix}_enriched_match_coverage_{window_size}"] = coverage
+        features[f"{prefix}_player_stats_coverage_{window_size}"] = player_coverage
+        return features
+
+    def _extract_team_match_stats(
+        self,
+        team_id: int,
+        match: Any,
+    ) -> dict[str, float] | None:
+        statistics = getattr(match, "statistics", None)
+        if statistics is None:
+            return None
+
+        is_home = getattr(match, "home_team_id", None) == team_id
+        team_prefix = "home" if is_home else "away"
+        opp_prefix = "away" if is_home else "home"
+
+        raw_stats = {
+            "xg_for": getattr(statistics, f"{team_prefix}_xg", None),
+            "xg_against": getattr(statistics, f"{opp_prefix}_xg", None),
+            "npxg_for": getattr(statistics, f"{team_prefix}_npxg", None),
+            "npxg_against": getattr(statistics, f"{opp_prefix}_npxg", None),
+            "shots_for": getattr(statistics, f"{team_prefix}_shots", None),
+            "shots_against": getattr(statistics, f"{opp_prefix}_shots", None),
+            "shots_on_target_for": getattr(
+                statistics, f"{team_prefix}_shots_on_target", None
+            ),
+            "shots_on_target_against": getattr(
+                statistics, f"{opp_prefix}_shots_on_target", None
+            ),
+            "corners_for": getattr(statistics, f"{team_prefix}_corners", None),
+            "corners_against": getattr(statistics, f"{opp_prefix}_corners", None),
+            "ppda_for": getattr(statistics, f"{team_prefix}_ppda", None),
+            "ppda_against": getattr(statistics, f"{opp_prefix}_ppda", None),
+            "deep_completions_for": getattr(
+                statistics, f"{team_prefix}_deep_completions", None
+            ),
+            "deep_completions_against": getattr(
+                statistics, f"{opp_prefix}_deep_completions", None
+            ),
+        }
+        if all(value is None for value in raw_stats.values()):
+            return None
+
+        return {
+            feature_name: float(value) if value is not None else 0.0
+            for feature_name, value in raw_stats.items()
+        }
+
+    def _extract_team_player_rollup(
+        self,
+        team_id: int,
+        match: Any,
+    ) -> dict[str, float] | None:
+        player_stats = [
+            player
+            for player in getattr(match, "player_stats", []) or []
+            if getattr(player, "team_id", None) == team_id
+        ]
+        if not player_stats:
+            return None
+
+        return {
+            "player_goals": self._sum_player_attr(player_stats, "goals"),
+            "player_assists": self._sum_player_attr(player_stats, "assists"),
+            "player_shots": self._sum_player_attr(player_stats, "shots"),
+            "player_shots_on_target": self._sum_player_attr(
+                player_stats,
+                "shots_on_target",
+            ),
+            "player_minutes": self._sum_player_attr(player_stats, "minutes_played"),
+        }
+
+    @staticmethod
+    def _sum_player_attr(players: list[Any], attr_name: str) -> float:
+        return float(
+            sum(float(getattr(player, attr_name, 0) or 0.0) for player in players)
+        )
+
+    @staticmethod
+    def _mean(rows: list[dict[str, float]], key: str) -> float:
+        if not rows:
+            return 0.0
+        return float(np.mean([row[key] for row in rows]))
+
+
+class OddsResidualFeatureGenerator(FeatureGenerator):
+    """Generate features that compare team form to market-implied expectations.
+
+    These residual features represent how much better or worse each team is
+    performing relative to what the betting market predicts -- the "surprise"
+    signal.  This is orthogonal to raw odds and raw form features: instead of
+    encoding home advantage three times (odds + venue form + naming), the
+    model receives the market expectation once (via odds features) and a
+    deviation signal (via these residuals).
+
+    Expected points from odds:
+        home_expected_pts = 3 * implied_prob_home + 1 * implied_prob_draw
+        away_expected_pts = 3 * implied_prob_away + 1 * implied_prob_draw
+
+    Surprise = actual PPG - expected_pts_per_game
+    A positive surprise means the team is outperforming the market; negative
+    means underperforming.
+    """
+
+    def __init__(
+        self,
+        form_windows: list[int] | None = None,
+    ) -> None:
+        self.form_windows = form_windows or [5, 10]
+
+    @property
+    def name(self) -> str:
+        return "odds_residual"
+
+    @property
+    def feature_names(self) -> list[str]:
+        names = [
+            "home_form_surprise",
+            "away_form_surprise",
+            "home_venue_form_surprise",
+            "away_venue_form_surprise",
+            "form_surprise_diff",
+            "venue_surprise_diff",
+            "home_advantage_net",
+        ]
+        for w in self.form_windows:
+            names.extend(
+                [
+                    f"home_form_surprise_{w}",
+                    f"away_form_surprise_{w}",
+                ]
+            )
+        return names
+
+    def generate(
+        self, matches: pd.DataFrame, repository: MatchRepository
+    ) -> pd.DataFrame:
+        max_window = max(self.form_windows, default=10)
+        features = []
+
+        for _, match in matches.iterrows():
+            match_id = match["id"]
+            match_date = pd.to_datetime(match["match_date"])
+            home_team_id = int(match["home_team_id"])
+            away_team_id = int(match["away_team_id"])
+
+            odds_home = match.get("odds_home")
+            odds_draw = match.get("odds_draw")
+            odds_away = match.get("odds_away")
+
+            implied = self._implied_probabilities(odds_home, odds_draw, odds_away)
+
+            home_form = self._ppg(repository, home_team_id, match_date, max_window)
+            away_form = self._ppg(repository, away_team_id, match_date, max_window)
+            home_venue_form = self._venue_ppg(
+                repository, home_team_id, match_date, max_window, is_home=True
+            )
+            away_venue_form = self._venue_ppg(
+                repository, away_team_id, match_date, max_window, is_home=False
+            )
+
+            home_exp_pts = 3 * implied["home"] + implied["draw"]
+            away_exp_pts = 3 * implied["away"] + implied["draw"]
+
+            match_feats: dict[str, Any] = {
+                "match_id": match_id,
+                "home_form_surprise": home_form - home_exp_pts,
+                "away_form_surprise": away_form - away_exp_pts,
+                "home_venue_form_surprise": home_venue_form - home_exp_pts,
+                "away_venue_form_surprise": away_venue_form - away_exp_pts,
+                "form_surprise_diff": (home_form - home_exp_pts)
+                - (away_form - away_exp_pts),
+                "venue_surprise_diff": (home_venue_form - home_exp_pts)
+                - (away_venue_form - away_exp_pts),
+                "home_advantage_net": implied["home"] - implied["away"],
+            }
+
+            for w in self.form_windows:
+                home_w = self._ppg(repository, home_team_id, match_date, w)
+                away_w = self._ppg(repository, away_team_id, match_date, w)
+                match_feats[f"home_form_surprise_{w}"] = home_w - home_exp_pts
+                match_feats[f"away_form_surprise_{w}"] = away_w - away_exp_pts
+
+            features.append(match_feats)
+
+        return pd.DataFrame(features).set_index("match_id")
+
+    def _implied_probabilities(
+        self,
+        odds_home: Any,
+        odds_draw: Any,
+        odds_away: Any,
+    ) -> dict[str, float]:
+        if pd.isna(odds_home) or pd.isna(odds_draw) or pd.isna(odds_away):
+            return {"home": 0.40, "draw": 0.30, "away": 0.30}
+        try:
+            h = 1.0 / float(odds_home)
+            d = 1.0 / float(odds_draw)
+            a = 1.0 / float(odds_away)
+            total = h + d + a
+            return {"home": h / total, "draw": d / total, "away": a / total}
+        except (ZeroDivisionError, ValueError, TypeError):
+            return {"home": 0.40, "draw": 0.30, "away": 0.30}
+
+    @staticmethod
+    def _ppg(
+        repo: MatchRepository,
+        team_id: int,
+        before_date: datetime,
+        limit: int,
+    ) -> float:
+        matches = repo.get_team_matches(
+            team_id=team_id, before_date=before_date, limit=limit
+        )
+        if not matches:
+            return 0.0
+        points = 0
+        for match in matches:
+            is_home = match.home_team_id == team_id
+            gf = match.home_score if is_home else match.away_score
+            ga = match.away_score if is_home else match.home_score
+            gf = gf or 0
+            ga = ga or 0
+            if gf > ga:
+                points += 3
+            elif gf == ga:
+                points += 1
+        return points / len(matches)
+
+    @staticmethod
+    def _venue_ppg(
+        repo: MatchRepository,
+        team_id: int,
+        before_date: datetime,
+        limit: int,
+        is_home: bool,
+    ) -> float:
+        matches = repo.get_team_matches(
+            team_id=team_id,
+            before_date=before_date,
+            limit=limit,
+            home_only=is_home,
+            away_only=not is_home,
+        )
+        if not matches:
+            return 0.0
+        points = 0
+        for match in matches:
+            home = match.home_team_id == team_id
+            gf = match.home_score if home else match.away_score
+            ga = match.away_score if home else match.home_score
+            gf = gf or 0
+            ga = ga or 0
+            if gf > ga:
+                points += 3
+            elif gf == ga:
+                points += 1
+        return points / len(matches)
+
+
 class CompositeFeatureGenerator(FeatureGenerator):
     """Combines multiple feature generators into a single generator.
 
@@ -1106,6 +1566,9 @@ def create_default_generators() -> CompositeFeatureGenerator:
             ),
             OddsFeatureGenerator(
                 impute_missing=True,
+            ),
+            OddsResidualFeatureGenerator(
+                form_windows=[5, 10],
             ),
             TemporalFeatureGenerator(
                 include_rest_days=True,

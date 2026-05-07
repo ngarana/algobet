@@ -3,10 +3,13 @@
 from algobet.predictions.features.form_features import FormCalculator
 from algobet.predictions.features.generators import (
     CompositeFeatureGenerator,
+    EnrichedStatsFeatureGenerator,
     FeatureGenerator,
     FeatureSchema,
     HeadToHeadGenerator,
     OddsFeatureGenerator,
+    OddsResidualFeatureGenerator,
+    StandingsFeatureGenerator,
     TeamFormGenerator,
     TemporalFeatureGenerator,
     create_default_generators,
@@ -39,6 +42,9 @@ __all__ = [
     "TeamFormGenerator",
     "HeadToHeadGenerator",
     "OddsFeatureGenerator",
+    "OddsResidualFeatureGenerator",
+    "EnrichedStatsFeatureGenerator",
+    "StandingsFeatureGenerator",
     "TemporalFeatureGenerator",
     "CompositeFeatureGenerator",
     "create_default_generators",
