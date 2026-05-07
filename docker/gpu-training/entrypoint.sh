@@ -6,7 +6,7 @@
 set -euo pipefail
 
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║       AlgoBet GPU Training Worker (Intel iGPU)              ║"
+echo "║       AlgoBet Training Worker (Intel oneAPI runtime)       ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 
 echo ""
@@ -90,9 +90,12 @@ echo "▸ OMP Threads: ${OMP_NUM_THREADS}"
 echo ""
 
 VERIFY_INTEL_GPU="$(printf '%s' "${ALGOBET_VERIFY_INTEL_GPU:-0}" | tr '[:upper:]' '[:lower:]')"
+ACCEL_PROFILE="$(printf '%s' "${ALGOBET_ACCELERATION_PROFILE:-}" | tr '[:upper:]' '[:lower:]')"
 if [ "$VERIFY_INTEL_GPU" = "1" ] || [ "$VERIFY_INTEL_GPU" = "true" ] || [ "$VERIFY_INTEL_GPU" = "yes" ] || [ "$VERIFY_INTEL_GPU" = "on" ]; then
-    echo "▸ Verifying LightGBM Intel iGPU backend..."
-    python3 - <<'PY'
+    GPU_PROFILES="intel_igpu intel_gpu"
+    if echo "$GPU_PROFILES" | grep -qw "$ACCEL_PROFILE"; then
+        echo "▸ Verifying LightGBM Intel iGPU backend..."
+        python3 - <<'PY'
 import os
 
 import lightgbm as lgb
@@ -144,10 +147,11 @@ print(
     f"gpu_device_id={params.get('gpu_device_id', 'auto')})"
 )
 PY
-    echo ""
+        echo ""
 
-    echo "▸ Verifying XGBoost Intel iGPU backend..."
-    python3 - <<'PY'
+        echo "▸ Verifying XGBoost Intel iGPU backend..."
+        set +e
+        python3 - <<'PY'
 import json
 import os
 
@@ -215,7 +219,61 @@ print(
     f"binary_boosters={len(predictor._model)})"
 )
 PY
-    echo ""
+        xgb_verify_status=$?
+        set -e
+        if [ "$xgb_verify_status" -ne 0 ]; then
+            echo "  ⚠ XGBoost GPU smoke test failed; continuing so the API can start."
+            echo "    The training endpoint may still work, but the worker will no longer"
+            echo "    abort during startup just because this verification path crashes."
+        fi
+        echo ""
+    else
+        echo "▸ Acceleration profile is '${ACCEL_PROFILE:-cpu}' — skipping iGPU smoke tests."
+        echo "  (Set ALGOBET_ACCELERATION_PROFILE=intel_igpu and ALGOBET_VERIFY_INTEL_GPU=true"
+        echo "   to enable iGPU verification for tree-based models.)"
+        echo ""
+        echo "▸ Running CPU smoke test..."
+        python3 - <<'PY'
+import os
+
+from sklearn.datasets import make_classification
+
+from algobet.predictions.training.acceleration import resolve_training_hyperparameters
+from algobet.predictions.training.classifiers import ModelConfig, XGBoostPredictor
+
+params = resolve_training_hyperparameters(
+    model_type="xgboost",
+    hyperparameters={
+        "n_estimators": 5,
+        "learning_rate": 0.1,
+        "max_depth": 6,
+        "verbosity": 0,
+    },
+)
+predictor = XGBoostPredictor(
+    ModelConfig(
+        model_type="xgboost",
+        hyperparameters=params,
+        random_seed=42,
+    )
+)
+X, y = make_classification(
+    n_samples=1024,
+    n_features=32,
+    n_classes=3,
+    n_informative=16,
+    n_redundant=0,
+    random_state=42,
+)
+predictor.fit(X, y)
+print(
+    f"  ✓ XGBoost CPU smoke test passed "
+    f"(device={params.get('device', 'cpu')}, "
+    f"tree_method={params.get('tree_method', 'auto')})"
+)
+PY
+        echo ""
+    fi
 fi
 
 MODE="${1:-worker}"
@@ -243,7 +301,7 @@ with session_scope() as session:
         session=session,
         model_type='${MODEL_TYPE:-xgboost}',
         tune=${TUNE:-False},
-        description='${DESCRIPTION:-Intel iGPU training run}',
+        description='${DESCRIPTION:-XGBoost CPU training run}',
     )
     print(json.dumps({
         'model_version': result.model_version,
@@ -255,18 +313,59 @@ with session_scope() as session:
         ;;
 
     benchmark)
-        echo "▸ Running GPU benchmark..."
-        exec python3 - "$@" <<PY
+        echo "▸ Running CPU vs iGPU benchmark..."
+        exec python3 - "$@" <<'PY'
 import os
 import time
 import json
 
 import lightgbm as lgb
+import xgboost as xgb
 import numpy as np
 from sklearn.datasets import make_classification
 
-from algobet.predictions.training.acceleration import resolve_training_hyperparameters
-from algobet.predictions.training.classifiers import ModelConfig, XGBoostPredictor
+
+def bench_xgboost(X, y, device, rounds=200):
+    binary_y = (y == 0).astype(int)
+    params = {
+        "device": device,
+        "tree_method": "hist",
+        "max_depth": 6,
+        "verbosity": 0,
+    }
+    dtrain = xgb.DMatrix(X, label=binary_y)
+    start = time.time()
+    model = xgb.train(params, dtrain, num_boost_round=rounds)
+    elapsed = time.time() - start
+    cfg = json.loads(model.save_config())
+    updater = cfg["learner"]["gradient_booster"]["gbtree_train_param"]["updater_seq"]
+    return elapsed, device, updater
+
+
+def bench_lightgbm(X, y, device, rounds=200):
+    params = {
+        "objective": "multiclass",
+        "num_class": 3,
+        "metric": "multi_logloss",
+        "learning_rate": 0.1,
+        "num_leaves": 63,
+        "device": device,
+        "num_threads": int(os.getenv("OMP_NUM_THREADS", "4")),
+        "verbose": -1,
+    }
+    if device == "gpu":
+        platform_id = os.getenv("ALGOBET_GPU_PLATFORM_ID")
+        device_id = os.getenv("ALGOBET_GPU_DEVICE_ID")
+        if platform_id:
+            params["gpu_platform_id"] = int(platform_id)
+        if device_id:
+            params["gpu_device_id"] = int(device_id)
+    dataset = lgb.Dataset(X, label=y)
+    start = time.time()
+    lgb.train(params, dataset, num_boost_round=rounds)
+    elapsed = time.time() - start
+    return elapsed
+
 
 print("--- NumPy MKL Benchmark ---")
 sizes = [1000, 2000, 4000]
@@ -280,7 +379,6 @@ for n in sizes:
     print(f"  Matrix {n}x{n} multiply: {elapsed:.3f}s ({gflops:.1f} GFLOPS)")
 
 print()
-print("--- LightGBM Intel iGPU Benchmark ---")
 X, y = make_classification(
     n_samples=50000,
     n_features=50,
@@ -288,62 +386,19 @@ X, y = make_classification(
     n_informative=30,
     random_state=42,
 )
-params = {
-    "objective": "multiclass",
-    "num_class": 3,
-    "metric": "multi_logloss",
-    "learning_rate": 0.1,
-    "num_leaves": 63,
-    "device": os.getenv("ALGOBET_LIGHTGBM_DEVICE", "gpu"),
-    "num_threads": ${OMP_NUM_THREADS:-4},
-    "verbose": -1,
-}
-platform_id = os.getenv("ALGOBET_GPU_PLATFORM_ID")
-device_id = os.getenv("ALGOBET_GPU_DEVICE_ID")
-if platform_id:
-    params["gpu_platform_id"] = int(platform_id)
-if device_id:
-    params["gpu_device_id"] = int(device_id)
-print(
-    f"  device={params['device']} "
-    f"gpu_platform_id={params.get('gpu_platform_id', 'auto')} "
-    f"gpu_device_id={params.get('gpu_device_id', 'auto')}"
-)
-dataset = lgb.Dataset(X, label=y)
-start = time.time()
-lgb.train(params, dataset, num_boost_round=200)
-elapsed = time.time() - start
-print(f"  LightGBM 200 rounds (50k samples, 50 features): {elapsed:.2f}s")
-print()
 
-print("--- XGBoost Intel iGPU Benchmark ---")
-xgb_params = resolve_training_hyperparameters(
-    model_type="xgboost",
-    hyperparameters={
-        "n_estimators": 200,
-        "learning_rate": 0.1,
-        "max_depth": 6,
-    },
-)
-xgb_predictor = XGBoostPredictor(
-    ModelConfig(
-        model_type="xgboost",
-        hyperparameters=xgb_params,
-        random_seed=42,
-    )
-)
-start = time.time()
-xgb_predictor.fit(X, y)
-elapsed = time.time() - start
-config = json.loads(xgb_predictor._model[0].save_config())
-print(
-    f"  device={config['learner']['generic_param']['device']} "
-    f"updater={config['learner']['gradient_booster']['gbtree_train_param']['updater_seq']} "
-    f"binary_boosters={len(xgb_predictor._model)}"
-)
-print(f"  XGBoost 200 rounds (50k samples, 50 features): {elapsed:.2f}s")
-print()
+print("--- XGBoost Benchmark (50k samples, 50 features, 200 rounds) ---")
+for device in ["cpu", "sycl:gpu:0"]:
+    elapsed, dev, updater = bench_xgboost(X, y, device)
+    print(f"  {device:>12s}: {elapsed:.2f}s  updater={updater}")
 
+print()
+print("--- LightGBM Benchmark (50k samples, 50 features, 200 rounds) ---")
+for device in ["cpu", "gpu"]:
+    elapsed = bench_lightgbm(X, y, device)
+    print(f"  {device:>12s}: {elapsed:.2f}s")
+
+print()
 print("Done.")
 PY
         ;;

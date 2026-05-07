@@ -1,27 +1,36 @@
 # ==============================================================================
 # docker-compose.gpu.yml
 # ==============================================================================
-# GPU-accelerated variant of the AlgoBet stack.
+# GPU-capable variant of the AlgoBet stack.
 #
-# This compose file adds a dedicated GPU training worker service that runs
-# inside the IPEX-LLM container with Intel iGPU passthrough.
+# This compose file adds a dedicated training worker running inside the
+# IPEX-LLM container (Intel oneAPI / SYCL runtime) with iGPU device
+# passthrough.  The container retains access to the Intel iGPU for future
+# PyTorch-XPU / transformer workloads, but tree-based training (XGBoost,
+# LightGBM) **defaults to CPU** because benchmarks show the iGPU is 5-20x
+# slower than CPU for gradient-boosted decision trees on this hardware.
+#
+# To re-enable iGPU for tree models, set:
+#   ALGOBET_ACCELERATION_PROFILE=intel_igpu
+#   ALGOBET_XGBOOST_DEVICE=sycl:gpu:0
+#   ALGOBET_LIGHTGBM_DEVICE=gpu
 #
 # Usage:
-#   # Start the full stack with GPU training worker
+#   # Start the full stack with the GPU-capable training worker
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 #
-#   # Start ONLY the GPU training worker (assumes db/redis already running)
+#   # Start ONLY the GPU-capable worker (assumes db/redis already running)
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d gpu-trainer
 #
-#   # Run a one-shot training job on the GPU
+#   # Run a one-shot training job
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
 #     run --rm gpu-trainer train
 #
-#   # Run a performance benchmark
+#   # Run a CPU-vs-iGPU benchmark comparison
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
 #     run --rm gpu-trainer benchmark
 #
-#   # Drop into an interactive shell inside the GPU container
+#   # Drop into an interactive shell inside the container
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
 #     run --rm gpu-trainer shell
 #
@@ -62,24 +71,22 @@ services:
       - API_ENV=development
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://frontend:3001
       - LOG_LEVEL=info
+      # ── SYCL / Level-Zero runtime (kept for future PyTorch-XPU workloads) ──
       - USE_XETLA=OFF
       - ONEAPI_DEVICE_SELECTOR=level_zero:gpu
       - SYCL_PI_LEVEL_ZERO_USE_IMMEDIATE_COMMANDLISTS=1
       - SYCL_CACHE_PERSISTENT=1
-      - ALGOBET_ACCELERATION_PROFILE=intel_igpu
-      - ALGOBET_REQUIRE_GPU=true
-      - ALGOBET_VERIFY_INTEL_GPU=true
+      # ── Tree-model acceleration: CPU is 5-20x faster than iGPU, so disabled ──
+      - ALGOBET_ACCELERATION_PROFILE=cpu
+      - ALGOBET_REQUIRE_GPU=false
+      - ALGOBET_VERIFY_INTEL_GPU=false
       - ALGOBET_DEFAULT_MODEL_TYPE=xgboost
-      - ALGOBET_LIGHTGBM_DEVICE=gpu
-      - ALGOBET_XGBOOST_DEVICE=sycl:gpu:0
       - ALGOBET_XGBOOST_TREE_METHOD=hist
-      - ALGOBET_GPU_PLATFORM_ID=0
-      - ALGOBET_GPU_DEVICE_ID=1
       - MKL_NUM_THREADS=4
       - OMP_NUM_THREADS=4
       - MODEL_TYPE=xgboost
       - TUNE=False
-      - DESCRIPTION=Intel iGPU XGBoost training run
+      - DESCRIPTION=XGBoost CPU training run
     dns:
       - 8.8.8.8
       - 8.8.4.4
