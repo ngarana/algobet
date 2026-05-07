@@ -40,4 +40,3 @@ CREATE TABLE IF NOT EXISTS user_predictions (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_user_prediction_profile_match UNIQUE (profile_id, match_id)
 );
-
