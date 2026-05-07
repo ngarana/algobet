@@ -41,7 +41,7 @@ curl -sS -X POST http://localhost:8010/api/v1/ml/train \
     "model_type": "xgboost",
     "description": "EPL odds-free calibrated probability model",
     "tournament_ids": [359],
-    "feature_groups": ["team_form", "head_to_head", "temporal", "standings", "enriched_stats"],
+    "feature_groups": ["team_form", "head_to_head", "temporal", "standings"],
     "feature_selection": true,
     "feature_selection_threshold": 0.005,
     "min_samples_per_feature": 40,

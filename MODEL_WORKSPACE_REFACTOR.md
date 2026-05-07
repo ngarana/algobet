@@ -17,21 +17,17 @@
   - a registry plus selected-model inspector as the secondary content
 - Rework the training UX in `frontend/components/models/*` into guided sections:
   - `Basics` open by default: model type, description, activate-after-training, tuning toggle, calibration toggle
-  - `Data Scope` collapsed by default: date range, minimum matches, tournaments, teams, venue, require odds, goals range
+  - `Data Scope` collapsed by default: date range, minimum matches, tournaments, teams, venue, goals range
   - `Validation` collapsed by default: split ratios, split strategy, strategy-specific fields, outcome balancing, calibration method
-  - `Expert Options` collapsed by default: feature groups, ensemble settings, custom hyperparameters, seed, early stopping, tuning trials
-- Add section summaries when collapsed so users can understand current choices without reopening every section.
-- Keep dependent controls contextual:
-  - show calibration method only when calibration is enabled
-  - show tuning trials only when tuning is enabled
-  - show manual hyperparameters only when tuning is off and ensemble is off
-  - show ensemble members only when ensemble is enabled
-  - show split-strategy parameters only for the active strategy
+  - `Expert Options` collapsed by default: feature groups, feature selection settings, ensemble settings, custom hyperparameters, seed, early stopping, tuning trials
+- Add `TrainingSettingsSection` component consolidating configurable training options with validation for split ratios
+- Add `TrainingSummary` component displaying active configuration including feature selection status, tuning status, calibration method, and selected feature groups
 - Add a persistent training summary rail/card that shows:
   - selected model type
   - active data filters count
   - split strategy
   - tuning / ensemble / calibration status
+  - feature selection status (enabled with threshold)
   - primary train CTA
   - split-ratio validation warning
 - Replace the table-first registry experience with a responsive searchable registry:

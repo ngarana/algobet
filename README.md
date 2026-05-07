@@ -311,9 +311,11 @@ frontend/                         # Next.js App Router frontend
 │   ├── types/ml-operations.ts    # Zod schemas + TS types for ML ops
 │   ├── types/api.ts              # TS types: Match, Prediction, ModelVersion, Team, etc.
 │   └── queries/use-ml-operations.ts  # TanStack Query hooks for ML operations
-└── components/models/            # 20+ training UI components
-    ├── FeatureGroupsSection.tsx   # Toggle 4 feature groups in UI
+└── components/models/            # Training UI components
+    ├── FeatureGroupsSection.tsx   # Toggle feature groups in UI
     ├── GuidedTrainingWorkspace.tsx
+    ├── TrainingSettingsSection.tsx  # Consolidated training configuration
+    ├── TrainingSummary.tsx        # Active configuration display
     ├── TrainingResultDisplay.tsx
     └── ... (DataSplitSection, HyperparametersSection, EnsembleSection, etc.)
 ```

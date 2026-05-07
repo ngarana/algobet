@@ -7,7 +7,7 @@ Make new model training and prediction generation fully odds-free. Remove the `o
 ## Interface Changes
 
 - `POST /api/v1/ml/train` no longer defines `odds_blend`, `odds_blend_weight`, or `require_odds`.
-- Training `feature_groups` excludes `"odds"`; allowed groups are `team_form`, `head_to_head`, `temporal`, and `standings`.
+- Training `feature_groups` excludes `"odds"` and `"enriched_stats"`; allowed groups are `team_form`, `head_to_head`, `temporal`, and `standings`.
 - New trained models use `feature_schema_version = "v2.0_odds_free"`.
 - Prediction generation rejects old/missing-schema models with a clear “retrain required” error.
 
@@ -36,7 +36,7 @@ Make new model training and prediction generation fully odds-free. Remove the `o
 - Update/add backend tests for:
   - Training config/request no longer contains odds blend or require-odds fields.
   - Default feature names contain no `odds`, `implied_prob`, `bookmaker`, `favorite`, or market-derived fields.
-  - `feature_groups=["odds"]` is rejected or fails validation.
+  - `feature_groups=["odds"]` or `feature_groups=["enriched_stats"]` is rejected or fails validation.
   - Prediction generation rejects pre-`v2.0_odds_free` models.
   - Prediction generation succeeds for a retrained odds-free model with its saved feature pipeline.
 

@@ -27,7 +27,8 @@ The pipeline supports three distinct data splitting strategies:
 3. **Season-Aware**: Splitting by complete football seasons to ensure no partial seasons span across sets.
 
 ### Feature Engineering
-- **Feature Group Selection**: Toggle specific groups of features (Team Form, Head-to-Head, Market Odds, Temporal).
+- **Feature Group Selection**: Toggle specific groups of features (Team Form, Head-to-Head, Temporal, Standings, Enriched Stats).
+- **Feature Selection**: Automatic feature pruning based on importance thresholds (feature_selection, feature_selection_threshold, min_samples_per_feature).
 - **Outcome Balancing**: Enable inverse-frequency class weighting to apply higher weights to minority outcomes (like draws or away wins).
 
 ### Organization
