@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 from algobet.predictions.models.registry import ModelMetadata, ModelRegistry
@@ -198,6 +199,28 @@ class TestModelRegistry:
 
         assert version.startswith("xgboost_")
         assert len(version) > len("xgboost_")
+
+    def test_save_model_converts_numpy_payloads(
+        self, registry, mock_session, temp_storage
+    ):
+        """Numpy scalars in metrics/hyperparameters should serialize cleanly."""
+        version = registry.save_model(
+            model={"test": "data"},
+            name="test_model",
+            metrics={"accuracy": np.float32(0.75)},
+            hyperparameters={"max_depth": np.int64(6)},
+        )
+
+        db_model = mock_session.add.call_args.args[0]
+        assert isinstance(db_model.metrics["accuracy"], float)
+        assert isinstance(db_model.hyperparameters["max_depth"], int)
+
+        metadata_path = temp_storage / "xgboost" / version / "metadata.json"
+        with open(metadata_path) as f:
+            metadata = json.load(f)
+
+        assert metadata["metrics"]["accuracy"] == pytest.approx(0.75)
+        assert metadata["hyperparameters"]["max_depth"] == 6
 
     def test_load_model_returns_model(self, registry, temp_storage):
         """Test load_model returns saved model."""

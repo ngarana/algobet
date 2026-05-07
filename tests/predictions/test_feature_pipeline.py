@@ -1,11 +1,13 @@
 """Essential tests for FeaturePipeline."""
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
+from algobet.predictions.features.generators import EnrichedStatsFeatureGenerator
 from algobet.predictions.features.pipeline import FeaturePipeline, PipelineConfig
 
 
@@ -175,3 +177,145 @@ class TestFeaturePipeline:
     def test_pipeline_initially_not_fitted(self, pipeline):
         """Test pipeline is initially not fitted."""
         assert pipeline.is_fitted is False
+
+
+class TestEnrichedStatsFeatureGenerator:
+    """Tests for enriched stats feature generation."""
+
+    def test_generate_uses_understat_and_player_rollups(self) -> None:
+        """Historical enriched stats should feed rolling team features."""
+        generator = EnrichedStatsFeatureGenerator(window_sizes=[2])
+        repository = MagicMock()
+
+        team_one_matches = [
+            SimpleNamespace(
+                home_team_id=1,
+                away_team_id=3,
+                statistics=SimpleNamespace(
+                    home_xg=1.6,
+                    away_xg=0.8,
+                    home_npxg=1.4,
+                    away_npxg=0.7,
+                    home_shots=14,
+                    away_shots=9,
+                    home_shots_on_target=6,
+                    away_shots_on_target=3,
+                    home_corners=7,
+                    away_corners=4,
+                    home_ppda=9.5,
+                    away_ppda=12.0,
+                    home_deep_completions=11,
+                    away_deep_completions=6,
+                ),
+                player_stats=[
+                    SimpleNamespace(
+                        team_id=1,
+                        goals=2,
+                        assists=1,
+                        shots=5,
+                        shots_on_target=3,
+                        minutes_played=90,
+                    ),
+                    SimpleNamespace(
+                        team_id=1,
+                        goals=0,
+                        assists=1,
+                        shots=2,
+                        shots_on_target=1,
+                        minutes_played=85,
+                    ),
+                ],
+            ),
+            SimpleNamespace(
+                home_team_id=4,
+                away_team_id=1,
+                statistics=SimpleNamespace(
+                    home_xg=0.7,
+                    away_xg=1.2,
+                    home_npxg=0.6,
+                    away_npxg=1.1,
+                    home_shots=8,
+                    away_shots=12,
+                    home_shots_on_target=2,
+                    away_shots_on_target=5,
+                    home_corners=3,
+                    away_corners=6,
+                    home_ppda=13.0,
+                    away_ppda=8.0,
+                    home_deep_completions=5,
+                    away_deep_completions=10,
+                ),
+                player_stats=[
+                    SimpleNamespace(
+                        team_id=1,
+                        goals=1,
+                        assists=0,
+                        shots=4,
+                        shots_on_target=2,
+                        minutes_played=88,
+                    )
+                ],
+            ),
+        ]
+        team_two_matches = [
+            SimpleNamespace(
+                home_team_id=2,
+                away_team_id=5,
+                statistics=SimpleNamespace(
+                    home_xg=1.0,
+                    away_xg=0.9,
+                    home_npxg=0.8,
+                    away_npxg=0.7,
+                    home_shots=11,
+                    away_shots=10,
+                    home_shots_on_target=4,
+                    away_shots_on_target=4,
+                    home_corners=5,
+                    away_corners=5,
+                    home_ppda=10.0,
+                    away_ppda=11.5,
+                    home_deep_completions=8,
+                    away_deep_completions=7,
+                ),
+                player_stats=[
+                    SimpleNamespace(
+                        team_id=2,
+                        goals=1,
+                        assists=1,
+                        shots=3,
+                        shots_on_target=2,
+                        minutes_played=90,
+                    )
+                ],
+            )
+        ]
+
+        def get_team_matches(team_id: int, **_: object) -> list[object]:
+            if team_id == 1:
+                return team_one_matches
+            if team_id == 2:
+                return team_two_matches
+            return []
+
+        repository.get_team_matches.side_effect = get_team_matches
+
+        matches = pd.DataFrame(
+            [
+                {
+                    "id": 99,
+                    "match_date": datetime(2026, 5, 4, 19, 0, 0),
+                    "home_team_id": 1,
+                    "away_team_id": 2,
+                }
+            ]
+        )
+
+        result = generator.generate(matches, repository)
+
+        assert result.loc[99, "home_xg_for_avg_2"] == pytest.approx(1.4)
+        assert result.loc[99, "home_xg_against_avg_2"] == pytest.approx(0.75)
+        assert result.loc[99, "home_player_shots_avg_2"] == pytest.approx(5.5)
+        assert result.loc[99, "home_player_minutes_avg_2"] == pytest.approx(131.5)
+        assert result.loc[99, "home_enriched_match_coverage_2"] == pytest.approx(1.0)
+        assert result.loc[99, "away_xg_for_avg_2"] == pytest.approx(1.0)
+        assert result.loc[99, "away_player_stats_coverage_2"] == pytest.approx(1.0)

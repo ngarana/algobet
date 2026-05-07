@@ -22,6 +22,9 @@ class TestTrainingConfig:
         assert config.tune_hyperparameters is False
         assert config.calibrate_probabilities is True
         assert config.calibration_method == "isotonic"
+        assert config.min_calibration_samples == 100
+        assert config.min_calibration_class_samples == 10
+        assert config.fallback_calibration_method == "sigmoid"
         assert config.use_ensemble is False
         assert config.random_seed == 42
 
@@ -188,6 +191,122 @@ class TestTrainingPipelineEvaluate:
         pipeline._evaluate(predictor, X, y)
 
         calibrator.calibrate.assert_called_once()
+
+
+class TestTrainingPipelineCalibrationPolicy:
+    """Tests for calibration method selection and metadata recording."""
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_select_calibration_method_falls_back_to_sigmoid_for_small_validation(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Small validation slices should not use isotonic calibration."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "f2"]
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+
+        y_val = np.array([0, 1, 2] * 4, dtype=np.int64)
+
+        with pytest.warns(RuntimeWarning, match="Falling back to sigmoid"):
+            method = pipeline._select_calibration_method(y_val)
+
+        assert method == "sigmoid"
+        assert pipeline._calibration_policy_reason is not None
+        assert "Falling back to sigmoid" in pipeline._calibration_policy_reason
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_select_calibration_method_skips_when_class_is_missing(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Calibration should be skipped when validation misses an outcome class."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "f2"]
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+
+        y_val = np.array([0, 1, 0, 1, 0, 1], dtype=np.int64)
+
+        with pytest.warns(
+            RuntimeWarning,
+            match="does not contain all outcome classes",
+        ):
+            method = pipeline._select_calibration_method(y_val)
+
+        assert method is None
+        assert pipeline._calibration_policy_reason is not None
+        assert "does not contain all outcome classes" in (
+            pipeline._calibration_policy_reason
+        )
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_build_model_hyperparameters_uses_effective_params_and_applied_method(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Registry metadata should reflect effective params and applied calibration."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "f2"]
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+        pipeline._applied_calibration_method = "sigmoid"
+        pipeline._calibrator = MagicMock()
+        pipeline._calibration_policy_reason = (
+            "Validation split too small for isotonic calibration (n=12, "
+            "min_class_count=4). Falling back to sigmoid."
+        )
+
+        predictor = MagicMock()
+        predictor.effective_hyperparameters = {
+            "max_depth": 6,
+            "learning_rate": 0.1,
+            "n_estimators": 500,
+        }
+
+        model_hyperparameters = pipeline._build_model_hyperparameters(
+            predictor=predictor,
+            best_params={"max_depth": 3},
+        )
+
+        assert model_hyperparameters["max_depth"] == 6
+        assert model_hyperparameters["n_estimators"] == 500
+        assert model_hyperparameters["feature_names"] == ["f1", "f2"]
+        assert model_hyperparameters["requested_calibration_method"] == "isotonic"
+        assert model_hyperparameters["calibration_method"] == "sigmoid"
+        assert model_hyperparameters["calibration_applied"] is True
+        assert (
+            model_hyperparameters["calibration_policy_reason"]
+            == pipeline._calibration_policy_reason
+        )
 
 
 class TestTrainModel:

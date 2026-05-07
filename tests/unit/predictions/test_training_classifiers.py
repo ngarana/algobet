@@ -83,6 +83,14 @@ def test_xgboost_sycl_trains_one_vs_rest_binary_boosters(
             "objective": "binary:logistic",
             "eval_metric": "logloss",
             "random_state": 42,
+            "max_depth": 6,
+            "learning_rate": 0.1,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "min_child_weight": 3,
+            "gamma": 0.1,
+            "reg_alpha": 0.1,
+            "reg_lambda": 1.0,
             "device": "sycl:gpu:0",
             "tree_method": "hist",
         }
@@ -169,6 +177,36 @@ def test_xgboost_cpu_keeps_eval_sets_and_early_stopping(
     ]
     assert train_calls["early_stopping_rounds"] == 50
     assert train_calls["num_boost_round"] == 12
+    assert train_calls["params"] == {
+        "objective": "multi:softprob",
+        "num_class": 3,
+        "eval_metric": "mlogloss",
+        "random_state": 42,
+        "max_depth": 6,
+        "learning_rate": 0.1,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "min_child_weight": 3,
+        "gamma": 0.1,
+        "reg_alpha": 0.1,
+        "reg_lambda": 1.0,
+        "device": "cpu",
+        "tree_method": "hist",
+    }
+    assert predictor.effective_hyperparameters == {
+        "max_depth": 6,
+        "learning_rate": 0.1,
+        "n_estimators": 12,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "min_child_weight": 3,
+        "gamma": 0.1,
+        "reg_alpha": 0.1,
+        "reg_lambda": 1.0,
+        "device": "cpu",
+        "tree_method": "hist",
+    }
+    assert predictor.config.hyperparameters == predictor.effective_hyperparameters
 
 
 def test_xgboost_sycl_predict_proba_normalizes_one_vs_rest_outputs() -> None:
