@@ -78,6 +78,15 @@ class TrainModelRequest(BaseModel):
     # Outcome balancing control
     outcome_balance: bool | None = None
 
+    # Feature importance pruning
+    feature_selection: bool = False
+    feature_selection_threshold: float = Field(default=0.01, ge=0.0, le=1.0)
+    min_samples_per_feature: int | None = Field(default=None, ge=1)
+
+    # Odds-anchored blending
+    odds_blend: bool = False
+    odds_blend_weight: float | None = Field(default=None, ge=0.0, le=1.0)
+
     # Feature groups selection (subset of available generators)
     feature_groups: list[str] | None = None  # e.g. ["team_form", "odds", "temporal"]
 
@@ -269,6 +278,13 @@ def run_training(
         calibration_method=request.calibration_method,
         # Outcome balancing
         outcome_balance=request.outcome_balance,
+        # Feature importance pruning
+        feature_selection=request.feature_selection,
+        feature_selection_threshold=request.feature_selection_threshold,
+        min_samples_per_feature=request.min_samples_per_feature,
+        # Odds-anchored blending
+        odds_blend=request.odds_blend,
+        odds_blend_weight=request.odds_blend_weight,
         # Feature groups
         feature_groups=request.feature_groups,
         # Ensemble training

@@ -13,7 +13,6 @@ from algobet.api.routers import (
     models_router,
     predictions_router,
     schedules_router,
-    scraping_router,
     seasons_router,
     teams_router,
     tournaments_router,
@@ -22,6 +21,12 @@ from algobet.api.routers import (
 )
 from algobet.api.websockets import websocket_endpoint
 from algobet.services.scheduler_service import SchedulerService
+
+try:
+    from algobet.api.routers.scraping import router as scraping_router
+except ModuleNotFoundError as scraping_import_error:
+    scraping_router = None  # type: ignore[assignment]
+    print(f"Warning: scraping router disabled during startup: {scraping_import_error}")
 
 
 @asynccontextmanager
@@ -169,11 +174,12 @@ app.include_router(
     tags=["workflow"],
 )
 
-app.include_router(
-    scraping_router,
-    prefix="/api/v1/scraping",
-    tags=["scraping"],
-)
+if scraping_router is not None:
+    app.include_router(
+        scraping_router,
+        prefix="/api/v1/scraping",
+        tags=["scraping"],
+    )
 
 app.include_router(
     schedules_router,

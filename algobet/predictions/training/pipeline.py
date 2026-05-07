@@ -117,6 +117,15 @@ class TrainingConfig:
     # Outcome balancing control
     outcome_balance: bool | None = None
 
+    # Feature importance pruning
+    feature_selection: bool = False
+    feature_selection_threshold: float = 0.01
+    min_samples_per_feature: int | None = None
+
+    # Odds-anchored blending
+    odds_blend: bool = False
+    odds_blend_weight: float | None = None
+
     # Output settings
     model_name: str = "match_predictor"
     description: str | None = None
