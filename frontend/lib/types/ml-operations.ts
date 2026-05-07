@@ -21,7 +21,6 @@ export const TrainModelRequestSchema = z.object({
   tournament_ids: z.array(z.number()).optional(),
   team_ids: z.array(z.number()).optional(),
   venue_filter: z.enum(["home", "away", "both"]).optional(),
-  require_odds: z.boolean().optional(),
   // Match quality filters
   min_total_goals: z.number().min(0).optional(),
   max_total_goals: z.number().min(0).optional(),
@@ -35,11 +34,15 @@ export const TrainModelRequestSchema = z.object({
   tuning_trials: z.number().min(10).max(500).default(50),
   // Calibration settings
   calibrate_probabilities: z.boolean().default(true),
-  calibration_method: z.enum(["isotonic", "sigmoid"]).default("isotonic"),
+  calibration_method: z.enum(["isotonic", "sigmoid"]).default("sigmoid"),
   // Outcome balancing
   outcome_balance: z.boolean().optional(),
   // Feature groups selection
   feature_groups: z.array(z.string()).optional(),
+  // Feature importance pruning
+  feature_selection: z.boolean().default(false),
+  feature_selection_threshold: z.number().min(0).max(1).default(0.01),
+  min_samples_per_feature: z.number().min(1).optional(),
   // Ensemble training
   use_ensemble: z.boolean().default(false),
   ensemble_types: z.array(z.string()).optional(),

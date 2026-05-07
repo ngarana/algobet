@@ -15,6 +15,7 @@ class TeamStandings:
     """Computed standings for a team at a given point in the season."""
 
     team_id: int
+    as_of: datetime
     matches_played: int
     points: int
     goals_for: int
@@ -245,6 +246,7 @@ class MatchRepository:
                 standings_history[tid].append(
                     TeamStandings(
                         team_id=tid,
+                        as_of=match.match_date,
                         matches_played=stats["matches_played"],
                         points=stats["points"],
                         goals_for=stats["goals_for"],
@@ -342,8 +344,13 @@ class MatchRepository:
         if before_date is None:
             return team_history[-1]
 
-        # Return the last entry – the most recent snapshot up to before_date
-        return team_history[-1]
+        eligible_snapshots = [
+            standings for standings in team_history if standings.as_of < before_date
+        ]
+        if not eligible_snapshots:
+            return None
+
+        return eligible_snapshots[-1]
 
     def clear_cache(self) -> None:
         """Clear in-memory caches."""

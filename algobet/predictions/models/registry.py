@@ -160,6 +160,34 @@ class ModelRegistry:
 
         return version
 
+    def update_model_hyperparameters(
+        self,
+        model_version: str,
+        hyperparameters: dict[str, Any],
+    ) -> None:
+        """Update stored hyperparameters in both DB and metadata JSON."""
+        stmt = select(ModelVersion).where(ModelVersion.version == model_version)
+        result = self.session.execute(stmt)
+        db_version = result.scalar_one_or_none()
+
+        if db_version is None:
+            raise ValueError(f"Model version {model_version} not found")
+
+        normalized_hyperparameters = _convert_numpy_types(hyperparameters)
+        db_version.hyperparameters = normalized_hyperparameters
+
+        metadata_path = Path(db_version.file_path).parent / "metadata.json"
+        if metadata_path.exists():
+            with open(metadata_path, encoding="utf-8") as f:
+                metadata = json.load(f)
+
+            metadata["hyperparameters"] = normalized_hyperparameters
+
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2)
+
+        self.session.flush()
+
     def load_model(self, version_id: str) -> Any:
         """Load model from disk by version.
 

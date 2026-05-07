@@ -1,12 +1,18 @@
 """Unit tests for TrainingPipeline."""
 
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from algobet.predictions.training.pipeline import TrainingConfig
+from algobet.predictions.data.queries import MatchRepository, TeamStandings
+from algobet.predictions.training.pipeline import (
+    MODEL_FEATURE_SCHEMA_VERSION,
+    TrainingConfig,
+)
 
 
 class TestTrainingConfig:
@@ -21,12 +27,13 @@ class TestTrainingConfig:
         assert config.test_ratio == 0.15
         assert config.tune_hyperparameters is False
         assert config.calibrate_probabilities is True
-        assert config.calibration_method == "isotonic"
-        assert config.min_calibration_samples == 100
-        assert config.min_calibration_class_samples == 10
-        assert config.fallback_calibration_method == "sigmoid"
+        assert config.calibration_method == "sigmoid"
+        assert config.outcome_balance is None
+        assert config.feature_schema_version == MODEL_FEATURE_SCHEMA_VERSION
         assert config.use_ensemble is False
         assert config.random_seed == 42
+        assert not hasattr(config, "require_odds")
+        assert not hasattr(config, "odds_blend")
 
     def test_custom_values(self) -> None:
         """TrainingConfig accepts custom values."""
@@ -44,6 +51,17 @@ class TestTrainingConfig:
         assert config.tune_hyperparameters is True
         assert config.tuning_trials == 100
         assert config.description == "Test model"
+
+    def test_default_xgboost_probability_hyperparameters(self) -> None:
+        """XGBoost defaults should be conservative for odds-free probabilities."""
+        from algobet.predictions.training.classifiers import XGBoostPredictor
+
+        defaults = XGBoostPredictor().default_hyperparameters
+
+        assert defaults["max_depth"] == 3
+        assert defaults["learning_rate"] == pytest.approx(0.03)
+        assert defaults["n_estimators"] == 1200
+        assert defaults["reg_lambda"] == pytest.approx(10.0)
 
     def test_ratios_sum_to_one(self) -> None:
         """Default split ratios should sum to 1.0."""
@@ -192,120 +210,340 @@ class TestTrainingPipelineEvaluate:
 
         calibrator.calibrate.assert_called_once()
 
-
-class TestTrainingPipelineCalibrationPolicy:
-    """Tests for calibration method selection and metadata recording."""
-
+    @patch("algobet.predictions.training.pipeline.FeaturePipeline")
     @patch("algobet.predictions.training.pipeline.FeatureStore")
     @patch("algobet.predictions.training.pipeline.ModelRegistry")
     @patch("algobet.predictions.training.pipeline.MatchRepository")
-    def test_select_calibration_method_falls_back_to_sigmoid_for_small_validation(
+    def test_evaluate_adds_market_diagnostics_without_training_on_odds(
         self,
         mock_repo_cls: MagicMock,
         mock_registry_cls: MagicMock,
         mock_store_cls: MagicMock,
+        mock_pipeline_cls: MagicMock,
     ) -> None:
-        """Small validation slices should not use isotonic calibration."""
+        """Evaluation may compare with odds, but only as post-hoc diagnostics."""
         from algobet.predictions.training.pipeline import TrainingPipeline
 
-        feature_pipeline = MagicMock()
-        feature_pipeline.feature_names = ["f1", "f2"]
         pipeline = TrainingPipeline(
             config=TrainingConfig(),
             session=MagicMock(),
-            feature_pipeline=feature_pipeline,
-        )
-
-        y_val = np.array([0, 1, 2] * 4, dtype=np.int64)
-
-        with pytest.warns(RuntimeWarning, match="Falling back to sigmoid"):
-            method = pipeline._select_calibration_method(y_val)
-
-        assert method == "sigmoid"
-        assert pipeline._calibration_policy_reason is not None
-        assert "Falling back to sigmoid" in pipeline._calibration_policy_reason
-
-    @patch("algobet.predictions.training.pipeline.FeatureStore")
-    @patch("algobet.predictions.training.pipeline.ModelRegistry")
-    @patch("algobet.predictions.training.pipeline.MatchRepository")
-    def test_select_calibration_method_skips_when_class_is_missing(
-        self,
-        mock_repo_cls: MagicMock,
-        mock_registry_cls: MagicMock,
-        mock_store_cls: MagicMock,
-    ) -> None:
-        """Calibration should be skipped when validation misses an outcome class."""
-        from algobet.predictions.training.pipeline import TrainingPipeline
-
-        feature_pipeline = MagicMock()
-        feature_pipeline.feature_names = ["f1", "f2"]
-        pipeline = TrainingPipeline(
-            config=TrainingConfig(),
-            session=MagicMock(),
-            feature_pipeline=feature_pipeline,
-        )
-
-        y_val = np.array([0, 1, 0, 1, 0, 1], dtype=np.int64)
-
-        with pytest.warns(
-            RuntimeWarning,
-            match="does not contain all outcome classes",
-        ):
-            method = pipeline._select_calibration_method(y_val)
-
-        assert method is None
-        assert pipeline._calibration_policy_reason is not None
-        assert "does not contain all outcome classes" in (
-            pipeline._calibration_policy_reason
-        )
-
-    @patch("algobet.predictions.training.pipeline.FeatureStore")
-    @patch("algobet.predictions.training.pipeline.ModelRegistry")
-    @patch("algobet.predictions.training.pipeline.MatchRepository")
-    def test_build_model_hyperparameters_uses_effective_params_and_applied_method(
-        self,
-        mock_repo_cls: MagicMock,
-        mock_registry_cls: MagicMock,
-        mock_store_cls: MagicMock,
-    ) -> None:
-        """Registry metadata should reflect effective params and applied calibration."""
-        from algobet.predictions.training.pipeline import TrainingPipeline
-
-        feature_pipeline = MagicMock()
-        feature_pipeline.feature_names = ["f1", "f2"]
-        pipeline = TrainingPipeline(
-            config=TrainingConfig(),
-            session=MagicMock(),
-            feature_pipeline=feature_pipeline,
-        )
-        pipeline._applied_calibration_method = "sigmoid"
-        pipeline._calibrator = MagicMock()
-        pipeline._calibration_policy_reason = (
-            "Validation split too small for isotonic calibration (n=12, "
-            "min_class_count=4). Falling back to sigmoid."
         )
 
         predictor = MagicMock()
-        predictor.effective_hyperparameters = {
-            "max_depth": 6,
-            "learning_rate": 0.1,
-            "n_estimators": 500,
-        }
-
-        model_hyperparameters = pipeline._build_model_hyperparameters(
-            predictor=predictor,
-            best_params={"max_depth": 3},
+        predictor.predict_proba.return_value = np.array(
+            [
+                [0.20, 0.20, 0.60],
+                [0.55, 0.25, 0.20],
+                [0.25, 0.50, 0.25],
+            ],
+            dtype=np.float64,
         )
 
-        assert model_hyperparameters["max_depth"] == 6
-        assert model_hyperparameters["n_estimators"] == 500
-        assert model_hyperparameters["feature_names"] == ["f1", "f2"]
-        assert model_hyperparameters["requested_calibration_method"] == "isotonic"
-        assert model_hyperparameters["calibration_method"] == "sigmoid"
-        assert model_hyperparameters["calibration_applied"] is True
+        X = np.ones((3, 2), dtype=np.float64)
+        y = np.array([2, 0, 1], dtype=np.int64)
+        matches_df = pd.DataFrame(
+            {
+                "odds_home": [5.5, 2.0, 3.2],
+                "odds_draw": [4.2, 3.4, 2.8],
+                "odds_away": [1.55, 4.0, 3.1],
+            }
+        )
+
+        metrics = pipeline._evaluate(predictor, X, y, matches_df)
+
+        assert metrics["market_samples"] == pytest.approx(3.0)
+        assert metrics["market_log_loss"] > 0.0
+        assert 0.0 <= metrics["market_favorite_accuracy"] <= 1.0
+        assert 0.0 <= metrics["market_favorite_agreement"] <= 1.0
+        assert "market_model_probability_mae" in metrics
+
+
+class TestTrainingPipelineFeatureSelection:
+    """Tests for the two-pass feature selection helper."""
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_choose_selected_features_respects_threshold_and_sample_cap(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Selection should use normalized gain and min-samples caps."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        feature_pipeline = MagicMock()
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(
+                feature_selection_threshold=0.1,
+                min_samples_per_feature=2,
+            ),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+
+        selected = pipeline._choose_selected_feature_names(
+            feature_names=["f1", "f2", "f3", "f4"],
+            feature_importance={"f1": 8.0, "f2": 1.0, "f3": 0.5, "f4": 0.0},
+            n_samples=4,
+        )
+
+        assert selected == ["f1", "f2"]
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_apply_feature_selection_reduces_arrays_and_records_subset(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """The probe pass should reduce the feature matrix before final training."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "f2", "f3"]
+        feature_pipeline.set_selected_features = MagicMock()
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(
+                feature_selection=True,
+                feature_selection_threshold=0.2,
+            ),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+
+        probe = MagicMock()
+        probe.feature_importance = {"f1": 9.0, "f2": 1.0, "f3": 0.0}
+        pipeline._train_model = MagicMock(return_value=probe)
+
+        X_train = np.arange(12, dtype=np.float64).reshape(4, 3)
+        X_val = np.arange(6, dtype=np.float64).reshape(2, 3)
+        X_test = np.arange(6, dtype=np.float64).reshape(2, 3)
+
+        selected_train, selected_val, selected_test = pipeline._apply_feature_selection(
+            X_train=X_train,
+            X_val=X_val,
+            X_test=X_test,
+            y_train=np.array([0, 1, 2, 0], dtype=np.int64),
+            y_val=np.array([1, 2], dtype=np.int64),
+            class_weights=None,
+            hyperparameters={},
+        )
+
+        assert pipeline._selected_feature_names == ["f1"]
+        feature_pipeline.set_selected_features.assert_called_once_with(["f1"])
+        assert selected_train.shape == (4, 1)
+        assert selected_val.shape == (2, 1)
+        assert selected_test.shape == (2, 1)
+
+
+class TestTrainingPipelineOddsFree:
+    """Tests for odds-free training behavior."""
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_init_rejects_unsupported_feature_groups(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Odds-derived feature groups should not be accepted."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        with pytest.raises(ValueError, match="Unsupported feature groups: odds"):
+            TrainingPipeline(
+                config=TrainingConfig(feature_groups=["odds"]),
+                session=MagicMock(),
+            )
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_init_accepts_enriched_stats_feature_group(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Enriched stats should remain available as a non-odds feature group."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(feature_groups=["enriched_stats"]),
+            session=MagicMock(),
+        )
+
+        assert "home_xg_for_avg_3" in pipeline.feature_pipeline.feature_names
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_run_saves_feature_pipeline_beside_model(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Training should persist the odds-free pipeline with the model."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "f2"]
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(calibrate_probabilities=False),
+            session=MagicMock(),
+            models_path=Path("test/models"),
+            feature_pipeline=feature_pipeline,
+        )
+
+        mock_registry = mock_registry_cls.return_value
+        mock_registry.save_model.return_value = "xgboost_20260507_010203"
+
+        pipeline._prepare_data = MagicMock(
+            return_value=(
+                np.ones((2, 2), dtype=np.float64),
+                np.ones((2, 2), dtype=np.float64),
+                np.ones((2, 2), dtype=np.float64),
+                np.array([0, 1], dtype=np.int64),
+                np.array([1, 2], dtype=np.int64),
+                np.array([2, 0], dtype=np.int64),
+            )
+        )
+        predictor = MagicMock()
+        predictor.feature_importance = {"f1": 0.6}
+        pipeline._train_model = MagicMock(return_value=predictor)
+        pipeline._evaluate = MagicMock(
+            side_effect=[
+                {"accuracy": 0.7},
+                {"accuracy": 0.6},
+                {"accuracy": 0.5},
+            ]
+        )
+
+        result = pipeline.run()
+        expected_path = (
+            Path("test/models")
+            / "xgboost"
+            / "xgboost_20260507_010203"
+            / "feature_pipeline"
+        )
+
+        feature_pipeline.save.assert_called_once_with(expected_path)
+        mock_registry.update_model_hyperparameters.assert_called_once()
+        assert mock_registry.update_model_hyperparameters.call_args.kwargs[
+            "hyperparameters"
+        ]["feature_pipeline_path"] == str(expected_path)
+        assert pipeline._train_model.call_args.args[5] is None
+        assert result.feature_schema_version == MODEL_FEATURE_SCHEMA_VERSION
+        assert result.model_path == Path("test/models/xgboost/xgboost_20260507_010203")
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_run_applies_class_weights_only_when_enabled(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Class weights should be opt-in for calibrated probability training."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "f2"]
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(
+                calibrate_probabilities=False,
+                outcome_balance=True,
+            ),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+
+        mock_registry = mock_registry_cls.return_value
+        mock_registry.save_model.return_value = "xgboost_20260507_010203"
+
+        pipeline._prepare_data = MagicMock(
+            return_value=(
+                np.ones((5, 2), dtype=np.float64),
+                np.ones((2, 2), dtype=np.float64),
+                np.ones((2, 2), dtype=np.float64),
+                np.array([0, 0, 0, 1, 2], dtype=np.int64),
+                np.array([1, 2], dtype=np.int64),
+                np.array([2, 0], dtype=np.int64),
+            )
+        )
+        predictor = MagicMock()
+        predictor.feature_importance = {"f1": 0.6}
+        pipeline._train_model = MagicMock(return_value=predictor)
+        pipeline._evaluate = MagicMock(
+            side_effect=[
+                {"accuracy": 0.7},
+                {"accuracy": 0.6},
+                {"accuracy": 0.5},
+            ]
+        )
+
+        pipeline.run()
+
+        class_weights = pipeline._train_model.call_args.args[5]
+        assert class_weights is not None
+        assert set(class_weights) == {0, 1, 2}
+
+
+class TestMatchRepositoryStandings:
+    """Tests for time-aware standings lookup."""
+
+    def _standing(self, as_of: datetime, points: int) -> TeamStandings:
+        return TeamStandings(
+            team_id=1,
+            as_of=as_of,
+            matches_played=points // 3,
+            points=points,
+            goals_for=points,
+            goals_against=0,
+            goal_diff=points,
+            wins=points // 3,
+            draws=0,
+            losses=0,
+            position=1,
+            total_teams=2,
+            points_per_game=float(points),
+        )
+
+    def test_get_team_standings_uses_latest_snapshot_before_match_date(self) -> None:
+        """Standings features should not see final-season snapshots."""
+        repo = MatchRepository(MagicMock())
+        repo._standings_cache[(10, 20)] = {
+            1: [
+                self._standing(datetime(2026, 1, 1), 3),
+                self._standing(datetime(2026, 2, 1), 6),
+                self._standing(datetime(2026, 3, 1), 9),
+            ]
+        }
+
+        standing = repo.get_team_standings(
+            team_id=1,
+            tournament_id=10,
+            season_id=20,
+            before_date=datetime(2026, 2, 15),
+        )
+
+        assert standing is not None
+        assert standing.points == 6
         assert (
-            model_hyperparameters["calibration_policy_reason"]
-            == pipeline._calibration_policy_reason
+            repo.get_team_standings(
+                team_id=1,
+                tournament_id=10,
+                season_id=20,
+                before_date=datetime(2025, 12, 31),
+            )
+            is None
         )
 
 

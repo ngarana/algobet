@@ -2,7 +2,6 @@
 
 import { Target } from "lucide-react";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import type { DataRangeSectionProps } from "./types";
 
@@ -13,18 +12,6 @@ export function MatchQualitySection({ config, onConfigChange }: DataRangeSection
         <Target className="h-4 w-4" />
         Match Quality Filters
       </h4>
-
-      {/* Require Odds */}
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="require-odds"
-          checked={config.requireOdds}
-          onCheckedChange={(checked) => onConfigChange("requireOdds", Boolean(checked))}
-        />
-        <Label htmlFor="require-odds" className="text-sm font-normal">
-          Require betting odds available
-        </Label>
-      </div>
 
       {/* Goals Range */}
       <div className="space-y-2">

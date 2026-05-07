@@ -1,6 +1,7 @@
 "use client";
 
 import { Clock } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -83,6 +84,57 @@ export function TrainingSettingsSection({
             <SelectItem value="sigmoid">Sigmoid (Platt)</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+      <div className="space-y-3 rounded-md border p-3">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="feature-selection"
+            checked={config.featureSelection}
+            onCheckedChange={(checked) =>
+              onConfigChange("featureSelection", Boolean(checked))
+            }
+          />
+          <Label htmlFor="feature-selection" className="text-sm font-normal">
+            Enable feature selection
+          </Label>
+        </div>
+        {config.featureSelection && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="feature-selection-threshold">Importance Threshold</Label>
+              <Input
+                id="feature-selection-threshold"
+                type="number"
+                min={0}
+                max={1}
+                step={0.001}
+                value={config.featureSelectionThreshold}
+                onChange={(e) =>
+                  onConfigChange(
+                    "featureSelectionThreshold",
+                    parseFloat(e.target.value) || 0.005
+                  )
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="min-samples-per-feature">Min Samples per Feature</Label>
+              <Input
+                id="min-samples-per-feature"
+                type="number"
+                min={1}
+                max={5000}
+                value={config.minSamplesPerFeature ?? ""}
+                onChange={(e) =>
+                  onConfigChange(
+                    "minSamplesPerFeature",
+                    e.target.value === "" ? null : parseInt(e.target.value, 10)
+                  )
+                }
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

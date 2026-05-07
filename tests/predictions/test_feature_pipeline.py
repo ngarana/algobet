@@ -7,7 +7,10 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from algobet.predictions.features.generators import EnrichedStatsFeatureGenerator
+from algobet.predictions.features.generators import (
+    EnrichedStatsFeatureGenerator,
+    FeatureSchema,
+)
 from algobet.predictions.features.pipeline import FeaturePipeline, PipelineConfig
 
 
@@ -177,6 +180,51 @@ class TestFeaturePipeline:
     def test_pipeline_initially_not_fitted(self, pipeline):
         """Test pipeline is initially not fitted."""
         assert pipeline.is_fitted is False
+
+    def test_create_default_excludes_odds_features(self):
+        """Default training features should be free of implied-odds signals."""
+        pipeline = FeaturePipeline.create_default()
+
+        forbidden_terms = (
+            "odds",
+            "implied_prob",
+            "bookmaker",
+            "favorite",
+            "market_",
+        )
+        assert pipeline.feature_names
+        assert all(
+            not any(term in feature_name for term in forbidden_terms)
+            for feature_name in pipeline.feature_names
+        )
+
+    def test_set_selected_features_filters_names_and_schema(
+        self, pipeline, mock_generators
+    ):
+        """Selected feature subsets should also constrain the feature schema."""
+        mock_generators.get_schema.return_value = FeatureSchema(
+            version="v1.0",
+            features={"feature1": float, "feature2": float},
+        )
+
+        pipeline.set_selected_features(["feature1"])
+
+        assert pipeline.feature_names == ["feature1"]
+        assert list(pipeline.get_schema().features) == ["feature1"]
+
+    def test_save_load_preserves_selected_feature_subset(self, tmp_path):
+        """Saved pipelines should reload the same selected feature shape."""
+        pipeline = FeaturePipeline.create_default()
+        selected_features = ["home_points_last_3", "away_points_last_3"]
+        pipeline.set_selected_features(selected_features)
+
+        pipeline_path = tmp_path / "pipeline"
+        pipeline.save(pipeline_path)
+
+        loaded = FeaturePipeline.load(pipeline_path)
+
+        assert loaded.selected_feature_names == selected_features
+        assert loaded.feature_names == selected_features
 
 
 class TestEnrichedStatsFeatureGenerator:

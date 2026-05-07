@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from algobet.models import Match, ModelVersion, Season, Team, Tournament
+from algobet.predictions.training.pipeline import MODEL_FEATURE_SCHEMA_VERSION
 
 
 @pytest.fixture
@@ -36,6 +37,8 @@ def sample_matches(test_session: Session) -> list[Match]:
     from datetime import datetime, timedelta
 
     for i in range(150):
+        home_score = i % 3
+        away_score = home_score if i % 5 == 0 else (i + 1) % 3
         match = Match(
             id=i + 1,
             tournament_id=1,
@@ -43,8 +46,8 @@ def sample_matches(test_session: Session) -> list[Match]:
             home_team_id=1,
             away_team_id=2,
             match_date=datetime(2024, 1, 1) + timedelta(days=i),
-            home_score=i % 3,
-            away_score=(i + 1) % 3,
+            home_score=home_score,
+            away_score=away_score,
             status="FINISHED",
             odds_home=2.0 + (i % 5) * 0.1,
             odds_draw=3.3,
@@ -104,7 +107,7 @@ class TestBacktestEndpoint:
             mock_registry.load_model.return_value = mock_model
             mock_registry.get_active_model.return_value = (
                 mock_model,
-                MagicMock(version="v1.0.0", id=1),
+                MagicMock(version="v1.0.0", id=1, model_id=1),
             )
             mock_registry.list_models.return_value = [MagicMock(version="v1.0.0")]
             mock_registry_cls.return_value = mock_registry
@@ -124,27 +127,29 @@ class TestBacktestEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Backtest should return metrics on success."""
-        n_test_samples = 105
-
         with patch(
             "algobet.api.routers.ml_operations.ModelRegistry"
         ) as mock_registry_cls:
             mock_registry = MagicMock()
             mock_model = MagicMock()
-            mock_model.predict_proba.return_value = np.random.dirichlet(
-                [1, 1, 1], size=n_test_samples
+            mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
+                [1, 1, 1], size=len(X)
             ).astype(np.float64)
             mock_registry.load_model.return_value = mock_model
             mock_registry.get_active_model.return_value = (
                 mock_model,
-                MagicMock(version="v1.0.0", id=1),
+                MagicMock(version="v1.0.0", id=1, model_id=1),
             )
             mock_registry.list_models.return_value = [MagicMock(version="v1.0.0")]
             mock_registry_cls.return_value = mock_registry
 
             response = test_client.post(
                 "/api/v1/ml/backtest",
-                json={"min_matches": 100},
+                json={
+                    "min_matches": 100,
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-06-30",
+                },
             )
 
         assert response.status_code == 200
@@ -162,20 +167,18 @@ class TestBacktestEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Backtest should respect date range parameters."""
-        n_test_samples = 70
-
         with patch(
             "algobet.api.routers.ml_operations.ModelRegistry"
         ) as mock_registry_cls:
             mock_registry = MagicMock()
             mock_model = MagicMock()
-            mock_model.predict_proba.return_value = np.random.dirichlet(
-                [1, 1, 1], size=n_test_samples
+            mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
+                [1, 1, 1], size=len(X)
             ).astype(np.float64)
             mock_registry.load_model.return_value = mock_model
             mock_registry.get_active_model.return_value = (
                 mock_model,
-                MagicMock(version="v1.0.0", id=1),
+                MagicMock(version="v1.0.0", id=1, model_id=1),
             )
             mock_registry.list_models.return_value = [MagicMock(version="v1.0.0")]
             mock_registry_cls.return_value = mock_registry
@@ -198,27 +201,29 @@ class TestBacktestEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Backtest should return all classification metrics."""
-        n_test_samples = 105
-
         with patch(
             "algobet.api.routers.ml_operations.ModelRegistry"
         ) as mock_registry_cls:
             mock_registry = MagicMock()
             mock_model = MagicMock()
-            mock_model.predict_proba.return_value = np.random.dirichlet(
-                [1, 1, 1], size=n_test_samples
+            mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
+                [1, 1, 1], size=len(X)
             ).astype(np.float64)
             mock_registry.load_model.return_value = mock_model
             mock_registry.get_active_model.return_value = (
                 mock_model,
-                MagicMock(version="v1.0.0", id=1),
+                MagicMock(version="v1.0.0", id=1, model_id=1),
             )
             mock_registry.list_models.return_value = [MagicMock(version="v1.0.0")]
             mock_registry_cls.return_value = mock_registry
 
             response = test_client.post(
                 "/api/v1/ml/backtest",
-                json={"min_matches": 100},
+                json={
+                    "min_matches": 100,
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-06-30",
+                },
             )
 
         assert response.status_code == 200
@@ -244,27 +249,29 @@ class TestBacktestEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Backtest should return betting simulation metrics."""
-        n_test_samples = 105
-
         with patch(
             "algobet.api.routers.ml_operations.ModelRegistry"
         ) as mock_registry_cls:
             mock_registry = MagicMock()
             mock_model = MagicMock()
-            mock_model.predict_proba.return_value = np.random.dirichlet(
-                [1, 1, 1], size=n_test_samples
+            mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
+                [1, 1, 1], size=len(X)
             ).astype(np.float64)
             mock_registry.load_model.return_value = mock_model
             mock_registry.get_active_model.return_value = (
                 mock_model,
-                MagicMock(version="v1.0.0", id=1),
+                MagicMock(version="v1.0.0", id=1, model_id=1),
             )
             mock_registry.list_models.return_value = [MagicMock(version="v1.0.0")]
             mock_registry_cls.return_value = mock_registry
 
             response = test_client.post(
                 "/api/v1/ml/backtest",
-                json={"min_matches": 100},
+                json={
+                    "min_matches": 100,
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-06-30",
+                },
             )
 
         assert response.status_code == 200
@@ -312,7 +319,7 @@ class TestTrainEndpoint:
             mock_pipeline.run.return_value = MagicMock(
                 model_version="xgboost_20260424_000000",
                 model_type="xgboost",
-                feature_schema_version="v1.0",
+                feature_schema_version=MODEL_FEATURE_SCHEMA_VERSION,
                 num_features=42,
                 trained_at=datetime(2026, 4, 24, 0, 0, 0),
                 training_duration_seconds=12.5,
@@ -338,8 +345,94 @@ class TestTrainEndpoint:
         assert data["model_version"] == "xgboost_20260424_000000"
         assert data["model_type"] == "xgboost"
         assert data["is_active"] is True
+        assert data["feature_schema_version"] == MODEL_FEATURE_SCHEMA_VERSION
         assert data["num_features"] == 42
         assert "test_metrics" in data
+        train_config = mock_pipeline_cls.call_args.kwargs["config"]
+        assert train_config.feature_schema_version == MODEL_FEATURE_SCHEMA_VERSION
+        assert train_config.calibration_method == "sigmoid"
+        assert train_config.outcome_balance is None
+        assert not hasattr(train_config, "require_odds")
+        assert not hasattr(train_config, "odds_blend")
+
+    def test_train_accepts_epl_feature_selection_request(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """The recommended odds-free EPL request should map into TrainingConfig."""
+        with (
+            patch(
+                "algobet.api.routers.ml_operations.TrainingPipeline"
+            ) as mock_pipeline_cls,
+            patch(
+                "algobet.api.routers.ml_operations.ModelRegistry"
+            ) as mock_registry_cls,
+        ):
+            mock_pipeline = MagicMock()
+            mock_pipeline.run.return_value = MagicMock(
+                model_version="xgboost_20260507_192247",
+                model_type="xgboost",
+                feature_schema_version=MODEL_FEATURE_SCHEMA_VERSION,
+                num_features=30,
+                trained_at=datetime(2026, 5, 7, 19, 22, 47),
+                training_duration_seconds=18.0,
+                train_metrics={"accuracy": 0.7},
+                val_metrics={"accuracy": 0.63},
+                test_metrics={
+                    "accuracy": 0.61,
+                    "market_log_loss": 1.02,
+                    "market_model_probability_mae": 0.12,
+                },
+                feature_importance={"home_points_last_5": 0.21},
+            )
+            mock_pipeline_cls.return_value = mock_pipeline
+            mock_registry_cls.return_value = MagicMock()
+
+            response = test_client.post(
+                "/api/v1/ml/train",
+                json={
+                    "model_type": "xgboost",
+                    "description": "EPL odds-free calibrated probability model",
+                    "tournament_ids": [359],
+                    "feature_groups": [
+                        "team_form",
+                        "head_to_head",
+                        "temporal",
+                        "standings",
+                        "enriched_stats",
+                    ],
+                    "feature_selection": True,
+                    "feature_selection_threshold": 0.005,
+                    "min_samples_per_feature": 40,
+                    "min_matches": 150,
+                    "outcome_balance": False,
+                    "tune_hyperparameters": False,
+                    "calibrate_probabilities": True,
+                    "calibration_method": "sigmoid",
+                    "hyperparameters": {
+                        "max_depth": 3,
+                        "learning_rate": 0.03,
+                        "n_estimators": 1200,
+                    },
+                    "tags": {"model_scope": "epl", "odds_policy": "pure_model"},
+                },
+            )
+
+        assert response.status_code == 200
+        train_config = mock_pipeline_cls.call_args.kwargs["config"]
+        assert train_config.tournament_ids == [359]
+        assert train_config.feature_groups == [
+            "team_form",
+            "head_to_head",
+            "temporal",
+            "standings",
+            "enriched_stats",
+        ]
+        assert train_config.feature_selection is True
+        assert train_config.feature_selection_threshold == pytest.approx(0.005)
+        assert train_config.min_samples_per_feature == 40
+        assert train_config.outcome_balance is False
+        assert train_config.calibration_method == "sigmoid"
 
     def test_train_model_type_validation(self, test_client: TestClient) -> None:
         """Training should validate model type values."""
@@ -349,6 +442,16 @@ class TestTrainEndpoint:
         )
 
         assert response.status_code == 422
+
+    def test_train_rejects_odds_feature_group(self, test_client: TestClient) -> None:
+        """Training should reject the removed odds feature group."""
+        response = test_client.post(
+            "/api/v1/ml/train",
+            json={"model_type": "xgboost", "feature_groups": ["odds"]},
+        )
+
+        assert response.status_code == 400
+        assert "Unsupported feature groups" in response.json()["detail"]
 
 
 class TestCalibrateEndpoint:
@@ -398,15 +501,13 @@ class TestCalibrateEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Calibrate should return before/after metrics on success."""
-        n_samples = 400
-
         with patch(
             "algobet.api.routers.ml_operations.ModelRegistry"
         ) as mock_registry_cls:
             mock_registry = MagicMock()
             mock_model = MagicMock()
-            mock_model.predict_proba.return_value = np.random.dirichlet(
-                [1, 1, 1], size=n_samples
+            mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
+                [1, 1, 1], size=len(X)
             ).astype(np.float64)
 
             mock_registry.load_model.return_value = mock_model
@@ -465,7 +566,7 @@ class TestBacktestHistoryEndpoint:
             mock_registry.load_model.return_value = mock_model
             mock_registry.get_active_model.return_value = (
                 mock_model,
-                MagicMock(version="v1.0.0", id=1),
+                MagicMock(version="v1.0.0", id=1, model_id=1),
             )
             mock_registry.list_models.return_value = [MagicMock(version="v1.0.0")]
             mock_registry_cls.return_value = mock_registry

@@ -19,6 +19,7 @@ from algobet.predictions.features.generators import (
     FeatureGenerator,
     FeatureSchema,
     create_default_generators,
+    create_generators_by_names,
 )
 from algobet.predictions.features.transformers import (
     TransformerPipeline,
@@ -35,6 +36,7 @@ class PipelineConfig:
     description: str = ""
     generator_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     transformer_config: dict[str, Any] = field(default_factory=dict)
+    selected_feature_names: list[str] | None = None
 
 
 class FeaturePipeline:
@@ -79,18 +81,53 @@ class FeaturePipeline:
         self.config = config or PipelineConfig()
         self._fitted = False
         self._feature_schema: FeatureSchema | None = None
-        self._feature_names: list[str] | None = None
+        self._feature_names: list[str] | None = (
+            list(self.config.selected_feature_names)
+            if self.config.selected_feature_names
+            else None
+        )
+        self._selected_feature_names: list[str] | None = (
+            list(self.config.selected_feature_names)
+            if self.config.selected_feature_names
+            else None
+        )
         self._last_raw_features: pd.DataFrame | None = None  # cached from last fit()
 
     @property
     def feature_names(self) -> list[str]:
         """Get list of feature names produced by this pipeline."""
+        if self._selected_feature_names is not None:
+            return list(self._selected_feature_names)
+
         if self._feature_names is not None:
             return self._feature_names
 
         names = self.generators.feature_names
         self._feature_names = names
         return names
+
+    @property
+    def selected_feature_names(self) -> list[str] | None:
+        """Return the selected feature subset when feature pruning is active."""
+        if self._selected_feature_names is None:
+            return None
+        return list(self._selected_feature_names)
+
+    def set_selected_features(self, feature_names: list[str]) -> None:
+        """Constrain the pipeline to a selected feature subset."""
+        unique_names = list(dict.fromkeys(feature_names))
+        if not unique_names:
+            raise ValueError("Selected feature list cannot be empty")
+
+        available = set(self.generators.feature_names)
+        missing = [name for name in unique_names if name not in available]
+        if missing:
+            raise ValueError(f"Selected features are unavailable: {missing}")
+
+        self._selected_feature_names = unique_names
+        self._feature_names = unique_names
+        self.config.selected_feature_names = unique_names
+        self._feature_schema = None
 
     @property
     def is_fitted(self) -> bool:
@@ -125,7 +162,8 @@ class FeaturePipeline:
         self.transformers.fit(raw_features, y)
 
         # Store schema and raw features for reuse (avoids redundant generate_raw call)
-        self._feature_schema = self.generators.get_schema()
+        self._feature_schema = None
+        self._feature_schema = self.get_schema()
         self._last_raw_features = raw_features
         self._fitted = True
 
@@ -218,8 +256,24 @@ class FeaturePipeline:
     def get_schema(self) -> FeatureSchema:
         """Get the feature schema for this pipeline."""
         if self._feature_schema is None:
-            self._feature_schema = self.generators.get_schema()
+            schema = self.generators.get_schema()
+            if self._selected_feature_names is not None:
+                schema = FeatureSchema(
+                    version=schema.version,
+                    features={
+                        name: schema.features.get(name, float)
+                        for name in self._selected_feature_names
+                    },
+                    description=schema.description,
+                )
+            self._feature_schema = schema
         return self._feature_schema
+
+    def _generator_names(self) -> list[str]:
+        """Return stable generator names for serialization."""
+        if hasattr(self.generators, "generators"):
+            return [gen.name for gen in self.generators.generators]
+        return [self.generators.name]
 
     def get_feature_importance(
         self,
@@ -269,6 +323,7 @@ class FeaturePipeline:
             "created_at": self.config.created_at.isoformat(),
             "description": self.config.description,
             "feature_names": self.feature_names,
+            "selected_feature_names": self._selected_feature_names,
             "fitted": self._fitted,
         }
 
@@ -282,6 +337,7 @@ class FeaturePipeline:
         # Save generator config (simplified)
         generator_config = {
             "type": type(self.generators).__name__,
+            "generator_names": self._generator_names(),
             "feature_names": self.generators.feature_names,
         }
 
@@ -306,16 +362,20 @@ class FeaturePipeline:
 
         # Load generator config (stored for future use)
         with open(path / "generators.json") as f:
-            json.load(f)  # noqa: F841
+            generator_config = json.load(f)
 
-        # Create default generators (would need more sophisticated loading for custom)
-        generators = create_default_generators()
+        generator_names = generator_config.get("generator_names")
+        if isinstance(generator_names, list) and generator_names:
+            generators = create_generators_by_names(generator_names)
+        else:
+            generators = create_default_generators()
 
         # Create pipeline
         config = PipelineConfig(
             schema_version=config_data["schema_version"],
             created_at=datetime.fromisoformat(config_data["created_at"]),
             description=config_data.get("description", ""),
+            selected_feature_names=config_data.get("selected_feature_names"),
         )
 
         pipeline = cls(
@@ -330,9 +390,14 @@ class FeaturePipeline:
             pipeline.transformers = TransformerPipeline.load(transformers_path)
             pipeline._fitted = True
 
-        pipeline._feature_names = config_data.get(
-            "feature_names", generators.feature_names
-        )
+        selected_feature_names = config_data.get("selected_feature_names")
+        if selected_feature_names:
+            pipeline._selected_feature_names = list(selected_feature_names)
+            pipeline._feature_names = list(selected_feature_names)
+        else:
+            pipeline._feature_names = config_data.get(
+                "feature_names", generators.feature_names
+            )
 
         return pipeline
 

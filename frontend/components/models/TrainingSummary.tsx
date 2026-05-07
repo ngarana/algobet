@@ -20,7 +20,6 @@ export function TrainingSummary({ config, isTraining }: TrainingSummaryProps) {
     config.tournamentIds.length > 0 ? "Tournaments" : null,
     config.teamIds.length > 0 ? "Teams" : null,
     config.venueFilter !== "both" ? "Venue" : null,
-    config.requireOdds ? "Odds" : null,
     config.minTotalGoals !== null || config.maxTotalGoals !== null ? "Goals" : null,
   ].filter(Boolean).length;
 
@@ -56,6 +55,9 @@ export function TrainingSummary({ config, isTraining }: TrainingSummaryProps) {
             {config.useEnsemble && <Badge>Ensemble</Badge>}
             {config.calibrateProbabilities && (
               <Badge variant="secondary">Calibrated</Badge>
+            )}
+            {config.featureSelection && (
+              <Badge variant="secondary">Feature selection</Badge>
             )}
             {isTraining && <Badge>Training...</Badge>}
           </div>

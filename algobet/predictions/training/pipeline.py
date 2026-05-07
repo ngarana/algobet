@@ -11,18 +11,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from numpy.typing import NDArray
 from sqlalchemy.orm import Session
 
 from algobet.predictions.data.queries import MatchRepository
 from algobet.predictions.features.generators import (
-    CompositeFeatureGenerator,
-    FeatureGenerator,
-    HeadToHeadGenerator,
-    OddsFeatureGenerator,
-    StandingsFeatureGenerator,
-    TeamFormGenerator,
-    TemporalFeatureGenerator,
+    create_generators_by_names,
 )
 from algobet.predictions.features.pipeline import FeaturePipeline
 from algobet.predictions.features.store import FeatureStore
@@ -53,6 +48,15 @@ from algobet.predictions.training.tuner import (
     TuningResult,
 )
 
+MODEL_FEATURE_SCHEMA_VERSION = "v2.0_odds_free"
+ALLOWED_FEATURE_GROUPS = (
+    "team_form",
+    "head_to_head",
+    "temporal",
+    "standings",
+    "enriched_stats",
+)
+
 
 @dataclass
 class TrainingConfig:
@@ -73,14 +77,13 @@ class TrainingConfig:
     tournament_ids: list[int] | None = None
     team_ids: list[int] | None = None
     venue_filter: str | None = None  # "home", "away", "both"
-    require_odds: bool = True
 
     # Match quality filters
     min_total_goals: float | None = None
     max_total_goals: float | None = None
 
     # Feature settings
-    feature_schema_version: str = "v1.0"
+    feature_schema_version: str = MODEL_FEATURE_SCHEMA_VERSION
     use_feature_cache: bool = True
 
     # Feature group selection
@@ -108,7 +111,7 @@ class TrainingConfig:
 
     # Calibration settings
     calibrate_probabilities: bool = True
-    calibration_method: str = "isotonic"
+    calibration_method: str = "sigmoid"
 
     # Training settings
     early_stopping_rounds: int = 50
@@ -121,10 +124,6 @@ class TrainingConfig:
     feature_selection: bool = False
     feature_selection_threshold: float = 0.01
     min_samples_per_feature: int | None = None
-
-    # Odds-anchored blending
-    odds_blend: bool = False
-    odds_blend_weight: float | None = None
 
     # Output settings
     model_name: str = "match_predictor"
@@ -205,6 +204,7 @@ class TrainingPipeline:
         self.config = config
         self.session = session
         self.models_path = Path(models_path)
+        self.feature_pipeline_path: Path | None = None
 
         # Initialize feature pipeline with optional feature group selection
         if feature_pipeline:
@@ -215,6 +215,7 @@ class TrainingPipeline:
             )
         else:
             self.feature_pipeline = FeaturePipeline.create_default()
+        self.feature_pipeline.config.schema_version = config.feature_schema_version
         self.feature_store = FeatureStore(
             session=session,
             schema_version=config.feature_schema_version,
@@ -234,6 +235,10 @@ class TrainingPipeline:
         self._y_val: NDArray[np.int64] | None = None
         self._X_test: NDArray[np.float64] | None = None
         self._y_test: NDArray[np.int64] | None = None
+        self._train_df: pd.DataFrame | None = None
+        self._val_df: pd.DataFrame | None = None
+        self._test_df: pd.DataFrame | None = None
+        self._selected_feature_names: list[str] | None = None
 
     def _create_feature_pipeline_with_groups(
         self, feature_groups: list[str]
@@ -246,25 +251,111 @@ class TrainingPipeline:
         Returns:
             FeaturePipeline configured with selected generators
         """
-        GENERATOR_MAP: dict[str, type[FeatureGenerator]] = {
-            "team_form": TeamFormGenerator,
-            "head_to_head": HeadToHeadGenerator,
-            "odds": OddsFeatureGenerator,
-            "temporal": TemporalFeatureGenerator,
-            "standings": StandingsFeatureGenerator,
-        }
+        unsupported_groups = sorted(set(feature_groups) - set(ALLOWED_FEATURE_GROUPS))
+        if unsupported_groups:
+            supported = ", ".join(ALLOWED_FEATURE_GROUPS)
+            unsupported = ", ".join(unsupported_groups)
+            raise ValueError(
+                "Unsupported feature groups: "
+                f"{unsupported}. Supported groups: {supported}"
+            )
 
-        generators: list[FeatureGenerator] = []
-        for group_name in feature_groups:
-            generator_class = GENERATOR_MAP.get(group_name)
-            if generator_class:
-                generators.append(generator_class())
-
-        if not generators:
+        if not feature_groups:
             return FeaturePipeline.create_default()
 
-        composite = CompositeFeatureGenerator(generators)
-        return FeaturePipeline(generators=composite)
+        return FeaturePipeline(generators=create_generators_by_names(feature_groups))
+
+    def _choose_selected_feature_names(
+        self,
+        feature_names: list[str],
+        feature_importance: dict[str, float] | None,
+        n_samples: int,
+    ) -> list[str]:
+        """Choose a stable feature subset from normalized importance scores."""
+        if not feature_names:
+            raise ValueError("Cannot select features from an empty feature list")
+
+        importance = {
+            name: max(float((feature_importance or {}).get(name, 0.0)), 0.0)
+            for name in feature_names
+        }
+        total_importance = sum(importance.values())
+        if total_importance <= 0.0:
+            normalized = {name: 1.0 / len(feature_names) for name in feature_names}
+            selected = list(feature_names)
+        else:
+            normalized = {
+                name: value / total_importance for name, value in importance.items()
+            }
+            selected = [
+                name
+                for name in feature_names
+                if normalized[name] >= self.config.feature_selection_threshold
+            ]
+            if not selected:
+                selected = [max(feature_names, key=lambda name: normalized[name])]
+
+        if self.config.min_samples_per_feature:
+            max_features = max(1, n_samples // self.config.min_samples_per_feature)
+            top_selected = sorted(
+                selected,
+                key=lambda name: normalized[name],
+                reverse=True,
+            )[:max_features]
+            top_selected_set = set(top_selected)
+            selected = [name for name in feature_names if name in top_selected_set]
+
+        return selected
+
+    def _apply_feature_selection(
+        self,
+        X_train: NDArray[np.float64],
+        X_val: NDArray[np.float64],
+        X_test: NDArray[np.float64],
+        y_train: NDArray[np.int64],
+        y_val: NDArray[np.int64],
+        class_weights: dict[int, float] | None,
+        hyperparameters: dict[str, Any],
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+        """Train a probe model, select important features, then refit transforms."""
+        original_feature_names = list(self.feature_pipeline.feature_names)
+        probe = self._train_model(
+            X_train=X_train,
+            y_train=y_train,
+            X_val=X_val,
+            y_val=y_val,
+            hyperparameters=hyperparameters,
+            class_weights=class_weights,
+        )
+        selected_feature_names = self._choose_selected_feature_names(
+            feature_names=original_feature_names,
+            feature_importance=probe.feature_importance,
+            n_samples=len(y_train),
+        )
+        self._selected_feature_names = selected_feature_names
+
+        if hasattr(self.feature_pipeline, "set_selected_features"):
+            self.feature_pipeline.set_selected_features(selected_feature_names)
+
+        if self._train_df is None or self._val_df is None or self._test_df is None:
+            selected_indices = [
+                original_feature_names.index(name) for name in selected_feature_names
+            ]
+            return (
+                X_train[:, selected_indices],
+                X_val[:, selected_indices],
+                X_test[:, selected_indices],
+            )
+
+        X_train_selected = self.feature_pipeline.fit_transform(
+            self._train_df,
+            self.repo,
+            y_train,
+        )
+        X_val_selected = self.feature_pipeline.transform(self._val_df, self.repo)
+        X_test_selected = self.feature_pipeline.transform(self._test_df, self.repo)
+
+        return X_train_selected, X_val_selected, X_test_selected
 
     def run(self) -> TrainingResult:
         """Execute the complete training pipeline.
@@ -280,12 +371,24 @@ class TrainingPipeline:
         X_train, X_val, X_test, y_train, y_val, y_test = self._prepare_data()
 
         # Step 2: Handle class imbalance (if enabled)
-        if self.config.outcome_balance is not False:
+        if self.config.outcome_balance is True:
             class_weights = get_class_weights(y_train)
         else:
             class_weights = None
 
-        # Step 3: Hyperparameter tuning (optional)
+        # Step 3: Optional feature selection using a probe model
+        if self.config.feature_selection:
+            X_train, X_val, X_test = self._apply_feature_selection(
+                X_train=X_train,
+                X_val=X_val,
+                X_test=X_test,
+                y_train=y_train,
+                y_val=y_val,
+                class_weights=class_weights,
+                hyperparameters=self.config.hyperparameters.copy(),
+            )
+
+        # Step 4: Hyperparameter tuning (optional)
         tuning_result = None
         best_params = self.config.hyperparameters.copy()
 
@@ -295,7 +398,7 @@ class TrainingPipeline:
             )
             best_params = tuning_result.best_params
 
-        # Step 4: Train model
+        # Step 5: Train model
         predictor = self._train_model(
             X_train,
             y_train,
@@ -305,7 +408,7 @@ class TrainingPipeline:
             class_weights,
         )
 
-        # Step 5: Calibrate probabilities (optional)
+        # Step 6: Calibrate probabilities (optional)
         if self.config.calibrate_probabilities:
             self._calibrator = ProbabilityCalibrator(
                 method=self.config.calibration_method,
@@ -313,12 +416,12 @@ class TrainingPipeline:
             val_probas = predictor.predict_proba(X_val)
             self._calibrator.fit(val_probas, y_val)
 
-        # Step 6: Evaluate
-        train_metrics = self._evaluate(predictor, X_train, y_train)
-        val_metrics = self._evaluate(predictor, X_val, y_val)
-        test_metrics = self._evaluate(predictor, X_test, y_test)
+        # Step 7: Evaluate
+        train_metrics = self._evaluate(predictor, X_train, y_train, self._train_df)
+        val_metrics = self._evaluate(predictor, X_val, y_val, self._val_df)
+        test_metrics = self._evaluate(predictor, X_test, y_test, self._test_df)
 
-        # Step 7: Register model
+        # Step 8: Register model
         all_metrics = {
             **{f"train_{k}": v for k, v in train_metrics.items()},
             **{f"val_{k}": v for k, v in val_metrics.items()},
@@ -337,6 +440,16 @@ class TrainingPipeline:
             "early_stopping_rounds": self.config.early_stopping_rounds,
             "use_ensemble": self.config.use_ensemble,
         }
+        if self._selected_feature_names is not None:
+            model_hyperparameters["selected_feature_names"] = (
+                self._selected_feature_names
+            )
+            model_hyperparameters["feature_selection"] = {
+                "enabled": True,
+                "threshold": self.config.feature_selection_threshold,
+                "min_samples_per_feature": self.config.min_samples_per_feature,
+                "num_selected": len(self._selected_feature_names),
+            }
         if self.config.use_ensemble:
             model_hyperparameters["ensemble_types"] = self.config.ensemble_types
         if self.config.calibrate_probabilities:
@@ -353,6 +466,14 @@ class TrainingPipeline:
             hyperparameters=model_hyperparameters,
             description=self.config.description,
             tags=self.config.tags,
+        )
+        model_dir = self.models_path / self.config.model_type / model_version
+        self.feature_pipeline_path = model_dir / "feature_pipeline"
+        self.feature_pipeline.save(self.feature_pipeline_path)
+        model_hyperparameters["feature_pipeline_path"] = str(self.feature_pipeline_path)
+        self.model_registry.update_model_hyperparameters(
+            model_version=model_version,
+            hyperparameters=model_hyperparameters,
         )
 
         # Compile result
@@ -371,7 +492,7 @@ class TrainingPipeline:
             training_duration_seconds=duration,
             config=self.config,
             tuning_result=tuning_result,
-            model_path=self.models_path / self.config.model_type / model_version,
+            model_path=model_dir,
         )
 
     def _prepare_data(
@@ -392,7 +513,7 @@ class TrainingPipeline:
         3. Split by temporal indices
         4. Fit transformers on training subset only
         5. Transform all three subsets
-        6. Save fitted pipeline to disk for inference
+        6. Cache raw features for reproducibility
         """
         from algobet.predictions.features.pipeline import prepare_match_dataframe
 
@@ -403,7 +524,6 @@ class TrainingPipeline:
             tournament_ids=self.config.tournament_ids,
             team_ids=self.config.team_ids,
             require_results=True,
-            require_odds=self.config.require_odds,
             min_total_goals=self.config.min_total_goals,
             max_total_goals=self.config.max_total_goals,
             venue_filter=self.config.venue_filter,
@@ -499,6 +619,9 @@ class TrainingPipeline:
         train_df = matches_df.iloc[split.train_indices]
         val_df = matches_df.iloc[split.val_indices]
         test_df = matches_df.iloc[split.test_indices]
+        self._train_df = train_df
+        self._val_df = val_df
+        self._test_df = test_df
 
         X_train = self.feature_pipeline.fit_transform(train_df, self.repo)
         X_val = self.feature_pipeline.transform(val_df, self.repo)
@@ -525,12 +648,6 @@ class TrainingPipeline:
             except Exception:
                 pass  # Feature caching is best-effort
 
-        # Save fitted pipeline for inference
-        pipeline_dir = (
-            self.models_path.parent / "pipelines" / self.config.feature_schema_version
-        )
-        self.feature_pipeline.save(pipeline_dir)
-
         return X_train, X_val, X_test, y_train, y_val, y_test
 
     def _tune_hyperparameters(
@@ -539,7 +656,7 @@ class TrainingPipeline:
         y_train: NDArray[np.int64],
         X_val: NDArray[np.float64],
         y_val: NDArray[np.int64],
-        class_weights: dict[int, float],
+        class_weights: dict[int, float] | None,
     ) -> TuningResult:
         """Run hyperparameter tuning."""
         tuning_config = TuningConfig(
@@ -610,6 +727,7 @@ class TrainingPipeline:
         predictor: MatchPredictor,
         X: NDArray[np.float64],
         y: NDArray[np.int64],
+        matches_df: pd.DataFrame | None = None,
     ) -> dict[str, float]:
         """Evaluate model performance."""
         from sklearn.metrics import (
@@ -632,7 +750,7 @@ class TrainingPipeline:
         # Calculate metrics
         metrics = {
             "accuracy": accuracy_score(y, y_pred),
-            "log_loss": log_loss(y, probas),
+            "log_loss": log_loss(y, probas, labels=list(range(probas.shape[1]))),
             "precision_macro": precision_score(
                 y, y_pred, average="macro", zero_division=0
             ),
@@ -643,8 +761,52 @@ class TrainingPipeline:
         # Add calibration metrics
         cal_metrics = calculate_calibration_metrics(y, probas)
         metrics.update(cal_metrics)
+        metrics.update(self._calculate_market_diagnostics(y, probas, matches_df))
 
         return metrics
+
+    def _calculate_market_diagnostics(
+        self,
+        y: NDArray[np.int64],
+        probas: NDArray[np.float64],
+        matches_df: pd.DataFrame | None,
+    ) -> dict[str, float]:
+        """Compare model probabilities to implied odds for diagnostics only."""
+        if matches_df is None:
+            return {}
+
+        required_columns = ["odds_home", "odds_draw", "odds_away"]
+        if not all(column in matches_df.columns for column in required_columns):
+            return {}
+
+        odds = matches_df[required_columns].astype(float).to_numpy(dtype=np.float64)
+        valid_mask = np.isfinite(odds).all(axis=1) & (odds > 0).all(axis=1)
+        if not np.any(valid_mask):
+            return {"market_samples": 0.0}
+
+        valid_odds = odds[valid_mask]
+        implied = 1.0 / valid_odds
+        implied = implied / implied.sum(axis=1, keepdims=True)
+
+        y_valid = y[valid_mask]
+        model_valid = probas[valid_mask]
+        row_indices = np.arange(len(y_valid))
+
+        market_log_loss = -np.log(
+            np.clip(implied[row_indices, y_valid], 1e-12, 1.0)
+        ).mean()
+        market_favorite = np.argmax(implied, axis=1)
+        model_favorite = np.argmax(model_valid, axis=1)
+
+        return {
+            "market_samples": float(len(y_valid)),
+            "market_log_loss": float(market_log_loss),
+            "market_favorite_accuracy": float(np.mean(market_favorite == y_valid)),
+            "market_model_probability_mae": float(np.abs(model_valid - implied).mean()),
+            "market_favorite_agreement": float(
+                np.mean(model_favorite == market_favorite)
+            ),
+        }
 
     def save_training_config(self, path: Path) -> None:
         """Save training configuration to file.

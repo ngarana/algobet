@@ -60,7 +60,6 @@ export function TrainModelCard() {
             config.tournamentIds.length > 0 ? config.tournamentIds : undefined,
           team_ids: config.teamIds.length > 0 ? config.teamIds : undefined,
           venue_filter: config.venueFilter,
-          require_odds: config.requireOdds,
           // Match quality filters
           min_total_goals: config.minTotalGoals ?? undefined,
           max_total_goals: config.maxTotalGoals ?? undefined,
@@ -80,6 +79,12 @@ export function TrainModelCard() {
           // Feature groups
           feature_groups:
             config.featureGroups.length > 0 ? config.featureGroups : undefined,
+          feature_selection: config.featureSelection,
+          feature_selection_threshold: config.featureSelectionThreshold,
+          min_samples_per_feature:
+            config.minSamplesPerFeature === null
+              ? undefined
+              : config.minSamplesPerFeature,
           // Ensemble training
           use_ensemble: config.useEnsemble,
           ensemble_types: config.useEnsemble ? config.ensembleTypes : undefined,

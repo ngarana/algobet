@@ -1,6 +1,7 @@
 """Integration tests for prediction router contracts used by the frontend."""
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from algobet.models import Match, ModelVersion, Prediction, Season, Team, Tournament
+from algobet.predictions.training.pipeline import MODEL_FEATURE_SCHEMA_VERSION
 
 
 @pytest.fixture
@@ -101,6 +103,7 @@ class TestPredictionRouterContracts:
         self,
         test_client: TestClient,
         test_session: Session,
+        tmp_path: Path,
     ) -> None:
         """Prediction generation should persist results for the selected model."""
         tournament = Tournament(
@@ -121,12 +124,14 @@ class TestPredictionRouterContracts:
         model = ModelVersion(
             id=201,
             name="Selected Model",
-            version="v2.0.0",
+            version="xgboost_20260507_010203",
             algorithm="xgboost",
             accuracy=0.62,
-            file_path="data/models/xgboost/v2.0.0/model.pkl",
+            file_path="data/models/xgboost/xgboost_20260507_010203/model.pkl",
             is_active=False,
             metrics={"test_accuracy": 0.62},
+            hyperparameters={"feature_pipeline_path": ""},
+            feature_schema_version=MODEL_FEATURE_SCHEMA_VERSION,
         )
         match = Match(
             id=201,
@@ -144,31 +149,67 @@ class TestPredictionRouterContracts:
         test_session.add_all([tournament, season, home_team, away_team, model, match])
         test_session.commit()
 
+        pipeline_dir = tmp_path / "feature-pipeline"
+        pipeline_dir.mkdir(parents=True, exist_ok=True)
+        (pipeline_dir / "config.json").write_text("{}", encoding="utf-8")
+        model.hyperparameters = {"feature_pipeline_path": str(pipeline_dir)}
+        test_session.commit()
+
+        loaded_pipeline = MagicMock()
+        loaded_pipeline.is_fitted = True
+        loaded_pipeline.feature_names = ["home_points_last_5"]
+        loaded_pipeline.transform.return_value = np.array(
+            [[1.0, 2.0, 3.0]],
+            dtype=np.float64,
+        )
+        loaded_model = MagicMock()
+        loaded_model.predict_proba.return_value = np.array([[0.67, 0.2, 0.13]])
+
         with (
             patch(
-                "algobet.api.routers.predictions.PredictionService.load_model",
-                return_value=(MagicMock(), "v2.0.0"),
+                "algobet.services.prediction_service.ModelRegistry.load_model",
+                return_value=loaded_model,
             ),
             patch(
-                "algobet.api.routers.predictions.PredictionService.generate_features_v2",
-                return_value=np.array([[1.0, 2.0, 3.0]], dtype=np.float64),
-            ),
-            patch(
-                "algobet.api.routers.predictions.PredictionService.get_prediction",
-                return_value=(
-                    "HOME",
-                    0.67,
-                    {"home": 0.67, "draw": 0.2, "away": 0.13},
-                ),
+                "algobet.services.prediction_service.FeaturePipeline.load",
+                return_value=loaded_pipeline,
             ),
         ):
             response = test_client.post(
                 "/api/v1/predictions/generate",
-                json={"model_version": "v2.0.0", "days_ahead": 7},
+                json={"model_version": "xgboost_20260507_010203", "days_ahead": 7},
             )
 
         assert response.status_code == 200
         data = response.json()
         assert data["generated"] == 1
-        assert data["model_version"] == "v2.0.0"
+        assert data["model_version"] == "xgboost_20260507_010203"
         assert data["existing_predictions_skipped"] == 0
+
+    def test_generate_predictions_rejects_legacy_model_schema(
+        self,
+        test_client: TestClient,
+        test_session: Session,
+    ) -> None:
+        """Prediction generation should require retraining for legacy schemas."""
+        model = ModelVersion(
+            id=301,
+            name="Legacy Model",
+            version="xgboost_legacy",
+            algorithm="xgboost",
+            accuracy=0.58,
+            file_path="data/models/xgboost/xgboost_legacy/model.pkl",
+            is_active=False,
+            metrics={"test_accuracy": 0.58},
+            feature_schema_version="v1.0",
+        )
+        test_session.add(model)
+        test_session.commit()
+
+        response = test_client.post(
+            "/api/v1/predictions/generate",
+            json={"model_version": "xgboost_legacy", "days_ahead": 7},
+        )
+
+        assert response.status_code == 400
+        assert "Retrain it under v2.0_odds_free" in response.json()["detail"]

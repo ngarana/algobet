@@ -238,9 +238,22 @@ def generate_predictions(
             skipped_predictions += 1
             continue
 
-        features = service.generate_features_v2(match)
+        try:
+            features = service.generate_features_v2(match)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model error: {str(e)}",
+            ) from e
+
         if features is None:
-            features = service.generate_features(match)
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Model error: Model {resolved_version} is missing its saved "
+                    "feature pipeline. Retrain it before generating predictions."
+                ),
+            )
 
         outcome, confidence, probabilities = service.get_prediction(model, features)
 

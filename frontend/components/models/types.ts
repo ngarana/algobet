@@ -15,7 +15,6 @@ export interface TrainingConfig {
   tournamentIds: number[];
   teamIds: number[];
   venueFilter: "home" | "away" | "both";
-  requireOdds: boolean;
   // Match quality filters
   minTotalGoals: number | null;
   maxTotalGoals: number | null;
@@ -34,6 +33,10 @@ export interface TrainingConfig {
   outcomeBalance: boolean;
   // Feature groups
   featureGroups: string[];
+  // Feature selection
+  featureSelection: boolean;
+  featureSelectionThreshold: number;
+  minSamplesPerFeature: number | null;
   // Ensemble training
   useEnsemble: boolean;
   ensembleTypes: string[];

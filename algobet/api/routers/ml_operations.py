@@ -24,7 +24,11 @@ from algobet.predictions.training.calibration import (
     ProbabilityCalibrator,
     calculate_calibration_metrics,
 )
-from algobet.predictions.training.pipeline import TrainingConfig, TrainingPipeline
+from algobet.predictions.training.pipeline import (
+    MODEL_FEATURE_SCHEMA_VERSION,
+    TrainingConfig,
+    TrainingPipeline,
+)
 
 router = APIRouter()
 DEFAULT_TRAIN_MODEL_TYPE = os.getenv("ALGOBET_DEFAULT_MODEL_TYPE", "xgboost")
@@ -55,7 +59,6 @@ class TrainModelRequest(BaseModel):
     tournament_ids: list[int] | None = None
     team_ids: list[int] | None = None
     venue_filter: str | None = None  # "home", "away", "both"
-    require_odds: bool | None = None
 
     # Match quality filters
     min_total_goals: float | None = None
@@ -73,7 +76,7 @@ class TrainModelRequest(BaseModel):
 
     # Calibration settings
     calibrate_probabilities: bool = True
-    calibration_method: str = Field(default="isotonic", pattern="^(isotonic|sigmoid)$")
+    calibration_method: str = Field(default="sigmoid", pattern="^(isotonic|sigmoid)$")
 
     # Outcome balancing control
     outcome_balance: bool | None = None
@@ -83,12 +86,8 @@ class TrainModelRequest(BaseModel):
     feature_selection_threshold: float = Field(default=0.01, ge=0.0, le=1.0)
     min_samples_per_feature: int | None = Field(default=None, ge=1)
 
-    # Odds-anchored blending
-    odds_blend: bool = False
-    odds_blend_weight: float | None = Field(default=None, ge=0.0, le=1.0)
-
     # Feature groups selection (subset of available generators)
-    feature_groups: list[str] | None = None  # e.g. ["team_form", "odds", "temporal"]
+    feature_groups: list[str] | None = None
 
     # Ensemble training
     use_ensemble: bool = False
@@ -261,7 +260,6 @@ def run_training(
         tournament_ids=request.tournament_ids,
         team_ids=request.team_ids,
         venue_filter=request.venue_filter,
-        require_odds=request.require_odds if request.require_odds is not None else True,
         # Match quality filters
         min_total_goals=request.min_total_goals,
         max_total_goals=request.max_total_goals,
@@ -282,9 +280,6 @@ def run_training(
         feature_selection=request.feature_selection,
         feature_selection_threshold=request.feature_selection_threshold,
         min_samples_per_feature=request.min_samples_per_feature,
-        # Odds-anchored blending
-        odds_blend=request.odds_blend,
-        odds_blend_weight=request.odds_blend_weight,
         # Feature groups
         feature_groups=request.feature_groups,
         # Ensemble training
@@ -304,6 +299,7 @@ def run_training(
         tags=request.tags,
         # Custom hyperparameters
         hyperparameters=request.hyperparameters,
+        feature_schema_version=MODEL_FEATURE_SCHEMA_VERSION,
     )
 
     try:

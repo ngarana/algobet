@@ -18,6 +18,7 @@ from algobet.predictions.features.pipeline import (
     prepare_match_dataframe,
 )
 from algobet.predictions.models.registry import ModelRegistry
+from algobet.predictions.training.pipeline import MODEL_FEATURE_SCHEMA_VERSION
 from algobet.services.base import BaseService
 
 logger = logging.getLogger(__name__)
@@ -42,8 +43,8 @@ class PredictionResult:
 class PredictionService(BaseService[Any]):
     """Service for generating and managing predictions.
 
-    Uses the full FeaturePipeline when a fitted pipeline is available on disk,
-    otherwise falls back to the basic FormCalculator with 6 features.
+    Loads the exact FeaturePipeline saved with a retrained model so prediction
+    generation uses the same odds-free feature schema as training.
     """
 
     def __init__(
@@ -65,37 +66,42 @@ class PredictionService(BaseService[Any]):
         self.calc = FormCalculator(self.repo)
         self.pipelines_path = Path(pipelines_path)
         self._feature_pipeline: FeaturePipeline | None = None
+        self._feature_pipeline_path: Path | None = None
 
     def _load_feature_pipeline(
         self,
-        schema_version: str = "v1.0",
+        pipeline_path: Path,
     ) -> FeaturePipeline | None:
-        """Load a fitted FeaturePipeline from disk if available.
+        """Load the fitted FeaturePipeline stored with a specific model.
 
         Args:
-            schema_version: Feature schema version to load
+            pipeline_path: Stored pipeline directory for the model
 
         Returns:
             Loaded FeaturePipeline or None if not available
         """
-        if self._feature_pipeline is not None:
+        resolved_path = pipeline_path.resolve()
+        if (
+            self._feature_pipeline is not None
+            and self._feature_pipeline_path == resolved_path
+        ):
             return self._feature_pipeline
 
-        pipeline_dir = self.pipelines_path / schema_version
-        if pipeline_dir.exists() and (pipeline_dir / "config.json").exists():
+        if resolved_path.exists() and (resolved_path / "config.json").exists():
             try:
-                self._feature_pipeline = FeaturePipeline.load(pipeline_dir)
+                self._feature_pipeline = FeaturePipeline.load(resolved_path)
+                self._feature_pipeline_path = resolved_path
                 logger.info(
                     "Loaded FeaturePipeline from %s (%d features)",
-                    pipeline_dir,
+                    resolved_path,
                     len(self._feature_pipeline.feature_names),
                 )
                 return self._feature_pipeline
             except Exception as e:
                 logger.warning(
                     "Failed to load FeaturePipeline from %s: %s. "
-                    "Falling back to FormCalculator.",
-                    pipeline_dir,
+                    "Prediction generation requires retraining the model.",
+                    resolved_path,
                     e,
                 )
         return None
@@ -110,11 +116,47 @@ class PredictionService(BaseService[Any]):
             Tuple of (model object, version string)
         """
         if model_version:
+            stmt = select(ModelVersion).where(ModelVersion.version == model_version)
+        else:
+            stmt = select(ModelVersion).where(ModelVersion.is_active)
+
+        db_model = self.session.execute(stmt).scalar_one_or_none()
+        if db_model is None:
+            if model_version:
+                raise ValueError(f"Model version {model_version} not found")
+            raise ValueError("No active model set in registry")
+
+        if db_model.feature_schema_version != MODEL_FEATURE_SCHEMA_VERSION:
+            actual_schema = db_model.feature_schema_version or "unknown"
+            raise ValueError(
+                f"Model {db_model.version} uses feature schema {actual_schema}. "
+                f"Retrain it under {MODEL_FEATURE_SCHEMA_VERSION} before "
+                "generating predictions."
+            )
+
+        hyperparameters = db_model.hyperparameters or {}
+        pipeline_path_raw = hyperparameters.get("feature_pipeline_path")
+        if not isinstance(pipeline_path_raw, str) or not pipeline_path_raw:
+            raise ValueError(
+                f"Model {db_model.version} is missing its saved feature pipeline. "
+                f"Retrain it under {MODEL_FEATURE_SCHEMA_VERSION} before "
+                "generating predictions."
+            )
+
+        pipeline_path = Path(pipeline_path_raw)
+        pipeline = self._load_feature_pipeline(pipeline_path)
+        if pipeline is None or not pipeline.is_fitted:
+            raise ValueError(
+                f"Model {db_model.version} does not have a usable saved feature "
+                "pipeline. Retrain it before generating predictions."
+            )
+
+        if model_version:
             model = self.registry.load_model(model_version)
             return model, model_version
-        else:
-            model, metadata = self.registry.get_active_model()
-            return model, metadata.version
+
+        model = self.registry.load_model(db_model.version)
+        return model, db_model.version
 
     def generate_features(self, match: Match) -> dict[str, float]:
         """Generate ML features for a match using FormCalculator (basic, 6 features).
@@ -150,20 +192,15 @@ class PredictionService(BaseService[Any]):
         }
 
     def generate_features_v2(self, match: Match) -> np.ndarray | None:
-        """Generate ML features using the full FeaturePipeline.
-
-        Produces ~50+ features including odds, temporal, tournament context,
-        H2H, and multi-window form features. Returns None if no fitted
-        pipeline is available, in which case callers should fall back to
-        generate_features().
+        """Generate ML features using the exact pipeline saved with the model.
 
         Args:
             match: Match object to generate features for
 
         Returns:
-            Feature array (1, n_features) or None if pipeline unavailable
+            Feature array (1, n_features) or None if no model pipeline is loaded
         """
-        pipeline = self._load_feature_pipeline()
+        pipeline = self._feature_pipeline
         if pipeline is None or not pipeline.is_fitted:
             return None
 
@@ -172,13 +209,15 @@ class PredictionService(BaseService[Any]):
             features = pipeline.transform(match_df, self.repo)
             return features
         except Exception as e:
-            logger.warning(
-                "FeaturePipeline transform failed for match %d: %s. "
-                "Falling back to FormCalculator.",
+            logger.error(
+                "FeaturePipeline transform failed for match %d: %s.",
                 match.id,
                 e,
             )
-            return None
+            raise ValueError(
+                f"Saved feature pipeline failed for match {match.id}. "
+                "Retrain the model before generating predictions."
+            ) from e
 
     def get_prediction(
         self, model: Any, features: dict[str, float] | np.ndarray
@@ -221,8 +260,7 @@ class PredictionService(BaseService[Any]):
     ) -> PredictionResult:
         """Generate prediction for a single match.
 
-        Attempts to use the full FeaturePipeline for richer predictions.
-        Falls back to FormCalculator if the pipeline is not available.
+        Uses the exact saved FeaturePipeline for the selected model.
 
         Args:
             match: Match object to predict
@@ -233,12 +271,13 @@ class PredictionService(BaseService[Any]):
         """
         model, version = self.load_model(model_version)
 
-        # Try full FeaturePipeline first, fall back to FormCalculator
         v2_features = self.generate_features_v2(match)
-        if v2_features is not None:
-            features: dict[str, float] | np.ndarray = v2_features
-        else:
-            features = self.generate_features(match)
+        if v2_features is None:
+            raise ValueError(
+                f"Model {version} is missing its saved feature pipeline. "
+                "Retrain it before generating predictions."
+            )
+        features: dict[str, float] | np.ndarray = v2_features
 
         outcome, confidence, probs = self.get_prediction(model, features)
 

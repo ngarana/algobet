@@ -16,11 +16,6 @@ const AVAILABLE_FEATURE_GROUPS = [
     description: "Historical matches between teams",
   },
   {
-    id: "odds",
-    name: "Market Odds",
-    description: "Bookmaker odds, implied probabilities",
-  },
-  {
     id: "temporal",
     name: "Temporal",
     description: "Day of week, month, rest days, season period",
@@ -29,6 +24,11 @@ const AVAILABLE_FEATURE_GROUPS = [
     id: "standings",
     name: "Standings",
     description: "League position, points, relegation, Euro spots",
+  },
+  {
+    id: "enriched_stats",
+    name: "Enriched Stats",
+    description: "Rolling xG, shot, corners, PPDA, and player stats",
   },
 ];
 

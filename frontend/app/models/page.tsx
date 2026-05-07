@@ -101,7 +101,6 @@ export default function ModelsPage() {
               config.tournamentIds.length > 0 ? config.tournamentIds : undefined,
             team_ids: config.teamIds.length > 0 ? config.teamIds : undefined,
             venue_filter: config.venueFilter,
-            require_odds: config.requireOdds,
             min_total_goals: config.minTotalGoals ?? undefined,
             max_total_goals: config.maxTotalGoals ?? undefined,
             train_ratio: config.trainRatio,
@@ -115,6 +114,12 @@ export default function ModelsPage() {
             outcome_balance: config.outcomeBalance,
             feature_groups:
               config.featureGroups.length > 0 ? config.featureGroups : undefined,
+            feature_selection: config.featureSelection,
+            feature_selection_threshold: config.featureSelectionThreshold,
+            min_samples_per_feature:
+              config.minSamplesPerFeature === null
+                ? undefined
+                : config.minSamplesPerFeature,
             use_ensemble: config.useEnsemble,
             ensemble_types: config.useEnsemble ? config.ensembleTypes : undefined,
             split_strategy: config.splitStrategy,

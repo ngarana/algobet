@@ -216,10 +216,6 @@ function DataScopeSummary({ config }: { config: TrainingConfigType }) {
     items.push(config.venueFilter === "home" ? "Home only" : "Away only");
   }
 
-  if (config.requireOdds) {
-    items.push("Odds required");
-  }
-
   if (config.minTotalGoals !== null || config.maxTotalGoals !== null) {
     items.push("Goals filtered");
   }
@@ -288,6 +284,10 @@ function ExpertSummary({ config }: { config: TrainingConfigType }) {
 
   if (Object.keys(config.customHyperparameters).length > 0) {
     items.push("Custom params");
+  }
+
+  if (config.featureSelection) {
+    items.push("Feature selection");
   }
 
   items.push(`Seed: ${config.randomSeed}`);

@@ -1554,31 +1554,48 @@ def create_default_generators() -> CompositeFeatureGenerator:
     Returns:
         CompositeFeatureGenerator with all standard generators
     """
-    return CompositeFeatureGenerator(
-        generators=[
-            TeamFormGenerator(
-                window_sizes=[3, 5, 10],
-                include_venue_specific=True,
-            ),
-            HeadToHeadGenerator(
-                max_h2h_matches=5,
-                max_years_back=3,
-            ),
-            OddsFeatureGenerator(
-                impute_missing=True,
-            ),
-            OddsResidualFeatureGenerator(
-                form_windows=[5, 10],
-            ),
-            TemporalFeatureGenerator(
-                include_rest_days=True,
-                include_fixture_density=True,
-                include_season_period=True,
-            ),
-            StandingsFeatureGenerator(
-                relegation_threshold=3,
-                euro_spot_start=4,
-                euro_spot_end=7,
-            ),
+    return create_generators_by_names(
+        [
+            "team_form",
+            "head_to_head",
+            "temporal",
+            "standings",
+            "enriched_stats",
         ]
+    )
+
+
+def create_generators_by_names(generator_names: list[str]) -> CompositeFeatureGenerator:
+    """Create feature generators by their stable group names."""
+    generator_factories = {
+        "team_form": lambda: TeamFormGenerator(
+            window_sizes=[3, 5, 10],
+            include_venue_specific=True,
+        ),
+        "head_to_head": lambda: HeadToHeadGenerator(
+            max_h2h_matches=5,
+            max_years_back=3,
+        ),
+        "temporal": lambda: TemporalFeatureGenerator(
+            include_rest_days=True,
+            include_fixture_density=True,
+            include_season_period=True,
+        ),
+        "standings": lambda: StandingsFeatureGenerator(
+            relegation_threshold=3,
+            euro_spot_start=4,
+            euro_spot_end=7,
+        ),
+        "enriched_stats": lambda: EnrichedStatsFeatureGenerator(
+            window_sizes=[3, 5],
+            include_diffs=False,
+        ),
+    }
+
+    unsupported = sorted(set(generator_names) - set(generator_factories))
+    if unsupported:
+        raise ValueError(f"Unsupported feature generators: {', '.join(unsupported)}")
+
+    return CompositeFeatureGenerator(
+        generators=[generator_factories[name]() for name in generator_names]
     )

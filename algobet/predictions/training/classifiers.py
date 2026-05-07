@@ -304,17 +304,17 @@ class XGBoostPredictor(MatchPredictor):
 
     @property
     def default_hyperparameters(self) -> dict[str, Any]:
-        """Return the tuned baseline XGBoost settings for training."""
+        """Return conservative odds-free probability defaults for XGBoost."""
         return {
-            "max_depth": 6,
-            "learning_rate": 0.1,
-            "n_estimators": 500,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "min_child_weight": 3,
-            "gamma": 0.1,
-            "reg_alpha": 0.1,
-            "reg_lambda": 1.0,
+            "max_depth": 3,
+            "learning_rate": 0.03,
+            "n_estimators": 1200,
+            "subsample": 0.7,
+            "colsample_bytree": 0.5,
+            "min_child_weight": 10,
+            "gamma": 1.0,
+            "reg_alpha": 2.0,
+            "reg_lambda": 10.0,
         }
 
     def fit(

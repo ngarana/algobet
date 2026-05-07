@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from algobet.predictions.training.pipeline import MODEL_FEATURE_SCHEMA_VERSION
 from algobet.services.prediction_service import PredictionResult, PredictionService
 
 
@@ -36,6 +37,22 @@ def _make_match(
     return match
 
 
+def _make_model_record(
+    version: str = "xgboost_20260507_010203",
+    feature_pipeline_path: str = "/tmp/feature-pipeline",
+    feature_schema_version: str = MODEL_FEATURE_SCHEMA_VERSION,
+) -> MagicMock:
+    """Create a mock model version record."""
+    model_record = MagicMock()
+    model_record.version = version
+    model_record.is_active = True
+    model_record.feature_schema_version = feature_schema_version
+    model_record.hyperparameters = {
+        "feature_pipeline_path": feature_pipeline_path,
+    }
+    return model_record
+
+
 class TestPredictionServiceInit:
     """Tests for PredictionService initialization."""
 
@@ -55,6 +72,70 @@ class TestPredictionServiceInit:
         mock_repo_cls.assert_called_once_with(session)
         assert service.pipelines_path == Path("data/pipelines")
         assert service._feature_pipeline is None
+        assert service._feature_pipeline_path is None
+
+
+class TestLoadModel:
+    """Tests for model loading and pipeline validation."""
+
+    @patch("algobet.services.prediction_service.ModelRegistry")
+    @patch("algobet.services.prediction_service.MatchRepository")
+    @patch("algobet.services.prediction_service.FormCalculator")
+    def test_rejects_legacy_feature_schema(
+        self,
+        mock_calc_cls: MagicMock,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+    ) -> None:
+        """Prediction generation should reject pre-odds-free models."""
+        session = MagicMock()
+        session.execute.return_value.scalar_one_or_none.return_value = (
+            _make_model_record(feature_schema_version="v1.0")
+        )
+
+        service = PredictionService(session)
+
+        with pytest.raises(ValueError, match="Retrain it under v2.0_odds_free"):
+            service.load_model("xgboost_legacy")
+
+    @patch("algobet.services.prediction_service.FeaturePipeline.load")
+    @patch("algobet.services.prediction_service.ModelRegistry")
+    @patch("algobet.services.prediction_service.MatchRepository")
+    @patch("algobet.services.prediction_service.FormCalculator")
+    def test_loads_saved_feature_pipeline_for_model(
+        self,
+        mock_calc_cls: MagicMock,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_pipeline_load: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Prediction generation should use the pipeline saved with the model."""
+        pipeline_dir = tmp_path / "feature_pipeline"
+        pipeline_dir.mkdir()
+        (pipeline_dir / "config.json").write_text("{}", encoding="utf-8")
+
+        fitted_pipeline = MagicMock()
+        fitted_pipeline.is_fitted = True
+        fitted_pipeline.feature_names = ["home_points_last_5"]
+        mock_pipeline_load.return_value = fitted_pipeline
+
+        session = MagicMock()
+        session.execute.return_value.scalar_one_or_none.return_value = (
+            _make_model_record(feature_pipeline_path=str(pipeline_dir))
+        )
+
+        registry = mock_registry_cls.return_value
+        registry.load_model.return_value = MagicMock()
+
+        service = PredictionService(session)
+        model, version = service.load_model("xgboost_20260507_010203")
+
+        assert model is registry.load_model.return_value
+        assert version == "xgboost_20260507_010203"
+        assert service._feature_pipeline is fitted_pipeline
+        assert service._feature_pipeline_path == pipeline_dir.resolve()
+        mock_pipeline_load.assert_called_once_with(pipeline_dir.resolve())
 
 
 class TestGenerateFeatures:
@@ -244,15 +325,22 @@ class TestPredictMatch:
         calc.calculate_goals_scored.return_value = 1.5
         calc.calculate_goals_conceded.return_value = 0.8
 
+        session = MagicMock()
+        session.execute.return_value.scalar_one_or_none.return_value = (
+            _make_model_record()
+        )
         registry = mock_registry_cls.return_value
         model = MagicMock()
         model.predict_proba.return_value = np.array([[0.6, 0.25, 0.15]])
-        registry.get_active_model.return_value = (
-            model,
-            MagicMock(version="v1.0.0"),
-        )
+        registry.load_model.return_value = model
 
-        service = PredictionService(MagicMock())
+        service = PredictionService(session)
+        service._feature_pipeline = MagicMock(is_fitted=True)
+        service._feature_pipeline.transform.return_value = np.array(
+            [[1.0, 2.0, 3.0]],
+            dtype=np.float64,
+        )
+        service._feature_pipeline_path = Path("/tmp/feature-pipeline")
         match = _make_match(match_id=42)
         result = service.predict_match(match)
 

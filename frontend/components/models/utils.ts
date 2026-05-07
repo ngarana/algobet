@@ -37,7 +37,6 @@ export const defaultConfig = {
   tournamentIds: [] as number[],
   teamIds: [] as number[],
   venueFilter: "both" as const,
-  requireOdds: true,
   // Match quality filters
   minTotalGoals: null as number | null,
   maxTotalGoals: null as number | null,
@@ -51,11 +50,15 @@ export const defaultConfig = {
   tuningTrials: 50,
   // Calibration settings
   calibrateProbabilities: true,
-  calibrationMethod: "isotonic" as const,
+  calibrationMethod: "sigmoid" as const,
   // Outcome balancing
-  outcomeBalance: true,
+  outcomeBalance: false,
   // Feature groups (empty = all)
   featureGroups: [] as string[],
+  // Feature selection
+  featureSelection: false,
+  featureSelectionThreshold: 0.005,
+  minSamplesPerFeature: 40 as number | null,
   // Ensemble training
   useEnsemble: false,
   ensembleTypes: ["xgboost", "lightgbm"] as string[],
