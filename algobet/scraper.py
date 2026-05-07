@@ -203,6 +203,49 @@ class OddsPortalScraper:
         if self._playwright:
             self._playwright.stop()
 
+    def _dismiss_overlays(self) -> None:
+        """Dismiss consent and survey overlays that block the content."""
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
+
+        dismiss_targets = [
+            'button:has-text("Reject All")',
+            'button:has-text("I Accept")',
+            'button:has-text("Accept")',
+            'button:has-text("Close")',
+            'button[aria-label="Close"]',
+            'text="Reject All"',
+            'text="I Accept"',
+        ]
+
+        for selector in dismiss_targets:
+            try:
+                locator = self._page.locator(selector).first
+                if locator.count() == 0:
+                    continue
+                if not locator.is_visible(timeout=1500):
+                    continue
+                locator.click(timeout=5000)
+                self._page.wait_for_timeout(1500)
+            except Exception:
+                continue
+
+    def _wait_for_match_rows(self, timeout: int) -> None:
+        """Wait for match rows, retrying once after clearing overlays."""
+        if self._page is None:
+            raise RuntimeError("Browser not started. Call start() first.")
+
+        try:
+            self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=15000)
+            return
+        except PlaywrightTimeoutError:
+            self._dismiss_overlays()
+
+        try:
+            self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=timeout)
+        except PlaywrightTimeoutError:
+            logger.warning("Timeout waiting for game-row selector")
+
     @retry_on_network_error(
         max_retries=3,
         delay=5.0,
@@ -246,14 +289,8 @@ class OddsPortalScraper:
             raise
 
         self._page.wait_for_timeout(5000)
-
-        # Wait for match rows to load (may take time due to JS rendering)
-        try:
-            self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=120000)
-        except PlaywrightTimeoutError:
-            logger.warning(
-                "Timeout waiting for game-row selector in navigate_to_results"
-            )
+        self._dismiss_overlays()
+        self._wait_for_match_rows(timeout=120000)
 
     def get_available_seasons(self) -> list[SeasonInfo]:
         """Get list of available seasons from the current page.
@@ -329,6 +366,7 @@ class OddsPortalScraper:
                 'div[data-testid="odd-container-default"]', timeout=10000
             )
         except Exception:
+            self._dismiss_overlays()
             logger.warning(
                 "Timeout waiting for game rows or odds in scrape_current_page, attempting to scrape anyway..."
             )
@@ -495,13 +533,8 @@ class OddsPortalScraper:
                 ) from e
             raise
 
-        # Wait for match rows to load
-        try:
-            self._page.wait_for_selector(self.MATCH_ROW_SELECTOR, timeout=30000)
-        except PlaywrightTimeoutError:
-            logger.warning(
-                "Timeout waiting for game-row selector in navigate_to_upcoming"
-            )
+        self._dismiss_overlays()
+        self._wait_for_match_rows(timeout=30000)
 
     def _click_show_more(self, max_clicks: int = 15, delay_ms: int = 1800) -> None:
         """Click any 'Show more' button repeatedly until it disappears or max_clicks reached."""

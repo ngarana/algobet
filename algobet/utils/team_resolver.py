@@ -20,10 +20,15 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CONFIG_PATH = os.path.join(
-    os.environ.get("SOCCERDATA_DIR", os.path.expanduser("~/.soccerdata")),
-    "config",
-    "teamname_replacements.json",
+_DEFAULT_CONFIG_CANDIDATES = (
+    Path(
+        os.path.join(
+            os.environ.get("SOCCERDATA_DIR", os.path.expanduser("~/.soccerdata")),
+            "config",
+            "teamname_replacements.json",
+        )
+    ),
+    Path(__file__).resolve().parents[2] / "data" / "teamname_replacements.json",
 )
 
 
@@ -35,7 +40,7 @@ class TeamResolver:
     """
 
     def __init__(self, config_path: str | Path | None = None) -> None:
-        self.mappings = _load_mappings(config_path or _DEFAULT_CONFIG_PATH)
+        self.mappings = _load_mappings(config_path or _default_config_path())
 
     def resolve(self, name: str) -> str:
         """Resolve a team name to its canonical form.
@@ -65,3 +70,11 @@ def _load_mappings(config_path: str | Path) -> dict[str, list[str]]:
         return {}
     with open(path) as f:
         return json.load(f)  # type: ignore[no-any-return]
+
+
+def _default_config_path() -> Path:
+    """Return the first available default mapping file."""
+    for candidate in _DEFAULT_CONFIG_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return _DEFAULT_CONFIG_CANDIDATES[0]

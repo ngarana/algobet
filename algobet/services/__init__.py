@@ -13,12 +13,6 @@ from algobet.services.model_management_service import ModelManagementService
 from algobet.services.prediction_service import PredictionResult, PredictionService
 from algobet.services.query_service import QueryService
 from algobet.services.scheduler_service import SchedulerService, TaskDefinition
-from algobet.services.scraping_service import (
-    JobStatus,
-    ScrapingJob,
-    ScrapingProgress,
-    ScrapingService,
-)
 
 __all__ = [
     # Sync services
@@ -29,10 +23,6 @@ __all__ = [
     "PredictionService",
     "PredictionResult",
     "QueryService",
-    "ScrapingService",
-    "ScrapingJob",
-    "ScrapingProgress",
-    "JobStatus",
     "SchedulerService",
     "TaskDefinition",
     # Async services
