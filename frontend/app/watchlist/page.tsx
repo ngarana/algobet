@@ -97,7 +97,9 @@ function AddWatchlistControls() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Add Team</CardTitle>
-          <CardDescription>Search clubs and add them to watched fixtures.</CardDescription>
+          <CardDescription>
+            Search clubs and add them to watched fixtures.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Input
@@ -130,7 +132,9 @@ function AddWatchlistControls() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Follow League</CardTitle>
-          <CardDescription>Follow leagues to shape the daily dashboard.</CardDescription>
+          <CardDescription>
+            Follow leagues to shape the daily dashboard.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Input
@@ -146,9 +150,7 @@ function AddWatchlistControls() {
               >
                 <div>
                   <p className="font-medium">{tournament.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {tournament.country}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{tournament.country}</p>
                 </div>
                 <Button
                   variant="outline"

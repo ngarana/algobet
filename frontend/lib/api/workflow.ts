@@ -58,15 +58,10 @@ export async function removeWatchlistEntry(
   entryType: string,
   entryId: number
 ): Promise<{ deleted: boolean }> {
-  return apiDelete(
-    `/workflow/watchlist/${entryType}/${entryId}`,
-    deleteResponseSchema
-  );
+  return apiDelete(`/workflow/watchlist/${entryType}/${entryId}`, deleteResponseSchema);
 }
 
-export async function getUserPredictions(
-  matchId?: number
-): Promise<UserPrediction[]> {
+export async function getUserPredictions(matchId?: number): Promise<UserPrediction[]> {
   const queryString = matchId ? buildQueryString({ match_id: matchId }) : "";
   return apiGet(`/workflow/user-predictions${queryString}`, userPredictionArraySchema);
 }
@@ -84,8 +79,5 @@ export async function getResultsReview(): Promise<ResultsReview> {
 export async function getMatchWorkflowDetail(
   matchId: number
 ): Promise<MatchWorkflowDetail> {
-  return apiGet(
-    `/workflow/matches/${matchId}/workflow`,
-    MatchWorkflowDetailSchema
-  );
+  return apiGet(`/workflow/matches/${matchId}/workflow`, MatchWorkflowDetailSchema);
 }

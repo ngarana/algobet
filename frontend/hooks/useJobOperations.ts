@@ -39,10 +39,7 @@ interface UseJobOperationsReturn {
     tournament_id?: number;
     scope?: "all" | "league";
   }) => Promise<void>;
-  importFootballData: (request: {
-    division: string;
-    season: string;
-  }) => Promise<void>;
+  importFootballData: (request: { division: string; season: string }) => Promise<void>;
   refreshAll: () => Promise<void>;
   isPending: boolean;
   isRefreshing: boolean;

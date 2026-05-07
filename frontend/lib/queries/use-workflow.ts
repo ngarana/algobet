@@ -82,13 +82,8 @@ export function useRemoveWatchlistEntry() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      entryType,
-      entryId,
-    }: {
-      entryType: string;
-      entryId: number;
-    }) => removeWatchlistEntry(entryType, entryId),
+    mutationFn: ({ entryType, entryId }: { entryType: string; entryId: number }) =>
+      removeWatchlistEntry(entryType, entryId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.all });
     },

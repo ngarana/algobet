@@ -50,13 +50,8 @@ function MetricCard({
   );
 }
 
-function matchValueBet(
-  prediction: Prediction,
-  valueBets: ValueBet[]
-): ValueBet | null {
-  return (
-    valueBets.find((valueBet) => valueBet.prediction_id === prediction.id) ?? null
-  );
+function matchValueBet(prediction: Prediction, valueBets: ValueBet[]): ValueBet | null {
+  return valueBets.find((valueBet) => valueBet.prediction_id === prediction.id) ?? null;
 }
 
 export default function DashboardPage() {
@@ -217,7 +212,9 @@ export default function DashboardPage() {
               <Star className="h-5 w-5" />
               Watchlist
             </CardTitle>
-            <CardDescription>Upcoming fixtures for teams and leagues you follow.</CardDescription>
+            <CardDescription>
+              Upcoming fixtures for teams and leagues you follow.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {watchedFixtures.length > 0 ? (

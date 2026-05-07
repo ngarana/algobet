@@ -225,7 +225,10 @@ export function MatchFilters({ onFilterChange }: MatchFiltersProps) {
 
         <div className="space-y-2">
           <Label htmlFor="sort">Sort By</Label>
-          <Select value={currentSort} onValueChange={(value) => updateFilter("sort", value)}>
+          <Select
+            value={currentSort}
+            onValueChange={(value) => updateFilter("sort", value)}
+          >
             <SelectTrigger id="sort">
               <SelectValue placeholder="Sort matches" />
             </SelectTrigger>

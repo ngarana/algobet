@@ -103,8 +103,7 @@ export function useImportFootballData() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (request: FootballDataImportRequest) =>
-      importFootballData(request),
+    mutationFn: (request: FootballDataImportRequest) => importFootballData(request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: fetchKeys.jobs() });
       queryClient.invalidateQueries({ queryKey: fetchKeys.stats() });

@@ -598,10 +598,7 @@ export function FetchDialog({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="import-division">League</Label>
-                <Select
-                  value={importDivision}
-                  onValueChange={setImportDivision}
-                >
+                <Select value={importDivision} onValueChange={setImportDivision}>
                   <SelectTrigger
                     id="import-division"
                     className="border-[#252a37] bg-[#161a25]"

@@ -3,7 +3,11 @@
 import { useParams } from "next/navigation";
 import { Calendar } from "lucide-react";
 
-import { UserPredictionPanel, WatchlistToggle, formatPercent } from "@/components/workflow";
+import {
+  UserPredictionPanel,
+  WatchlistToggle,
+  formatPercent,
+} from "@/components/workflow";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -71,7 +75,9 @@ export default function MatchDetailPage() {
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge>{match.status}</Badge>
-                {match.tournament && <Badge variant="outline">{match.tournament.name}</Badge>}
+                {match.tournament && (
+                  <Badge variant="outline">{match.tournament.name}</Badge>
+                )}
               </div>
               <h1 className="text-3xl font-bold tracking-tight">
                 {match.home_team.name} vs {match.away_team.name}
@@ -331,7 +337,12 @@ function RecentFormCard({
   rows,
 }: {
   title: string;
-  rows: { match_id: number; match_date: string; opponent_name: string; result: string }[];
+  rows: {
+    match_id: number;
+    match_date: string;
+    opponent_name: string;
+    result: string;
+  }[];
 }) {
   return (
     <Card>

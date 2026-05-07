@@ -190,8 +190,8 @@ export const WatchlistSchema = z.object({
   matches: z.array(WatchlistEntrySchema),
 });
 
-export const UserPredictionSchema: z.ZodType<import("./api").UserPrediction> =
-  z.object({
+export const UserPredictionSchema: z.ZodType<import("./api").UserPrediction> = z.object(
+  {
     id: z.number(),
     match_id: z.number(),
     pick_1x2: PredictedOutcomeSchema.nullable(),
@@ -206,7 +206,8 @@ export const UserPredictionSchema: z.ZodType<import("./api").UserPrediction> =
     points: z.number(),
     created_at: z.string(),
     updated_at: z.string(),
-  });
+  }
+);
 
 export const ResultsSummarySchema = z.object({
   label: z.string(),
