@@ -15,6 +15,29 @@ from numpy.typing import NDArray
 from sklearn.calibration import IsotonicRegression
 
 
+def _normalize_probability_rows(
+    probas: NDArray[np.float64],
+    n_classes: int,
+) -> NDArray[np.float64]:
+    """Clip invalid values and renormalize rows to sum to one."""
+    if probas.ndim != 2:
+        raise ValueError(f"Expected 2D probability matrix, got shape {probas.shape}")
+
+    sanitized = np.asarray(probas, dtype=np.float64)
+    sanitized = np.nan_to_num(sanitized, nan=0.0, posinf=0.0, neginf=0.0)
+    sanitized = np.clip(sanitized, 0.0, None)
+
+    row_sums = sanitized.sum(axis=1, keepdims=True)
+    zero_rows = row_sums.squeeze(axis=1) <= 0
+    row_sums[zero_rows] = 1.0
+    sanitized = sanitized / row_sums
+
+    if np.any(zero_rows):
+        sanitized[zero_rows] = 1.0 / n_classes
+
+    return np.clip(sanitized, 1e-12, 1.0)
+
+
 class ProbabilityCalibrator:
     """Calibrates predicted probabilities using isotonic or sigmoid regression.
 
@@ -59,6 +82,7 @@ class ProbabilityCalibrator:
         Returns:
             self
         """
+        probas = _normalize_probability_rows(probas, self.n_classes)
         n_samples, n_classes = probas.shape
 
         if n_classes != self.n_classes:
@@ -101,6 +125,7 @@ class ProbabilityCalibrator:
         if not self._is_fitted:
             raise ValueError("Calibrator not fitted. Call fit() first.")
 
+        probas = _normalize_probability_rows(probas, self.n_classes)
         n_samples, n_classes = probas.shape
 
         if n_classes != self.n_classes:
@@ -405,3 +430,79 @@ class CalibratedPredictor:
             calibrator = ProbabilityCalibrator.load(calibrator_path)
 
         return cls(predictor=predictor, calibrator=calibrator)
+
+
+class OddsAnchoredBlender:
+    """Blend model predictions with market-implied odds probabilities.
+
+    When enriched models have too many features relative to training
+    samples, they tend to overpower the market signal — flipping strong
+    away favourites into home favourites, for example.  This blender
+    preserves the directional information from odds while allowing the
+    model to make adjustments based on enriched features.
+
+    The blend weight is optimised on a validation set to minimise log
+    loss.  A weight of 0.0 means pure odds; 1.0 means pure model.
+    """
+
+    def __init__(self, blend_weight: float = 0.5) -> None:
+        self.blend_weight = blend_weight
+
+    def blend(
+        self,
+        model_probas: NDArray[np.float64],
+        odds_probas: NDArray[np.float64],
+    ) -> NDArray[np.float64]:
+        """Blend model probabilities with odds-implied probabilities.
+
+        Args:
+            model_probas: Model predictions, shape (n_samples, 3).
+            odds_probas: Market-implied probabilities, shape (n_samples, 3).
+
+        Returns:
+            Blended probabilities, shape (n_samples, 3).
+        """
+        w = self.blend_weight
+        model_probas = _normalize_probability_rows(model_probas, 3)
+        odds_probas = _normalize_probability_rows(odds_probas, 3)
+        blended = w * model_probas + (1 - w) * odds_probas
+        return _normalize_probability_rows(blended, 3)
+
+    @classmethod
+    def optimize_weight(
+        cls,
+        model_probas: NDArray[np.float64],
+        odds_probas: NDArray[np.float64],
+        y_true: NDArray[np.int64],
+        n_steps: int = 101,
+        max_weight: float = 0.8,
+    ) -> tuple[float, float]:
+        """Find the blend weight that minimises log loss on validation data.
+
+        Args:
+            model_probas: Model predictions on validation set.
+            odds_probas: Market-implied probabilities on validation set.
+            y_true: True labels on validation set.
+            n_steps: Number of weight values to evaluate.
+            max_weight: Maximum allowed weight for the model.
+
+        Returns:
+            Tuple of (best_weight, best_log_loss).
+        """
+        from sklearn.metrics import log_loss
+
+        best_weight = 0.5
+        best_loss = float("inf")
+
+        for i in range(n_steps):
+            w = i / (n_steps - 1)
+            if w > max_weight:
+                continue
+            blender = cls(blend_weight=w)
+            blended = blender.blend(model_probas, odds_probas)
+            loss = log_loss(y_true, blended, labels=[0, 1, 2])
+            if loss < best_loss:
+                best_loss = loss
+                best_weight = w
+
+        return best_weight, best_loss

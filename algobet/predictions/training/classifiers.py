@@ -6,7 +6,7 @@ All classifiers follow a common interface for easy swapping and ensemble use.
 
 import warnings
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -63,16 +63,27 @@ class MatchPredictor(ABC):
         Args:
             config: Model configuration
         """
-        self.config = config
+        self.config = replace(
+            config,
+            hyperparameters=dict(config.hyperparameters),
+        )
         self._model: Any = None
         self._label_encoder = LabelEncoder()
         self._is_fitted = False
         self._feature_names: list[str] | None = None
+        self._effective_hyperparameters: dict[str, Any] = dict(
+            self.config.hyperparameters
+        )
 
     @property
     @abstractmethod
     def model_type(self) -> str:
         """Return model type identifier."""
+
+    @property
+    def default_hyperparameters(self) -> dict[str, Any]:
+        """Return the predictor's built-in hyperparameter defaults."""
+        return {}
 
     @abstractmethod
     def fit(
@@ -155,6 +166,16 @@ class MatchPredictor(ABC):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Fix SYCL inference incompatibility: reset XGBoost device to cpu
+        # so it doesn't fail when loaded on the main API (which uses CPU).
+        if hasattr(self, "_model") and self._model is not None:
+            if isinstance(self._model, list):
+                for b in self._model:
+                    if hasattr(b, "set_param"):
+                        b.set_param({"device": "cpu"})
+            elif hasattr(self._model, "set_param"):
+                self._model.set_param({"device": "cpu"})
+
         joblib.dump(
             {
                 "model": self._model,
@@ -188,6 +209,74 @@ class MatchPredictor(ABC):
         """Set feature names for importance tracking."""
         self._feature_names = names
 
+    @property
+    def effective_hyperparameters(self) -> dict[str, Any]:
+        """Return the effective hyperparameters used for the current model."""
+        return dict(self._effective_hyperparameters)
+
+    def _resolve_effective_hyperparameters(self) -> dict[str, Any]:
+        """Merge built-in defaults with config overrides and persist the result."""
+        resolved = {
+            **self.default_hyperparameters,
+            **self.config.hyperparameters,
+        }
+        self._effective_hyperparameters = dict(resolved)
+        self.config = replace(self.config, hyperparameters=dict(resolved))
+        return dict(resolved)
+
+
+def compute_adaptive_regularization(
+    params: dict[str, Any],
+    n_samples: int,
+    n_features: int,
+) -> dict[str, Any]:
+    """Boost regularization when the samples-per-feature ratio is low.
+
+    When too few samples are available relative to features, tree-based
+    models overfit: they memorize noise in the training set and generalize
+    poorly.  This function progressively increases XGBoost regularization
+    as the ratio deteriorates.
+
+    Thresholds:
+        ratio >= 10  → no adjustment (comfortable)
+        5 <= ratio < 10 → moderate boost
+        ratio < 5  → aggressive boost
+
+    Args:
+        params: Original XGBoost hyperparameters.
+        n_samples: Number of training samples.
+        n_features: Number of features.
+
+    Returns:
+        Adjusted hyperparameters dict (copy).
+    """
+    ratio = n_samples / max(n_features, 1)
+    if ratio >= 40:
+        return dict(params)
+
+    adjusted = dict(params)
+
+    if ratio < 20:
+        adjusted["max_depth"] = min(params.get("max_depth", 6), 3)
+        adjusted["min_child_weight"] = max(params.get("min_child_weight", 3), 10)
+        adjusted["gamma"] = max(params.get("gamma", 0.1), 1.0)
+        adjusted["reg_alpha"] = max(params.get("reg_alpha", 0.1), 5.0)
+        adjusted["reg_lambda"] = max(params.get("reg_lambda", 1.0), 10.0)
+        adjusted["colsample_bytree"] = min(params.get("colsample_bytree", 0.8), 0.4)
+        adjusted["subsample"] = min(params.get("subsample", 0.8), 0.6)
+        adjusted["learning_rate"] = min(params.get("learning_rate", 0.1), 0.03)
+    else:
+        adjusted["max_depth"] = min(params.get("max_depth", 6), 4)
+        adjusted["min_child_weight"] = max(params.get("min_child_weight", 3), 5)
+        adjusted["gamma"] = max(params.get("gamma", 0.1), 0.5)
+        adjusted["reg_alpha"] = max(params.get("reg_alpha", 0.1), 1.0)
+        adjusted["reg_lambda"] = max(params.get("reg_lambda", 1.0), 5.0)
+        adjusted["colsample_bytree"] = min(params.get("colsample_bytree", 0.8), 0.5)
+        adjusted["subsample"] = min(params.get("subsample", 0.8), 0.7)
+        adjusted["learning_rate"] = min(params.get("learning_rate", 0.1), 0.05)
+
+    return adjusted
+
 
 class XGBoostPredictor(MatchPredictor):
     """XGBoost classifier for match prediction.
@@ -206,25 +295,27 @@ class XGBoostPredictor(MatchPredictor):
             )
 
         if config is None:
-            config = ModelConfig(
-                model_type="xgboost",
-                hyperparameters={
-                    "max_depth": 6,
-                    "learning_rate": 0.1,
-                    "n_estimators": 500,
-                    "subsample": 0.8,
-                    "colsample_bytree": 0.8,
-                    "min_child_weight": 3,
-                    "gamma": 0.1,
-                    "reg_alpha": 0.1,
-                    "reg_lambda": 1.0,
-                },
-            )
+            config = ModelConfig(model_type="xgboost")
         super().__init__(config)
 
     @property
     def model_type(self) -> str:
         return "xgboost"
+
+    @property
+    def default_hyperparameters(self) -> dict[str, Any]:
+        """Return the tuned baseline XGBoost settings for training."""
+        return {
+            "max_depth": 6,
+            "learning_rate": 0.1,
+            "n_estimators": 500,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "min_child_weight": 3,
+            "gamma": 0.1,
+            "reg_alpha": 0.1,
+            "reg_lambda": 1.0,
+        }
 
     def fit(
         self,
@@ -237,13 +328,21 @@ class XGBoostPredictor(MatchPredictor):
         # Encode labels
         y_encoded = self._label_encoder.fit_transform(y)
 
-        # Default hyperparameters
+        # Merge defaults with config overrides
+        resolved = self._resolve_effective_hyperparameters()
+
+        # Apply adaptive regularization when sample-per-feature ratio is low
+        n_samples, n_features = X.shape
+        resolved = compute_adaptive_regularization(resolved, n_samples, n_features)
+        self._effective_hyperparameters = dict(resolved)
+        self.config = replace(self.config, hyperparameters=dict(resolved))
+
         params = {
             "objective": "multi:softprob",
             "num_class": 3,
             "eval_metric": self.config.eval_metric,
             "random_state": self.config.random_seed,
-            **self.config.hyperparameters,
+            **resolved,
         }
         uses_sycl_device = (
             str(params.get("device", "")).strip().lower().startswith("sycl")
@@ -410,25 +509,27 @@ class LightGBMPredictor(MatchPredictor):
             )
 
         if config is None:
-            config = ModelConfig(
-                model_type="lightgbm",
-                hyperparameters={
-                    "num_leaves": 31,
-                    "learning_rate": 0.1,
-                    "n_estimators": 500,
-                    "subsample": 0.8,
-                    "colsample_bytree": 0.8,
-                    "min_child_samples": 20,
-                    "reg_alpha": 0.1,
-                    "reg_lambda": 1.0,
-                    "num_threads": -1,  # use all CPU cores
-                },
-            )
+            config = ModelConfig(model_type="lightgbm")
         super().__init__(config)
 
     @property
     def model_type(self) -> str:
         return "lightgbm"
+
+    @property
+    def default_hyperparameters(self) -> dict[str, Any]:
+        """Return the default LightGBM training settings."""
+        return {
+            "num_leaves": 31,
+            "learning_rate": 0.1,
+            "n_estimators": 500,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "min_child_samples": 20,
+            "reg_alpha": 0.1,
+            "reg_lambda": 1.0,
+            "num_threads": -1,
+        }
 
     def fit(
         self,
@@ -448,7 +549,7 @@ class LightGBMPredictor(MatchPredictor):
             "metric": "multi_logloss",
             "random_state": self.config.random_seed,
             "verbose": -1,
-            **self.config.hyperparameters,
+            **self._resolve_effective_hyperparameters(),
         }
 
         # Convert class weights to per-sample weights for lgb.Dataset
@@ -524,23 +625,25 @@ class RandomForestPredictor(MatchPredictor):
 
     def __init__(self, config: ModelConfig | None = None) -> None:
         if config is None:
-            config = ModelConfig(
-                model_type="random_forest",
-                hyperparameters={
-                    "n_estimators": 500,
-                    "max_depth": 10,
-                    "min_samples_split": 5,
-                    "min_samples_leaf": 2,
-                    "max_features": "sqrt",
-                    "bootstrap": True,
-                    "n_jobs": -1,
-                },
-            )
+            config = ModelConfig(model_type="random_forest")
         super().__init__(config)
 
     @property
     def model_type(self) -> str:
         return "random_forest"
+
+    @property
+    def default_hyperparameters(self) -> dict[str, Any]:
+        """Return the default Random Forest training settings."""
+        return {
+            "n_estimators": 500,
+            "max_depth": 10,
+            "min_samples_split": 5,
+            "min_samples_leaf": 2,
+            "max_features": "sqrt",
+            "bootstrap": True,
+            "n_jobs": -1,
+        }
 
     def fit(
         self,
@@ -556,7 +659,7 @@ class RandomForestPredictor(MatchPredictor):
         # Create model
         self._model = RandomForestClassifier(
             random_state=self.config.random_seed,
-            **self.config.hyperparameters,
+            **self._resolve_effective_hyperparameters(),
         )
 
         # Set class weights

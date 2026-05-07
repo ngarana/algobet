@@ -2,6 +2,7 @@
 
 from algobet.predictions.training.calibration import (
     CalibratedPredictor,
+    OddsAnchoredBlender,
     ProbabilityCalibrator,
     calculate_calibration_metrics,
     calibration_curve,
@@ -13,6 +14,7 @@ from algobet.predictions.training.classifiers import (
     ModelConfig,
     RandomForestPredictor,
     XGBoostPredictor,
+    compute_adaptive_regularization,
     create_predictor,
 )
 from algobet.predictions.training.pipeline import (
@@ -48,6 +50,7 @@ __all__ = [
     "RandomForestPredictor",
     "EnsemblePredictor",
     "create_predictor",
+    "compute_adaptive_regularization",
     # Split
     "TemporalSplit",
     "TemporalSplitter",
@@ -66,6 +69,7 @@ __all__ = [
     # Calibration
     "ProbabilityCalibrator",
     "CalibratedPredictor",
+    "OddsAnchoredBlender",
     "calculate_calibration_metrics",
     "calibration_curve",
     # Pipeline
