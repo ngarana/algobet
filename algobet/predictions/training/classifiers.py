@@ -229,6 +229,7 @@ def compute_adaptive_regularization(
     params: dict[str, Any],
     n_samples: int,
     n_features: int,
+    defaults: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Boost regularization when the samples-per-feature ratio is low.
 
@@ -238,14 +239,16 @@ def compute_adaptive_regularization(
     as the ratio deteriorates.
 
     Thresholds:
-        ratio >= 10  → no adjustment (comfortable)
-        5 <= ratio < 10 → moderate boost
-        ratio < 5  → aggressive boost
+        ratio >= 40  → no adjustment (comfortable)
+        20 <= ratio < 40 → moderate boost
+        ratio < 20  → aggressive boost
 
     Args:
         params: Original XGBoost hyperparameters.
         n_samples: Number of training samples.
         n_features: Number of features.
+        defaults: Fallback defaults for missing keys (should match the
+            predictor's ``default_hyperparameters``).
 
     Returns:
         Adjusted hyperparameters dict (copy).
@@ -254,26 +257,55 @@ def compute_adaptive_regularization(
     if ratio >= 40:
         return dict(params)
 
+    base = dict(defaults) if defaults else {}
     adjusted = dict(params)
 
     if ratio < 20:
-        adjusted["max_depth"] = min(params.get("max_depth", 6), 3)
-        adjusted["min_child_weight"] = max(params.get("min_child_weight", 3), 10)
-        adjusted["gamma"] = max(params.get("gamma", 0.1), 1.0)
-        adjusted["reg_alpha"] = max(params.get("reg_alpha", 0.1), 5.0)
-        adjusted["reg_lambda"] = max(params.get("reg_lambda", 1.0), 10.0)
-        adjusted["colsample_bytree"] = min(params.get("colsample_bytree", 0.8), 0.4)
-        adjusted["subsample"] = min(params.get("subsample", 0.8), 0.6)
-        adjusted["learning_rate"] = min(params.get("learning_rate", 0.1), 0.03)
+        adjusted["max_depth"] = min(
+            params.get("max_depth", base.get("max_depth", 6)), 3
+        )
+        adjusted["min_child_weight"] = max(
+            params.get("min_child_weight", base.get("min_child_weight", 3)), 10
+        )
+        adjusted["gamma"] = max(params.get("gamma", base.get("gamma", 0.1)), 1.0)
+        adjusted["reg_alpha"] = max(
+            params.get("reg_alpha", base.get("reg_alpha", 0.1)), 5.0
+        )
+        adjusted["reg_lambda"] = max(
+            params.get("reg_lambda", base.get("reg_lambda", 1.0)), 10.0
+        )
+        adjusted["colsample_bytree"] = min(
+            params.get("colsample_bytree", base.get("colsample_bytree", 0.8)), 0.4
+        )
+        adjusted["subsample"] = min(
+            params.get("subsample", base.get("subsample", 0.8)), 0.6
+        )
+        adjusted["learning_rate"] = min(
+            params.get("learning_rate", base.get("learning_rate", 0.1)), 0.03
+        )
     else:
-        adjusted["max_depth"] = min(params.get("max_depth", 6), 4)
-        adjusted["min_child_weight"] = max(params.get("min_child_weight", 3), 5)
-        adjusted["gamma"] = max(params.get("gamma", 0.1), 0.5)
-        adjusted["reg_alpha"] = max(params.get("reg_alpha", 0.1), 1.0)
-        adjusted["reg_lambda"] = max(params.get("reg_lambda", 1.0), 5.0)
-        adjusted["colsample_bytree"] = min(params.get("colsample_bytree", 0.8), 0.5)
-        adjusted["subsample"] = min(params.get("subsample", 0.8), 0.7)
-        adjusted["learning_rate"] = min(params.get("learning_rate", 0.1), 0.05)
+        adjusted["max_depth"] = min(
+            params.get("max_depth", base.get("max_depth", 6)), 4
+        )
+        adjusted["min_child_weight"] = max(
+            params.get("min_child_weight", base.get("min_child_weight", 3)), 5
+        )
+        adjusted["gamma"] = max(params.get("gamma", base.get("gamma", 0.1)), 0.5)
+        adjusted["reg_alpha"] = max(
+            params.get("reg_alpha", base.get("reg_alpha", 0.1)), 1.0
+        )
+        adjusted["reg_lambda"] = max(
+            params.get("reg_lambda", base.get("reg_lambda", 1.0)), 5.0
+        )
+        adjusted["colsample_bytree"] = min(
+            params.get("colsample_bytree", base.get("colsample_bytree", 0.8)), 0.5
+        )
+        adjusted["subsample"] = min(
+            params.get("subsample", base.get("subsample", 0.8)), 0.7
+        )
+        adjusted["learning_rate"] = min(
+            params.get("learning_rate", base.get("learning_rate", 0.1)), 0.05
+        )
 
     return adjusted
 
@@ -333,7 +365,9 @@ class XGBoostPredictor(MatchPredictor):
 
         # Apply adaptive regularization when sample-per-feature ratio is low
         n_samples, n_features = X.shape
-        resolved = compute_adaptive_regularization(resolved, n_samples, n_features)
+        resolved = compute_adaptive_regularization(
+            resolved, n_samples, n_features, defaults=self.default_hyperparameters
+        )
         self._effective_hyperparameters = dict(resolved)
         self.config = replace(self.config, hyperparameters=dict(resolved))
 

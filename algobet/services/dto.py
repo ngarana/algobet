@@ -264,6 +264,7 @@ class BacktestRequest:
     min_matches: int = 100
     validation_split: float = 0.2
     model_version: str | None = None
+    tournament_id: int | None = None
 
 
 @dataclass(frozen=True)

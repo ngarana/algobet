@@ -32,7 +32,7 @@ We will keep the model pure: no odds features, no odds blend, no implied-odds an
 
 ## Recommended Retrain Request
 
-After the code fixes, retrain an EPL-specific pure model:
+After the code fixes, retrain an EPL-specific pure model. This is the best stable production payload for the current code path:
 
 ```bash
 curl -sS -X POST http://localhost:8010/api/v1/ml/train \
@@ -41,7 +41,7 @@ curl -sS -X POST http://localhost:8010/api/v1/ml/train \
     "model_type": "xgboost",
     "description": "EPL odds-free calibrated probability model",
     "tournament_ids": [359],
-    "feature_groups": ["team_form", "head_to_head", "temporal", "standings"],
+    "feature_groups": ["team_form", "head_to_head", "temporal", "standings", "enriched_stats"],
     "feature_selection": true,
     "feature_selection_threshold": 0.005,
     "min_samples_per_feature": 40,
@@ -64,6 +64,15 @@ curl -sS -X POST http://localhost:8010/api/v1/ml/train \
     "tags": {"model_scope": "epl", "odds_policy": "pure_model"}
   }'
 ```
+
+If Optuna is installed and you want a slower search-heavy run, switch to:
+
+```json
+"tune_hyperparameters": true,
+"tuning_trials": 100
+```
+
+and remove the explicit `hyperparameters` block so the tuner can search freely. That path is the best shot at squeezing out more holdout performance, but the fixed request above is the most repeatable production baseline.
 
 ## Test Plan
 

@@ -4,8 +4,7 @@ This module provides business logic for analysis operations, extracting
 functionality from the CLI layer into a reusable service layer.
 """
 
-from __future__ import annotations
-
+import contextlib
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -28,6 +27,7 @@ from algobet.predictions.features.pipeline import (
     FeaturePipeline,
     prepare_match_dataframe,
 )
+from algobet.predictions.models.registry import ModelRegistry
 from algobet.services.base import BaseService
 from algobet.services.dto import (
     BacktestRequest,
@@ -38,6 +38,21 @@ from algobet.services.dto import (
     ValueBetsRequest,
     ValueBetsResponse,
 )
+
+
+def _convert_numpy_types(obj: Any) -> Any:
+    """Recursively convert numpy/scalar payloads to JSON-safe Python types."""
+    if isinstance(obj, dict):
+        return {k: _convert_numpy_types(v) for k, v in obj.items()}
+    if isinstance(obj, list | tuple):
+        return type(obj)(_convert_numpy_types(item) for item in obj)
+    if isinstance(obj, np.floating | np.integer):
+        return obj.item()
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
 
 
 class AnalysisService(BaseService[Session]):
@@ -80,7 +95,6 @@ class AnalysisService(BaseService[Session]):
             NoActiveModelError: If no active model and no version specified
             ModelNotFoundError: If specified model version not found
         """
-        from algobet.predictions.models.registry import ModelRegistry
 
         registry = ModelRegistry(storage_path=self.models_path, session=self.session)
 
@@ -166,22 +180,22 @@ class AnalysisService(BaseService[Session]):
             )
 
             # Get historical matches with results
-            matches = (
-                self.session.query(Match)
-                .options(joinedload(Match.home_team), joinedload(Match.away_team))
-                .filter(
-                    and_(
-                        Match.status == "FINISHED",
-                        Match.home_score.is_not(None),
-                        Match.away_score.is_not(None),
-                        Match.odds_home.is_not(None),
-                        Match.odds_draw.is_not(None),
-                        Match.odds_away.is_not(None),
-                    )
-                )
-                .order_by(Match.match_date)
-                .all()
+            query = self.session.query(Match).options(
+                joinedload(Match.home_team), joinedload(Match.away_team)
             )
+            filters = [
+                Match.status == "FINISHED",
+                Match.home_score.is_not(None),
+                Match.away_score.is_not(None),
+                Match.odds_home.is_not(None),
+                Match.odds_draw.is_not(None),
+                Match.odds_away.is_not(None),
+            ]
+
+            if request.tournament_id:
+                filters.append(Match.tournament_id == request.tournament_id)
+
+            matches = query.filter(and_(*filters)).order_by(Match.match_date).all()
 
             total_matches = len(matches)
 
@@ -220,7 +234,21 @@ class AnalysisService(BaseService[Session]):
 
             # Generate features
             repo = MatchRepository(self.session)
-            feature_pipeline = FeaturePipeline.create_default()
+
+            # Try to load the saved feature pipeline from model hyperparameters
+            feature_pipeline = None
+            pipeline_path = None
+            if model_meta and model_meta.hyperparameters:
+                pipeline_path = model_meta.hyperparameters.get("feature_pipeline_path")
+
+            if pipeline_path:
+                pipeline_path = Path(pipeline_path)
+                if pipeline_path.exists() and (pipeline_path / "config.json").exists():
+                    with contextlib.suppress(Exception):
+                        feature_pipeline = FeaturePipeline.load(pipeline_path)
+
+            if feature_pipeline is None:
+                feature_pipeline = FeaturePipeline.create_default()
 
             # Split data (temporal split - train on first portion)
             train_size = int(len(matches) * (1 - request.validation_split))
@@ -239,8 +267,11 @@ class AnalysisService(BaseService[Session]):
                 },
             )
 
-            # Fit pipeline on training data
-            feature_pipeline.fit(train_matches, repo)
+            # Only fit the pipeline if it wasn't already loaded from the model
+            # artifact (e.g. fallback default pipeline). Refitting a saved pipeline
+            # would overwrite the scaling/imputation statistics from training.
+            if not feature_pipeline.is_fitted:
+                feature_pipeline.fit(train_matches, repo)
             X_test = feature_pipeline.transform(test_matches, repo)
 
             # Get odds for betting simulation

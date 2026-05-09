@@ -1,36 +1,80 @@
-from playwright.sync_api import sync_playwright
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
-captured = []
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    page = browser.new_page()
+from algobet.infrastructure.database import session_scope
+from algobet.models import BacktestHistory, Match, ModelVersion
+from algobet.services.prediction_service import PredictionService
 
-    def on_request(req):
-        if "/api/v1/scraping/by-date" in req.url and req.method == "POST":
-            captured.append(
-                {"url": req.url, "method": req.method, "body": req.post_data}
+version = "xgboost_20260508_035804"
+
+
+def run_stats():
+    with session_scope() as session:
+        model = session.execute(
+            select(ModelVersion).where(ModelVersion.version == version)
+        ).scalar_one()
+        print("MODEL_METRICS")
+        for k in sorted(model.metrics.keys()):
+            if k.startswith(("test_", "val_")):
+                print(f"{k}={model.metrics[k]}")
+        print("BACKTEST_HISTORY")
+        rows = (
+            session.execute(
+                select(BacktestHistory)
+                .join(ModelVersion)
+                .where(ModelVersion.version == version)
+            )
+            .scalars()
+            .all()
+        )
+        print("count", len(rows))
+        for row in rows:
+            print(
+                {
+                    "evaluated_at": str(row.evaluated_at),
+                    "num_samples": row.num_samples,
+                    "date_range_start": row.date_range_start,
+                    "date_range_end": row.date_range_end,
+                    "accuracy": row.accuracy,
+                    "log_loss": row.log_loss,
+                    "f1_macro": row.f1_macro,
+                    "roi_percent": row.roi_percent,
+                    "win_rate": row.win_rate,
+                }
             )
 
-    page.on("request", on_request)
 
-    page.goto(
-        "http://127.0.0.1:3001/scraping", wait_until="networkidle", timeout=120000
-    )
-    page.get_by_role("button", name="BY DATE").click()
-    page.get_by_label("Date").fill("2026-04-21")
-    page.get_by_role("button", name="Start Fetch").click()
-    page.wait_for_timeout(5000)
+def run_prediction():
+    match_id = 19589
+    with session_scope() as session:
+        service = PredictionService(session)
+        model, _ = service.load_model(version)
+        match = session.execute(
+            select(Match)
+            .options(joinedload(Match.home_team), joinedload(Match.away_team))
+            .where(Match.id == match_id)
+        ).scalar_one()
+        result = service.predict_match(match, model_version=version)
+        actual = (
+            "HOME"
+            if match.home_score > match.away_score
+            else "AWAY"
+            if match.home_score < match.away_score
+            else "DRAW"
+        )
+        print(
+            {
+                "predicted_outcome": result.predicted_outcome,
+                "confidence": result.confidence,
+                "prob_home": result.prob_home,
+                "prob_draw": result.prob_draw,
+                "prob_away": result.prob_away,
+                "actual_outcome": actual,
+                "actual_score": f"{match.home_score}-{match.away_score}",
+            }
+        )
 
-    print("REQUESTS:", captured)
-    body_text = page.locator("body").inner_text()
-    for needle in [
-        "2026-04-21",
-        "WebSocket connection established",
-        "JOB MONITOR",
-    ]:
-        print(f"HAS::{needle}::{needle in body_text}")
-    print("BODY_SNIPPET_START")
-    print(body_text[:5000])
-    print("BODY_SNIPPET_END")
 
-    browser.close()
+if __name__ == "__main__":
+    run_stats()
+    run_prediction()

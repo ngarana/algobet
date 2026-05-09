@@ -7,7 +7,7 @@ following the scikit-learn transformer pattern.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import numpy as np
@@ -168,6 +168,8 @@ class TeamFormGenerator(FeatureGenerator):
             DataFrame with form features indexed by match id
         """
         features = []
+        max_window = max(self.window_sizes, default=0)
+        trend_window = max(max_window, 6)
 
         for _, match in matches.iterrows():
             match_id = match["id"]
@@ -176,12 +178,40 @@ class TeamFormGenerator(FeatureGenerator):
             away_team_id = int(match["away_team_id"])
 
             match_features: dict[str, Any] = {"match_id": match_id}
+            home_history = repository.get_team_matches(
+                team_id=home_team_id,
+                before_date=match_date,
+                limit=trend_window,
+            )
+            away_history = repository.get_team_matches(
+                team_id=away_team_id,
+                before_date=match_date,
+                limit=trend_window,
+            )
+            home_venue_history = (
+                repository.get_team_matches(
+                    team_id=home_team_id,
+                    before_date=match_date,
+                    limit=max_window,
+                    home_only=True,
+                )
+                if self.include_venue_specific
+                else []
+            )
+            away_venue_history = (
+                repository.get_team_matches(
+                    team_id=away_team_id,
+                    before_date=match_date,
+                    limit=max_window,
+                    away_only=True,
+                )
+                if self.include_venue_specific
+                else []
+            )
 
             for w in self.window_sizes:
                 # Home team form
-                home_form = self._calculate_form(
-                    repository, home_team_id, match_date, w
-                )
+                home_form = self._summarize_form(home_history[:w], home_team_id)
                 match_features[f"home_points_last_{w}"] = home_form["avg_points"]
                 match_features[f"home_win_rate_{w}"] = home_form["win_rate"]
                 match_features[f"home_goals_for_avg_{w}"] = home_form["avg_goals_for"]
@@ -193,9 +223,7 @@ class TeamFormGenerator(FeatureGenerator):
                 )
 
                 # Away team form
-                away_form = self._calculate_form(
-                    repository, away_team_id, match_date, w
-                )
+                away_form = self._summarize_form(away_history[:w], away_team_id)
                 match_features[f"away_points_last_{w}"] = away_form["avg_points"]
                 match_features[f"away_win_rate_{w}"] = away_form["win_rate"]
                 match_features[f"away_goals_for_avg_{w}"] = away_form["avg_goals_for"]
@@ -208,23 +236,27 @@ class TeamFormGenerator(FeatureGenerator):
 
                 if self.include_venue_specific:
                     # Home team's form at home
-                    home_home = self._calculate_venue_form(
-                        repository, home_team_id, match_date, w, is_home=True
+                    home_home = self._average_points(
+                        home_venue_history[:w],
+                        home_team_id,
                     )
                     match_features[f"home_home_form_{w}"] = home_home
 
                     # Away team's form away
-                    away_away = self._calculate_venue_form(
-                        repository, away_team_id, match_date, w, is_home=False
+                    away_away = self._average_points(
+                        away_venue_history[:w],
+                        away_team_id,
                     )
                     match_features[f"away_away_form_{w}"] = away_away
 
             # Form trend (last 3 vs matches 4-6)
-            match_features["home_form_trend"] = self._calculate_trend(
-                repository, home_team_id, match_date
+            match_features["home_form_trend"] = self._calculate_trend_from_history(
+                home_history,
+                home_team_id,
             )
-            match_features["away_form_trend"] = self._calculate_trend(
-                repository, away_team_id, match_date
+            match_features["away_form_trend"] = self._calculate_trend_from_history(
+                away_history,
+                away_team_id,
             )
             match_features["form_diff"] = match_features.get(
                 "home_points_last_5", 0
@@ -248,7 +280,14 @@ class TeamFormGenerator(FeatureGenerator):
             before_date=reference_date,
             limit=n_matches,
         )
+        return self._summarize_form(matches, team_id)
 
+    def _summarize_form(
+        self,
+        matches: list[Any],
+        team_id: int,
+    ) -> dict[str, float]:
+        """Summarize points and goals from an already-fetched match list."""
         if not matches:
             return {
                 "avg_points": 0.0,
@@ -263,15 +302,7 @@ class TeamFormGenerator(FeatureGenerator):
         goals_against = 0
 
         for match in matches:
-            # Determine if team is home or away
-            is_home = match.home_team_id == team_id
-
-            if is_home:
-                gf = match.home_score or 0
-                ga = match.away_score or 0
-            else:
-                gf = match.away_score or 0
-                ga = match.home_score or 0
+            gf, ga = self._goals_for_against(match, team_id)
 
             goals_for += gf
             goals_against += ga
@@ -306,18 +337,16 @@ class TeamFormGenerator(FeatureGenerator):
             home_only=is_home,
             away_only=not is_home,
         )
+        return self._average_points(matches, team_id)
 
+    def _average_points(self, matches: list[Any], team_id: int) -> float:
+        """Calculate average points from an already-fetched match list."""
         if not matches:
             return 0.0
 
         total_points = 0
         for match in matches:
-            if match.home_team_id == team_id:
-                gf = match.home_score or 0
-                ga = match.away_score or 0
-            else:
-                gf = match.away_score or 0
-                ga = match.home_score or 0
+            gf, ga = self._goals_for_against(match, team_id)
 
             if gf > ga:
                 total_points += 3
@@ -333,43 +362,34 @@ class TeamFormGenerator(FeatureGenerator):
         reference_date: datetime,
     ) -> float:
         """Calculate form trend (recent vs earlier)."""
-        recent = repo.get_team_matches(
-            team_id=team_id,
-            before_date=reference_date,
-            limit=3,
-        )
-
-        # Get matches 4-6 (if available)
-        earlier = repo.get_team_matches(
+        matches = repo.get_team_matches(
             team_id=team_id,
             before_date=reference_date,
             limit=6,
         )
 
-        if len(earlier) < 4:
+        return self._calculate_trend_from_history(matches, team_id)
+
+    def _calculate_trend_from_history(
+        self,
+        matches: list[Any],
+        team_id: int,
+    ) -> float:
+        """Calculate form trend from an already-fetched recent history."""
+        if len(matches) < 4:
             return 0.0
 
-        def avg_points(match_list: list) -> float:
-            if not match_list:
-                return 0.0
-            total = 0
-            for match in match_list:
-                if match.home_team_id == team_id:
-                    gf = match.home_score or 0
-                    ga = match.away_score or 0
-                else:
-                    gf = match.away_score or 0
-                    ga = match.home_score or 0
-                if gf > ga:
-                    total += 3
-                elif gf == ga:
-                    total += 1
-            return total / len(match_list)
-
-        recent_avg = avg_points(recent[:3])
-        earlier_avg = avg_points(earlier[3:6])
+        recent_avg = self._average_points(matches[:3], team_id)
+        earlier_avg = self._average_points(matches[3:6], team_id)
 
         return recent_avg - earlier_avg
+
+    @staticmethod
+    def _goals_for_against(match: Any, team_id: int) -> tuple[int, int]:
+        """Return goals for/against from the team's perspective."""
+        if match.home_team_id == team_id:
+            return match.home_score or 0, match.away_score or 0
+        return match.away_score or 0, match.home_score or 0
 
 
 class HeadToHeadGenerator(FeatureGenerator):
@@ -751,12 +771,37 @@ class TemporalFeatureGenerator(FeatureGenerator):
             DataFrame with temporal features indexed by match id
         """
         features = []
+        history_cache: dict[tuple[int, datetime], list[Any]] = {}
+        history_limit = 20 if self.include_fixture_density else 1
 
         for _, match in matches.iterrows():
             match_id = match["id"]
             match_date = pd.to_datetime(match["match_date"])
             home_team_id = int(match["home_team_id"])
             away_team_id = int(match["away_team_id"])
+            needs_history = self.include_rest_days or self.include_fixture_density
+            home_history = (
+                self._get_cached_history(
+                    repository,
+                    history_cache,
+                    home_team_id,
+                    match_date,
+                    history_limit,
+                )
+                if needs_history
+                else []
+            )
+            away_history = (
+                self._get_cached_history(
+                    repository,
+                    history_cache,
+                    away_team_id,
+                    match_date,
+                    history_limit,
+                )
+                if needs_history
+                else []
+            )
 
             match_features: dict[str, Any] = {"match_id": match_id}
 
@@ -783,8 +828,14 @@ class TemporalFeatureGenerator(FeatureGenerator):
 
             # Rest days
             if self.include_rest_days:
-                home_rest = self._get_rest_days(repository, home_team_id, match_date)
-                away_rest = self._get_rest_days(repository, away_team_id, match_date)
+                home_rest = self._get_rest_days_from_history(
+                    home_history,
+                    match_date,
+                )
+                away_rest = self._get_rest_days_from_history(
+                    away_history,
+                    match_date,
+                )
                 match_features["home_rest_days"] = home_rest
                 match_features["away_rest_days"] = away_rest
                 match_features["rest_days_diff"] = home_rest - away_rest
@@ -792,13 +843,17 @@ class TemporalFeatureGenerator(FeatureGenerator):
             # Fixture density
             if self.include_fixture_density:
                 match_features["home_matches_last_14_days"] = (
-                    self._count_recent_matches(
-                        repository, home_team_id, match_date, days=14
+                    self._count_recent_matches_from_history(
+                        home_history,
+                        match_date,
+                        days=14,
                     )
                 )
                 match_features["away_matches_last_14_days"] = (
-                    self._count_recent_matches(
-                        repository, away_team_id, match_date, days=14
+                    self._count_recent_matches_from_history(
+                        away_history,
+                        match_date,
+                        days=14,
                     )
                 )
 
@@ -819,11 +874,18 @@ class TemporalFeatureGenerator(FeatureGenerator):
             before_date=match_date,
             limit=1,
         )
+        return self._get_rest_days_from_history(last_matches, match_date)
 
-        if not last_matches:
+    def _get_rest_days_from_history(
+        self,
+        matches: list[Any],
+        match_date: datetime,
+    ) -> float:
+        """Get days since last match from an already-fetched history."""
+        if not matches:
             return 7.0  # Default: week of rest
 
-        last_match = last_matches[0]
+        last_match = matches[0]
         rest_days = (match_date - last_match.match_date).days
         return float(min(rest_days, 14))  # Cap at 2 weeks
 
@@ -835,12 +897,46 @@ class TemporalFeatureGenerator(FeatureGenerator):
         days: int = 14,
     ) -> int:
         """Count matches in recent period."""
-        # Get count from repository
-        count = repo.get_match_count(team_id=team_id, before_date=match_date)
+        matches = repo.get_team_matches(
+            team_id=team_id,
+            before_date=match_date,
+            limit=20,
+        )
+        return self._count_recent_matches_from_history(matches, match_date, days)
 
-        # This is approximate - would need a more specific query
-        # For now, estimate based on typical season density
-        return min(count, 5)  # Cap at reasonable maximum
+    @staticmethod
+    def _count_recent_matches_from_history(
+        matches: list[Any],
+        match_date: datetime,
+        days: int = 14,
+    ) -> int:
+        """Count matches in the recent period from an already-fetched history."""
+        period_start = match_date - timedelta(days=days)
+        recent_count = sum(
+            1 for match in matches if period_start <= match.match_date < match_date
+        )
+        return min(
+            recent_count,
+            5,
+        )
+
+    @staticmethod
+    def _get_cached_history(
+        repo: MatchRepository,
+        cache: dict[tuple[int, datetime], list[Any]],
+        team_id: int,
+        match_date: datetime,
+        limit: int,
+    ) -> list[Any]:
+        """Fetch a team's recent history once for each team/date pair."""
+        cache_key = (team_id, match_date.to_pydatetime())
+        if cache_key not in cache:
+            cache[cache_key] = repo.get_team_matches(
+                team_id=team_id,
+                before_date=match_date,
+                limit=limit,
+            )
+        return cache[cache_key]
 
 
 class StandingsFeatureGenerator(FeatureGenerator):

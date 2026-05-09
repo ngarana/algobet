@@ -117,8 +117,13 @@ class TrainingConfig:
     early_stopping_rounds: int = 50
     random_seed: int = 42
 
-    # Outcome balancing control
-    outcome_balance: bool | None = None
+    # Outcome balancing control (opt-in; disabled by default to preserve
+    # calibrated probabilities)
+    outcome_balance: bool = False
+
+    # Degenerate model protection
+    collapse_recovery: bool = True
+    min_prediction_classes: int = 2
 
     # Feature importance pruning
     feature_selection: bool = False
@@ -238,7 +243,11 @@ class TrainingPipeline:
         self._train_df: pd.DataFrame | None = None
         self._val_df: pd.DataFrame | None = None
         self._test_df: pd.DataFrame | None = None
+        self._train_raw_features: pd.DataFrame | None = None
+        self._val_raw_features: pd.DataFrame | None = None
+        self._test_raw_features: pd.DataFrame | None = None
         self._selected_feature_names: list[str] | None = None
+        self._collapse_recovery: dict[str, Any] | None = None
 
     def _create_feature_pipeline_with_groups(
         self, feature_groups: list[str]
@@ -334,8 +343,39 @@ class TrainingPipeline:
         )
         self._selected_feature_names = selected_feature_names
 
+        # Verify no odds-derived features leaked into the selected subset
+        forbidden_terms = ("odds", "implied_prob", "bookmaker", "favorite", "market")
+        leaked = [
+            name
+            for name in selected_feature_names
+            if any(term in name for term in forbidden_terms)
+        ]
+        if leaked:
+            raise ValueError(
+                f"Odds-derived features detected in selected subset: {leaked}"
+            )
+
         if hasattr(self.feature_pipeline, "set_selected_features"):
             self.feature_pipeline.set_selected_features(selected_feature_names)
+
+        if (
+            self._train_raw_features is not None
+            and self._val_raw_features is not None
+            and self._test_raw_features is not None
+            and hasattr(self.feature_pipeline, "fit_transform_raw_features")
+            and hasattr(self.feature_pipeline, "transform_raw_features")
+        ):
+            X_train_selected = self.feature_pipeline.fit_transform_raw_features(
+                self._train_raw_features,
+                y_train,
+            )
+            X_val_selected = self.feature_pipeline.transform_raw_features(
+                self._val_raw_features
+            )
+            X_test_selected = self.feature_pipeline.transform_raw_features(
+                self._test_raw_features
+            )
+            return X_train_selected, X_val_selected, X_test_selected
 
         if self._train_df is None or self._val_df is None or self._test_df is None:
             selected_indices = [
@@ -357,6 +397,214 @@ class TrainingPipeline:
 
         return X_train_selected, X_val_selected, X_test_selected
 
+    def _prediction_class_report(
+        self,
+        predictor: MatchPredictor | CalibratedPredictor,
+        X: NDArray[np.float64],
+    ) -> dict[str, Any] | None:
+        """Summarize predicted-class diversity for model quality gates."""
+        probas = predictor.predict_proba(X)
+        if not isinstance(probas, np.ndarray) or probas.ndim != 2:
+            return None
+
+        predictions = np.argmax(probas, axis=1)
+        counts = np.bincount(predictions, minlength=probas.shape[1])
+        n_samples = int(len(predictions))
+        max_share = float(counts.max() / n_samples) if n_samples else 0.0
+        return {
+            "num_classes": int(np.count_nonzero(counts)),
+            "counts": [int(count) for count in counts.tolist()],
+            "max_share": max_share,
+            "mean_probabilities": [
+                float(value) for value in probas.mean(axis=0).tolist()
+            ],
+        }
+
+    def _is_prediction_collapsed(self, report: dict[str, Any] | None) -> bool:
+        """Return True when validation predictions are too class-collapsed."""
+        if report is None:
+            return False
+        return int(report["num_classes"]) < self.config.min_prediction_classes
+
+    def _restore_full_feature_matrices(
+        self,
+        y_train: NDArray[np.int64],
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]] | None:
+        """Refit transforms against full raw features after feature pruning."""
+        if (
+            self._train_raw_features is None
+            or self._val_raw_features is None
+            or self._test_raw_features is None
+            or not hasattr(self.feature_pipeline, "clear_selected_features")
+        ):
+            return None
+
+        self.feature_pipeline.clear_selected_features()
+        self._selected_feature_names = None
+        return (
+            self.feature_pipeline.fit_transform_raw_features(
+                self._train_raw_features,
+                y_train,
+            ),
+            self.feature_pipeline.transform_raw_features(self._val_raw_features),
+            self.feature_pipeline.transform_raw_features(self._test_raw_features),
+        )
+
+    def _collapse_recovery_hyperparameters(
+        self,
+        hyperparameters: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Relax XGBoost parameters enough to avoid class-prior collapse."""
+        if self.config.model_type != "xgboost":
+            return dict(hyperparameters)
+
+        recovered = dict(hyperparameters)
+        recovered["max_depth"] = max(int(recovered.get("max_depth", 3)), 3)
+        recovered["learning_rate"] = max(
+            float(recovered.get("learning_rate", 0.03)),
+            0.03,
+        )
+        recovered["n_estimators"] = max(int(recovered.get("n_estimators", 600)), 600)
+        recovered["min_child_weight"] = min(
+            float(recovered.get("min_child_weight", 10)),
+            5.0,
+        )
+        recovered["gamma"] = min(float(recovered.get("gamma", 1.0)), 0.5)
+        recovered["reg_alpha"] = min(float(recovered.get("reg_alpha", 2.0)), 1.0)
+        recovered["reg_lambda"] = min(float(recovered.get("reg_lambda", 10.0)), 5.0)
+        recovered["subsample"] = max(float(recovered.get("subsample", 0.7)), 0.8)
+        recovered["colsample_bytree"] = max(
+            float(recovered.get("colsample_bytree", 0.5)),
+            0.8,
+        )
+        return recovered
+
+    def _train_with_collapse_recovery(
+        self,
+        X_train: NDArray[np.float64],
+        y_train: NDArray[np.int64],
+        X_val: NDArray[np.float64],
+        y_val: NDArray[np.int64],
+        X_test: NDArray[np.float64],
+        hyperparameters: dict[str, Any],
+        class_weights: dict[int, float] | None,
+    ) -> tuple[
+        MatchPredictor,
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+        dict[int, float] | None,
+        dict[str, Any],
+    ]:
+        """Train the final model and recover from one-class collapse."""
+        predictor = self._train_model(
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            hyperparameters,
+            class_weights,
+        )
+        initial_report = self._prediction_class_report(predictor, X_val)
+        if not self._is_prediction_collapsed(initial_report):
+            self._collapse_recovery = {
+                "enabled": self.config.collapse_recovery,
+                "triggered": False,
+                "validation_predictions": initial_report,
+            }
+            return predictor, X_train, X_val, X_test, class_weights, hyperparameters
+
+        if not self.config.collapse_recovery or self.config.model_type != "xgboost":
+            raise ValueError(
+                "Training produced a degenerate model: validation predictions "
+                f"covered {initial_report['num_classes']} classes with counts "
+                f"{initial_report['counts']}. Enable collapse recovery or adjust "
+                "the model configuration."
+            )
+
+        recovery_notes: list[dict[str, Any]] = [
+            {"stage": "initial", "validation_predictions": initial_report}
+        ]
+        recovered_weights = class_weights or get_class_weights(y_train)
+        recovered_hyperparameters = dict(hyperparameters)
+
+        restored = self._restore_full_feature_matrices(y_train)
+        if restored is not None:
+            X_train, X_val, X_test = restored
+            recovery_notes.append(
+                {
+                    "stage": "restore_full_feature_set",
+                    "num_features": len(self.feature_pipeline.feature_names),
+                }
+            )
+
+        predictor = self._train_model(
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            recovered_hyperparameters,
+            recovered_weights,
+        )
+        recovered_report = self._prediction_class_report(predictor, X_val)
+        if not self._is_prediction_collapsed(recovered_report):
+            self._collapse_recovery = {
+                "enabled": True,
+                "triggered": True,
+                "strategy": "class_weighted_full_features",
+                "validation_predictions": recovered_report,
+                "notes": recovery_notes,
+            }
+            return (
+                predictor,
+                X_train,
+                X_val,
+                X_test,
+                recovered_weights,
+                recovered_hyperparameters,
+            )
+
+        recovery_notes.append(
+            {
+                "stage": "class_weighted_full_features",
+                "validation_predictions": recovered_report,
+            }
+        )
+        recovered_hyperparameters = self._collapse_recovery_hyperparameters(
+            hyperparameters
+        )
+        predictor = self._train_model(
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            recovered_hyperparameters,
+            recovered_weights,
+        )
+        relaxed_report = self._prediction_class_report(predictor, X_val)
+        if not self._is_prediction_collapsed(relaxed_report):
+            self._collapse_recovery = {
+                "enabled": True,
+                "triggered": True,
+                "strategy": "class_weighted_relaxed_xgboost",
+                "validation_predictions": relaxed_report,
+                "notes": recovery_notes,
+            }
+            return (
+                predictor,
+                X_train,
+                X_val,
+                X_test,
+                recovered_weights,
+                recovered_hyperparameters,
+            )
+
+        raise ValueError(
+            "Training produced a degenerate model even after recovery: validation "
+            f"predictions covered {relaxed_report['num_classes']} classes with "
+            f"counts {relaxed_report['counts']}. Refusing to save or activate it."
+        )
+
     def run(self) -> TrainingResult:
         """Execute the complete training pipeline.
 
@@ -370,8 +618,8 @@ class TrainingPipeline:
         # Step 1: Prepare data
         X_train, X_val, X_test, y_train, y_val, y_test = self._prepare_data()
 
-        # Step 2: Handle class imbalance (if enabled)
-        if self.config.outcome_balance is True:
+        # Step 2: Handle class imbalance (opt-in only)
+        if self.config.outcome_balance:
             class_weights = get_class_weights(y_train)
         else:
             class_weights = None
@@ -398,14 +646,22 @@ class TrainingPipeline:
             )
             best_params = tuning_result.best_params
 
-        # Step 5: Train model
-        predictor = self._train_model(
+        # Step 5: Train model, refusing to persist one-class collapses.
+        (
+            predictor,
             X_train,
-            y_train,
             X_val,
-            y_val,
-            best_params,
+            X_test,
             class_weights,
+            best_params,
+        ) = self._train_with_collapse_recovery(
+            X_train=X_train,
+            y_train=y_train,
+            X_val=X_val,
+            y_val=y_val,
+            X_test=X_test,
+            hyperparameters=best_params,
+            class_weights=class_weights,
         )
 
         # Step 6: Calibrate probabilities (optional)
@@ -415,11 +671,33 @@ class TrainingPipeline:
             )
             val_probas = predictor.predict_proba(X_val)
             self._calibrator.fit(val_probas, y_val)
+            calibrated_predictor = CalibratedPredictor(predictor, self._calibrator)
+            calibrated_report = self._prediction_class_report(
+                calibrated_predictor,
+                X_val,
+            )
+            if self._is_prediction_collapsed(calibrated_report):
+                self._calibrator = None
+                if self._collapse_recovery is None:
+                    self._collapse_recovery = {}
+                self._collapse_recovery["calibration_disabled"] = True
+                self._collapse_recovery["calibrated_validation_predictions"] = (
+                    calibrated_report
+                )
 
         # Step 7: Evaluate
-        train_metrics = self._evaluate(predictor, X_train, y_train, self._train_df)
-        val_metrics = self._evaluate(predictor, X_val, y_val, self._val_df)
-        test_metrics = self._evaluate(predictor, X_test, y_test, self._test_df)
+        # Train/val use raw probabilities (calibrator is fit on val, so
+        # calibrating val again would leak data and make calibration metrics
+        # look artificially perfect).
+        train_metrics = self._evaluate(
+            predictor, X_train, y_train, self._train_df, apply_calibration=False
+        )
+        val_metrics = self._evaluate(
+            predictor, X_val, y_val, self._val_df, apply_calibration=False
+        )
+        test_metrics = self._evaluate(
+            predictor, X_test, y_test, self._test_df, apply_calibration=True
+        )
 
         # Step 8: Register model
         all_metrics = {
@@ -427,18 +705,24 @@ class TrainingPipeline:
             **{f"val_{k}": v for k, v in val_metrics.items()},
             **{f"test_{k}": v for k, v in test_metrics.items()},
         }
-        resolved_registry_hyperparameters = best_params
         if not self.config.use_ensemble:
-            resolved_registry_hyperparameters = resolve_training_hyperparameters(
-                model_type=self.config.model_type,
-                hyperparameters=best_params,
-            )
+            resolved_registry_hyperparameters = {
+                **resolve_training_hyperparameters(
+                    model_type=self.config.model_type,
+                    hyperparameters=best_params,
+                ),
+                **predictor.effective_hyperparameters,
+            }
+        else:
+            resolved_registry_hyperparameters = dict(best_params)
         model_hyperparameters: dict[str, Any] = {
             **resolved_registry_hyperparameters,
             "feature_names": self.feature_pipeline.feature_names,
             "random_seed": self.config.random_seed,
             "early_stopping_rounds": self.config.early_stopping_rounds,
             "use_ensemble": self.config.use_ensemble,
+            "outcome_balance": class_weights is not None,
+            "min_prediction_classes": self.config.min_prediction_classes,
         }
         if self._selected_feature_names is not None:
             model_hyperparameters["selected_feature_names"] = (
@@ -454,6 +738,9 @@ class TrainingPipeline:
             model_hyperparameters["ensemble_types"] = self.config.ensemble_types
         if self.config.calibrate_probabilities:
             model_hyperparameters["calibration_method"] = self.config.calibration_method
+            model_hyperparameters["calibration_enabled"] = self._calibrator is not None
+        if self._collapse_recovery is not None:
+            model_hyperparameters["collapse_recovery"] = self._collapse_recovery
 
         model_version = self.model_registry.save_model(
             model=CalibratedPredictor(predictor, self._calibrator)
@@ -624,20 +911,28 @@ class TrainingPipeline:
         self._test_df = test_df
 
         X_train = self.feature_pipeline.fit_transform(train_df, self.repo)
+        self._train_raw_features = self.feature_pipeline.last_raw_features
         X_val = self.feature_pipeline.transform(val_df, self.repo)
+        self._val_raw_features = self.feature_pipeline.last_raw_features
         X_test = self.feature_pipeline.transform(test_df, self.repo)
+        self._test_raw_features = self.feature_pipeline.last_raw_features
 
-        # Cache raw features if enabled — reuse what fit() already computed
-        # for train_df, then generate for val+test (no redundant full-dataset pass)
+        # Cache raw features if enabled, reusing frames already produced while
+        # fitting and transforming the split data.
         if self.config.use_feature_cache:
             try:
                 import pandas as pd
 
-                # fit() stored raw features for train_df; generate for val+test
-                train_raw = self.feature_pipeline._last_raw_features
-                val_raw = self.feature_pipeline.generators.generate(val_df, self.repo)
-                test_raw = self.feature_pipeline.generators.generate(test_df, self.repo)
-                raw_features = pd.concat([train_raw, val_raw, test_raw])
+                raw_frames = [
+                    frame
+                    for frame in (
+                        self._train_raw_features,
+                        self._val_raw_features,
+                        self._test_raw_features,
+                    )
+                    if frame is not None
+                ]
+                raw_features = pd.concat(raw_frames) if raw_frames else pd.DataFrame()
                 from algobet.predictions.features.store import features_to_store_format
 
                 features_list = features_to_store_format(
@@ -728,8 +1023,19 @@ class TrainingPipeline:
         X: NDArray[np.float64],
         y: NDArray[np.int64],
         matches_df: pd.DataFrame | None = None,
+        apply_calibration: bool = True,
     ) -> dict[str, float]:
-        """Evaluate model performance."""
+        """Evaluate model performance.
+
+        Args:
+            predictor: Fitted predictor
+            X: Feature matrix
+            y: True labels
+            matches_df: Optional match metadata for market diagnostics
+            apply_calibration: If False, report raw probabilities even when
+                a calibrator exists. Used for train/val to avoid calibrator
+                contamination (the calibrator is fit on val data).
+        """
         from sklearn.metrics import (
             accuracy_score,
             f1_score,
@@ -741,11 +1047,18 @@ class TrainingPipeline:
         # Get predictions
         probas = predictor.predict_proba(X)
 
-        # Apply calibration if available
-        if self._calibrator is not None:
+        # Apply calibration only when explicitly requested.
+        # We skip calibration for train/val because the calibrator was fit on
+        # the validation set; applying it back to val would make calibration
+        # metrics look artificially perfect (data leakage).
+        if apply_calibration and self._calibrator is not None:
             probas = self._calibrator.calibrate(probas)
 
         y_pred = np.argmax(probas, axis=1)
+        prediction_counts = np.bincount(y_pred, minlength=probas.shape[1])
+        max_prediction_share = (
+            float(prediction_counts.max() / len(y_pred)) if len(y_pred) else 0.0
+        )
 
         # Calculate metrics
         metrics = {
@@ -756,6 +1069,8 @@ class TrainingPipeline:
             ),
             "recall_macro": recall_score(y, y_pred, average="macro", zero_division=0),
             "f1_macro": f1_score(y, y_pred, average="macro", zero_division=0),
+            "predicted_classes": float(np.count_nonzero(prediction_counts)),
+            "max_prediction_share": max_prediction_share,
         }
 
         # Add calibration metrics

@@ -93,7 +93,7 @@ class LoggingConfig(BaseSettings):
         description="Logging level",
     )
     format: Literal["json", "text", "structured"] = Field(
-        default="text",
+        default="json",
         description="Log output format",
     )
     output: Literal["stdout", "stderr", "file", "both"] = Field(

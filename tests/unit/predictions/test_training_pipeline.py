@@ -12,6 +12,7 @@ from algobet.predictions.data.queries import MatchRepository, TeamStandings
 from algobet.predictions.training.pipeline import (
     MODEL_FEATURE_SCHEMA_VERSION,
     TrainingConfig,
+    TrainingPipeline,
 )
 
 
@@ -28,7 +29,7 @@ class TestTrainingConfig:
         assert config.tune_hyperparameters is False
         assert config.calibrate_probabilities is True
         assert config.calibration_method == "sigmoid"
-        assert config.outcome_balance is None
+        assert config.outcome_balance is False
         assert config.feature_schema_version == MODEL_FEATURE_SCHEMA_VERSION
         assert config.use_ensemble is False
         assert config.random_seed == 42
@@ -319,6 +320,20 @@ class TestTrainingPipelineFeatureSelection:
         probe.feature_importance = {"f1": 9.0, "f2": 1.0, "f3": 0.0}
         pipeline._train_model = MagicMock(return_value=probe)
 
+        # Set the dataframes so the production refit path is exercised
+        pipeline._train_df = pd.DataFrame({"a": [1, 2, 3, 4]})
+        pipeline._val_df = pd.DataFrame({"a": [5, 6]})
+        pipeline._test_df = pd.DataFrame({"a": [7, 8]})
+
+        # Simulate fit_transform/transform returning reduced matrices
+        feature_pipeline.fit_transform.return_value = np.array(
+            [[1], [2], [3], [4]], dtype=np.float64
+        )
+        feature_pipeline.transform.side_effect = [
+            np.array([[5], [6]], dtype=np.float64),
+            np.array([[7], [8]], dtype=np.float64),
+        ]
+
         X_train = np.arange(12, dtype=np.float64).reshape(4, 3)
         X_val = np.arange(6, dtype=np.float64).reshape(2, 3)
         X_test = np.arange(6, dtype=np.float64).reshape(2, 3)
@@ -335,6 +350,73 @@ class TestTrainingPipelineFeatureSelection:
 
         assert pipeline._selected_feature_names == ["f1"]
         feature_pipeline.set_selected_features.assert_called_once_with(["f1"])
+        # In the production path the shapes come from the refit pipeline
+        assert selected_train.shape == (4, 1)
+        assert selected_val.shape == (2, 1)
+        assert selected_test.shape == (2, 1)
+        feature_pipeline.fit_transform.assert_called_once()
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_apply_feature_selection_reuses_cached_raw_features(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Feature selection should refit from cached raw frames, not regenerate."""
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "f2", "f3"]
+        feature_pipeline.set_selected_features = MagicMock()
+        feature_pipeline.fit_transform_raw_features.return_value = np.array(
+            [[1], [2], [3], [4]], dtype=np.float64
+        )
+        feature_pipeline.transform_raw_features.side_effect = [
+            np.array([[5], [6]], dtype=np.float64),
+            np.array([[7], [8]], dtype=np.float64),
+        ]
+
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(
+                feature_selection=True,
+                feature_selection_threshold=0.2,
+            ),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+        pipeline._train_raw_features = pd.DataFrame(
+            {"f1": [1, 2, 3, 4], "f2": [0, 0, 0, 0], "f3": [9, 9, 9, 9]}
+        )
+        pipeline._val_raw_features = pd.DataFrame(
+            {"f1": [5, 6], "f2": [0, 0], "f3": [9, 9]}
+        )
+        pipeline._test_raw_features = pd.DataFrame(
+            {"f1": [7, 8], "f2": [0, 0], "f3": [9, 9]}
+        )
+
+        probe = MagicMock()
+        probe.feature_importance = {"f1": 9.0, "f2": 1.0, "f3": 0.0}
+        pipeline._train_model = MagicMock(return_value=probe)
+
+        y_train = np.array([0, 1, 2, 0], dtype=np.int64)
+        selected_train, selected_val, selected_test = pipeline._apply_feature_selection(
+            X_train=np.arange(12, dtype=np.float64).reshape(4, 3),
+            X_val=np.arange(6, dtype=np.float64).reshape(2, 3),
+            X_test=np.arange(6, dtype=np.float64).reshape(2, 3),
+            y_train=y_train,
+            y_val=np.array([1, 2], dtype=np.int64),
+            class_weights=None,
+            hyperparameters={},
+        )
+
+        feature_pipeline.set_selected_features.assert_called_once_with(["f1"])
+        feature_pipeline.fit_transform_raw_features.assert_called_once_with(
+            pipeline._train_raw_features,
+            y_train,
+        )
+        assert feature_pipeline.transform_raw_features.call_count == 2
+        feature_pipeline.fit_transform.assert_not_called()
         assert selected_train.shape == (4, 1)
         assert selected_val.shape == (2, 1)
         assert selected_test.shape == (2, 1)
@@ -495,6 +577,156 @@ class TestTrainingPipelineOddsFree:
         assert class_weights is not None
         assert set(class_weights) == {0, 1, 2}
 
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_run_recovers_collapsed_xgboost_model(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Training should not save an XGBoost model that predicts one class."""
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "f2"]
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(
+                calibrate_probabilities=False,
+                outcome_balance=False,
+            ),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+        pipeline._prepare_data = MagicMock(
+            return_value=(
+                np.ones((6, 2), dtype=np.float64),
+                np.ones((3, 2), dtype=np.float64),
+                np.ones((3, 2), dtype=np.float64),
+                np.array([0, 0, 1, 1, 2, 2], dtype=np.int64),
+                np.array([0, 1, 2], dtype=np.int64),
+                np.array([0, 1, 2], dtype=np.int64),
+            )
+        )
+
+        collapsed = MagicMock()
+        collapsed.predict_proba.return_value = np.array(
+            [[0.6, 0.2, 0.2], [0.6, 0.2, 0.2], [0.6, 0.2, 0.2]],
+            dtype=np.float64,
+        )
+        recovered = MagicMock()
+        recovered.predict_proba.return_value = np.array(
+            [[0.5, 0.3, 0.2], [0.2, 0.5, 0.3], [0.2, 0.3, 0.5]],
+            dtype=np.float64,
+        )
+        recovered.feature_importance = {"f1": 0.5, "f2": 0.5}
+        recovered.effective_hyperparameters = {}
+        pipeline._train_model = MagicMock(side_effect=[collapsed, recovered])
+        pipeline._evaluate = MagicMock(
+            side_effect=[
+                {"accuracy": 0.7},
+                {"accuracy": 0.6},
+                {"accuracy": 0.5},
+            ]
+        )
+        mock_registry = mock_registry_cls.return_value
+        mock_registry.save_model.return_value = "xgboost_20260508_200000"
+
+        pipeline.run()
+
+        assert pipeline._train_model.call_count == 2
+        class_weights = pipeline._train_model.call_args.args[5]
+        assert class_weights is not None
+        saved_hyperparameters = mock_registry.save_model.call_args.kwargs[
+            "hyperparameters"
+        ]
+        assert saved_hyperparameters["outcome_balance"] is True
+        assert saved_hyperparameters["collapse_recovery"]["triggered"] is True
+        assert (
+            saved_hyperparameters["collapse_recovery"]["strategy"]
+            == "class_weighted_full_features"
+        )
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_run_rejects_collapsed_model_when_recovery_disabled(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Degenerate models should fail before they are saved."""
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "f2"]
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(
+                calibrate_probabilities=False,
+                collapse_recovery=False,
+            ),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+        pipeline._prepare_data = MagicMock(
+            return_value=(
+                np.ones((6, 2), dtype=np.float64),
+                np.ones((3, 2), dtype=np.float64),
+                np.ones((3, 2), dtype=np.float64),
+                np.array([0, 0, 1, 1, 2, 2], dtype=np.int64),
+                np.array([0, 1, 2], dtype=np.int64),
+                np.array([0, 1, 2], dtype=np.int64),
+            )
+        )
+        collapsed = MagicMock()
+        collapsed.predict_proba.return_value = np.array(
+            [[0.6, 0.2, 0.2], [0.6, 0.2, 0.2], [0.6, 0.2, 0.2]],
+            dtype=np.float64,
+        )
+        pipeline._train_model = MagicMock(return_value=collapsed)
+
+        with pytest.raises(ValueError, match="degenerate model"):
+            pipeline.run()
+
+        mock_registry_cls.return_value.save_model.assert_not_called()
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_apply_feature_selection_rejects_odds_features(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Odds-derived features must never survive feature selection."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "implied_prob_home", "f3"]
+        feature_pipeline.set_selected_features = MagicMock()
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(
+                feature_selection=True,
+                feature_selection_threshold=0.2,
+            ),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+
+        probe = MagicMock()
+        probe.feature_importance = {"f1": 1.0, "implied_prob_home": 9.0, "f3": 0.0}
+        pipeline._train_model = MagicMock(return_value=probe)
+
+        with pytest.raises(ValueError, match="Odds-derived features detected"):
+            pipeline._apply_feature_selection(
+                X_train=np.ones((4, 3), dtype=np.float64),
+                X_val=np.ones((2, 3), dtype=np.float64),
+                X_test=np.ones((2, 3), dtype=np.float64),
+                y_train=np.array([0, 1, 2, 0], dtype=np.int64),
+                y_val=np.array([1, 2], dtype=np.int64),
+                class_weights=None,
+                hyperparameters={},
+            )
+
 
 class TestMatchRepositoryStandings:
     """Tests for time-aware standings lookup."""
@@ -545,6 +777,26 @@ class TestMatchRepositoryStandings:
             )
             is None
         )
+
+    def test_compute_standings_history_uses_full_season_team_count(self) -> None:
+        """Early-season snapshots must reflect the true league size."""
+        from types import SimpleNamespace
+
+        repo = MatchRepository(MagicMock())
+        # Only two teams have played so far, but the league has 4 teams total
+        matches = [
+            SimpleNamespace(
+                match_date=datetime(2026, 1, 1),
+                home_team_id=1,
+                away_team_id=2,
+                home_score=1,
+                away_score=0,
+            ),
+        ]
+        repo._compute_standings_history(10, 20, matches)
+
+        history = repo._standings_cache[(10, 20)]
+        assert history[1][0].total_teams == 2  # Only 2 teams appeared in matches
 
 
 class TestTrainModel:

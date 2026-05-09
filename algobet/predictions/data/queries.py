@@ -165,12 +165,18 @@ class MatchRepository:
         if not tourney_ids or not season_ids:
             return
 
+        # Build exact (tournament_id, season_id) pair conditions to avoid
+        # a Cartesian product that would load unintended cross-pair matches.
+        pair_conditions = [
+            and_(Match.tournament_id == tid, Match.season_id == sid)
+            for tid, sid in unique_pairs
+        ]
+
         stmt = (
             select(Match)
             .where(
                 and_(
-                    Match.tournament_id.in_(tourney_ids),
-                    Match.season_id.in_(season_ids),
+                    or_(*pair_conditions),
                     Match.match_date < before_date,
                     Match.status == "FINISHED",
                     Match.home_score.is_not(None),
@@ -225,13 +231,17 @@ class MatchRepository:
             # Update away team stats
             self._update_team_stats(team_stats, match.away_team_id, False, match)
 
-            # After each match, compute current standings for all teams
-            all_teams = list(team_stats.keys())
-            n_teams = len(all_teams) if all_teams else 1
+            # After each match, compute current standings for all teams.
+            # Use the full set of teams that appear anywhere in the season
+            # so that early-season snapshots have the correct league size.
+            all_season_teams = {m.home_team_id for m in matches} | {
+                m.away_team_id for m in matches
+            }
+            n_teams = len(all_season_teams) if all_season_teams else 1
 
-            # Build sorted standings list
+            # Build sorted standings list (only teams that have played so far)
             ranked = sorted(
-                all_teams,
+                team_stats.keys(),
                 key=lambda tid: (
                     team_stats[tid]["points"],
                     team_stats[tid]["goal_diff"],
@@ -480,14 +490,20 @@ class MatchRepository:
             List of Match objects ordered by date (most recent first)
         """
         if team_id in self._team_matches_cache:
-            matches = self._team_matches_cache[team_id]
-            if before_date:
-                matches = [m for m in matches if m.match_date < before_date]
-            if home_only:
-                matches = [m for m in matches if m.home_team_id == team_id]
-            elif away_only:
-                matches = [m for m in matches if m.away_team_id == team_id]
-            return matches[:limit]
+            result: list[Match] = []
+            for match in self._team_matches_cache[team_id]:
+                if before_date and match.match_date >= before_date:
+                    continue
+                if home_only and match.home_team_id != team_id:
+                    continue
+                if away_only and match.away_team_id != team_id:
+                    continue
+
+                result.append(match)
+                if len(result) >= limit:
+                    break
+
+            return result
 
         # Fall back to DB query
         if home_only:
@@ -517,8 +533,8 @@ class MatchRepository:
         )
 
         stmt = stmt.order_by(desc(Match.match_date)).limit(limit)
-        result = self.session.execute(stmt)
-        return list(result.unique().scalars().all())
+        db_result = self.session.execute(stmt)
+        return list(db_result.unique().scalars().all())
 
     def get_h2h_matches(
         self,
@@ -542,10 +558,14 @@ class MatchRepository:
         """
         cache_key = (min(team1_id, team2_id), max(team1_id, team2_id))
         if cache_key in self._h2h_cache:
-            matches = self._h2h_cache[cache_key]
-            if before_date:
-                matches = [m for m in matches if m.match_date < before_date]
-            return matches[:limit]
+            result: list[Match] = []
+            for match in self._h2h_cache[cache_key]:
+                if before_date and match.match_date >= before_date:
+                    continue
+                result.append(match)
+                if len(result) >= limit:
+                    break
+            return result
 
         # Fall back to DB query
         stmt = select(Match).where(
@@ -567,8 +587,8 @@ class MatchRepository:
         )
 
         stmt = stmt.order_by(desc(Match.match_date)).limit(limit)
-        result = self.session.execute(stmt)
-        return list(result.scalars().all())
+        db_result = self.session.execute(stmt)
+        return list(db_result.scalars().all())
 
     def get_match_count(self, team_id: int, before_date: datetime) -> int:
         """Get count of matches played by a team before a given date.
@@ -580,6 +600,13 @@ class MatchRepository:
         Returns:
             Number of matches played
         """
+        if team_id in self._team_matches_cache:
+            return sum(
+                1
+                for match in self._team_matches_cache[team_id]
+                if match.match_date < before_date
+            )
+
         stmt = select(func.count(Match.id)).where(
             and_(
                 or_(Match.home_team_id == team_id, Match.away_team_id == team_id),

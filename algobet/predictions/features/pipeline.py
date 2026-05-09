@@ -91,7 +91,7 @@ class FeaturePipeline:
             if self.config.selected_feature_names
             else None
         )
-        self._last_raw_features: pd.DataFrame | None = None  # cached from last fit()
+        self._last_raw_features: pd.DataFrame | None = None
 
     @property
     def feature_names(self) -> list[str]:
@@ -129,6 +129,13 @@ class FeaturePipeline:
         self.config.selected_feature_names = unique_names
         self._feature_schema = None
 
+    def clear_selected_features(self) -> None:
+        """Restore the pipeline to the full generator feature set."""
+        self._selected_feature_names = None
+        self._feature_names = list(self.generators.feature_names)
+        self.config.selected_feature_names = None
+        self._feature_schema = None
+
     @property
     def is_fitted(self) -> bool:
         """Check if pipeline has been fitted."""
@@ -152,21 +159,8 @@ class FeaturePipeline:
         Returns:
             self
         """
-        # Generate raw features
         raw_features = self.generators.generate(matches, repository)
-
-        # Ensure all expected features are present
-        raw_features = self._ensure_features(raw_features)
-
-        # Fit transformers
-        self.transformers.fit(raw_features, y)
-
-        # Store schema and raw features for reuse (avoids redundant generate_raw call)
-        self._feature_schema = None
-        self._feature_schema = self.get_schema()
-        self._last_raw_features = raw_features
-        self._fitted = True
-
+        self.fit_raw_features(raw_features, y)
         return self
 
     def transform(
@@ -186,16 +180,8 @@ class FeaturePipeline:
         if not self._fitted:
             raise ValueError("Pipeline not fitted. Call fit() first.")
 
-        # Generate raw features
         raw_features = self.generators.generate(matches, repository)
-
-        # Ensure all expected features are present
-        raw_features = self._ensure_features(raw_features)
-
-        # Transform
-        transformed = self.transformers.transform(raw_features)
-
-        return transformed
+        return self.transform_raw_features(raw_features)
 
     def fit_transform(
         self,
@@ -213,8 +199,51 @@ class FeaturePipeline:
         Returns:
             Transformed feature matrix
         """
-        self.fit(matches, repository, y)
-        return self.transform(matches, repository)
+        raw_features = self.generators.generate(matches, repository)
+        return self.fit_transform_raw_features(raw_features, y)
+
+    def fit_raw_features(
+        self,
+        raw_features: pd.DataFrame,
+        y: Any = None,
+    ) -> "FeaturePipeline":
+        """Fit transformers from precomputed raw features."""
+        ensured_features = self._ensure_features(raw_features.copy())
+        self.transformers.fit(ensured_features, y)
+
+        self._feature_schema = None
+        self._feature_schema = self.get_schema()
+        self._last_raw_features = ensured_features
+        self._fitted = True
+
+        return self
+
+    def transform_raw_features(self, raw_features: pd.DataFrame) -> np.ndarray:
+        """Transform precomputed raw features with fitted transformers."""
+        if not self._fitted:
+            raise ValueError("Pipeline not fitted. Call fit() first.")
+
+        ensured_features = self._ensure_features(raw_features.copy())
+        self._last_raw_features = ensured_features
+        return self.transformers.transform(ensured_features)
+
+    def fit_transform_raw_features(
+        self,
+        raw_features: pd.DataFrame,
+        y: Any = None,
+    ) -> np.ndarray:
+        """Fit and transform precomputed raw features in one step."""
+        self.fit_raw_features(raw_features, y)
+        if self._last_raw_features is None:
+            raise ValueError("Raw features were not captured during fit")
+        return self.transformers.transform(self._last_raw_features)
+
+    @property
+    def last_raw_features(self) -> pd.DataFrame | None:
+        """Most recent ensured raw feature frame produced by fit/transform."""
+        if self._last_raw_features is None:
+            return None
+        return self._last_raw_features.copy()
 
     def generate_raw(
         self,
@@ -243,12 +272,22 @@ class FeaturePipeline:
         Returns:
             DataFrame with all expected features
         """
+        import warnings
+
         expected = set(self.feature_names)
         actual = set(features.columns)
         missing = expected - actual
 
-        for name in missing:
-            features[name] = 0.0
+        if missing:
+            warnings.warn(
+                "FeaturePipeline is filling missing features with zeros: "
+                f"{sorted(missing)}. This usually means the generator setup changed "
+                "since the pipeline was saved.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            for name in missing:
+                features[name] = 0.0
 
         # Reorder to match expected order
         return features[[c for c in self.feature_names if c in features.columns]]
@@ -318,12 +357,15 @@ class FeaturePipeline:
         path.mkdir(parents=True, exist_ok=True)
 
         # Save configuration
+        # Store the FULL generator schema in feature_names so load() can
+        # validate selected features against the reconstructed generators.
         config_data = {
             "schema_version": self.config.schema_version,
             "created_at": self.config.created_at.isoformat(),
             "description": self.config.description,
-            "feature_names": self.feature_names,
+            "feature_names": self.generators.feature_names,
             "selected_feature_names": self._selected_feature_names,
+            "generator_names": self._generator_names(),
             "fitted": self._fitted,
         }
 
@@ -392,8 +434,14 @@ class FeaturePipeline:
 
         selected_feature_names = config_data.get("selected_feature_names")
         if selected_feature_names:
-            pipeline._selected_feature_names = list(selected_feature_names)
-            pipeline._feature_names = list(selected_feature_names)
+            # Use the public setter to validate against reconstructed generators
+            # and reset the feature schema.
+            try:
+                pipeline.set_selected_features(list(selected_feature_names))
+            except ValueError as exc:
+                raise ValueError(
+                    f"Saved selected features cannot be restored: {exc}"
+                ) from exc
         else:
             pipeline._feature_names = config_data.get(
                 "feature_names", generators.feature_names

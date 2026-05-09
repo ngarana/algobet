@@ -1,5 +1,7 @@
 """API router for ML operations (backtest, calibrate)."""
 
+import contextlib
+import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,6 +14,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 
 from algobet.api.dependencies import get_db
+from algobet.infrastructure.logging_config import get_logger
 from algobet.models import BacktestHistory, Match, ModelVersion
 from algobet.predictions.data.queries import MatchRepository
 from algobet.predictions.evaluation import evaluate_predictions
@@ -30,7 +33,24 @@ from algobet.predictions.training.pipeline import (
     TrainingPipeline,
 )
 
+
+def _convert_numpy_types(obj: Any) -> Any:
+    """Recursively convert numpy/scalar payloads to JSON-safe Python types."""
+    if isinstance(obj, dict):
+        return {k: _convert_numpy_types(v) for k, v in obj.items()}
+    if isinstance(obj, list | tuple):
+        return type(obj)(_convert_numpy_types(item) for item in obj)
+    if isinstance(obj, np.floating | np.integer):
+        return obj.item()
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+
 router = APIRouter()
+logger = get_logger("ml_operations")
 DEFAULT_TRAIN_MODEL_TYPE = os.getenv("ALGOBET_DEFAULT_MODEL_TYPE", "xgboost")
 
 
@@ -137,6 +157,7 @@ class BacktestRequest(BaseModel):
     """Request schema for backtest operation."""
 
     model_version: str | None = None
+    tournament_id: int | None = None
     start_date: datetime | None = None
     end_date: datetime | None = None
     min_matches: int = Field(default=100, ge=10, le=10000)
@@ -239,6 +260,34 @@ def run_training(
     db: Session = Depends(get_db),
 ) -> TrainModelResponse:
     """Train a prediction model and optionally activate it."""
+    # Log the training request payload
+    logger.info(
+        json.dumps(
+            {
+                "event": "training_request_received",
+                "model_type": request.model_type,
+                "tune_hyperparameters": request.tune_hyperparameters,
+                "description": request.description,
+                "activate": request.activate,
+                "start_date": str(request.start_date) if request.start_date else None,
+                "end_date": str(request.end_date) if request.end_date else None,
+                "min_matches": request.min_matches,
+                "tournament_ids": request.tournament_ids,
+                "team_ids": request.team_ids,
+                "venue_filter": request.venue_filter,
+                "train_ratio": request.train_ratio,
+                "val_ratio": request.val_ratio,
+                "test_ratio": request.test_ratio,
+                "random_seed": request.random_seed,
+                "early_stopping_rounds": request.early_stopping_rounds,
+                "calibrate_probabilities": request.calibrate_probabilities,
+                "calibration_method": request.calibration_method,
+                "use_ensemble": request.use_ensemble,
+                "split_strategy": request.split_strategy,
+            }
+        )
+    )
+
     # Validate split ratios sum to 1.0
     total_ratio = request.train_ratio + request.val_ratio + request.test_ratio
     if abs(total_ratio - 1.0) > 0.001:
@@ -275,7 +324,7 @@ def run_training(
         calibrate_probabilities=request.calibrate_probabilities,
         calibration_method=request.calibration_method,
         # Outcome balancing
-        outcome_balance=request.outcome_balance,
+        outcome_balance=request.outcome_balance or False,
         # Feature importance pruning
         feature_selection=request.feature_selection,
         feature_selection_threshold=request.feature_selection_threshold,
@@ -384,8 +433,19 @@ def run_backtest(
                 ),
                 None,
             )
+            # Get database record for backtest association
+            db_model = (
+                db.query(ModelVersion)
+                .filter(ModelVersion.version == request.model_version)
+                .first()
+            )
         else:
             model, model_meta = registry.get_active_model()
+            db_model = (
+                db.query(ModelVersion)
+                .filter(ModelVersion.version == model_meta.version)
+                .first()
+            )
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(
             status_code=404,
@@ -397,24 +457,24 @@ def run_backtest(
     start_date = request.start_date or (end_date - timedelta(days=365))
 
     # Get historical matches with results
-    matches = (
-        db.query(Match)
-        .options(joinedload(Match.home_team), joinedload(Match.away_team))
-        .filter(
-            and_(
-                Match.status == "FINISHED",
-                Match.home_score.is_not(None),
-                Match.away_score.is_not(None),
-                Match.match_date >= start_date,
-                Match.match_date <= end_date,
-                Match.odds_home.is_not(None),
-                Match.odds_draw.is_not(None),
-                Match.odds_away.is_not(None),
-            )
-        )
-        .order_by(Match.match_date)
-        .all()
+    query = db.query(Match).options(
+        joinedload(Match.home_team), joinedload(Match.away_team)
     )
+    filters = [
+        Match.status == "FINISHED",
+        Match.home_score.is_not(None),
+        Match.away_score.is_not(None),
+        Match.match_date >= start_date,
+        Match.match_date <= end_date,
+        Match.odds_home.is_not(None),
+        Match.odds_draw.is_not(None),
+        Match.odds_away.is_not(None),
+    ]
+
+    if request.tournament_id:
+        filters.append(Match.tournament_id == request.tournament_id)
+
+    matches = query.filter(and_(*filters)).order_by(Match.match_date).all()
 
     if len(matches) < request.min_matches:
         raise HTTPException(
@@ -433,16 +493,34 @@ def run_backtest(
         axis=1,
     )
 
-    # Generate features
+    # Generate features - load the saved feature pipeline from the model
     repo = MatchRepository(db)
-    feature_pipeline = FeaturePipeline.create_default()
+
+    # Try to load the saved feature pipeline from model hyperparameters
+    feature_pipeline = None
+    pipeline_path = None
+    if model_meta and model_meta.hyperparameters:
+        pipeline_path = model_meta.hyperparameters.get("feature_pipeline_path")
+
+    if pipeline_path:
+        pipeline_path = Path(pipeline_path)
+        if pipeline_path.exists() and (pipeline_path / "config.json").exists():
+            with contextlib.suppress(Exception):
+                feature_pipeline = FeaturePipeline.load(pipeline_path)
+
+    if feature_pipeline is None:
+        feature_pipeline = FeaturePipeline.create_default()
 
     # Use temporal split - first 30% for training features, rest for backtest
     train_size = int(len(matches) * 0.3)
     train_matches = matches_df.iloc[:train_size]
     test_matches = matches_df.iloc[train_size:]
 
-    feature_pipeline.fit(train_matches, repo)
+    # Only fit the pipeline if it wasn't already loaded from the model
+    # artifact (e.g. fallback default pipeline). Refitting a saved pipeline
+    # would overwrite the scaling/imputation statistics from training.
+    if not feature_pipeline.is_fitted:
+        feature_pipeline.fit(train_matches, repo)
     X_test = feature_pipeline.transform(test_matches, repo)
 
     # Get odds for betting simulation
@@ -472,65 +550,91 @@ def run_backtest(
     )
 
     # Save backtest results to database
-    if model_meta:
+    if db_model:
         backtest_record = BacktestHistory(
-            model_version_id=model_meta.model_id,
+            model_version_id=db_model.id,
             min_matches=request.min_matches,
             start_date=start_date,
             end_date=end_date,
             num_samples=result.num_samples,
             date_range_start=date_range[0],
             date_range_end=date_range[1],
-            accuracy=result.classification.accuracy,
-            log_loss=result.classification.log_loss,
-            brier_score=result.classification.brier_score,
-            f1_macro=result.classification.f1_macro,
-            f1_weighted=result.classification.f1_weighted,
-            precision_macro=result.classification.precision_macro,
-            recall_macro=result.classification.recall_macro,
-            top_2_accuracy=result.classification.top_2_accuracy,
-            cohen_kappa=result.classification.cohen_kappa,
-            f1_home=result.classification.per_class_f1.get("H", 0.0),
-            f1_draw=result.classification.per_class_f1.get("D", 0.0),
-            f1_away=result.classification.per_class_f1.get("A", 0.0),
-            total_bets=result.betting.total_bets if result.betting else None,
-            win_rate=result.betting.win_rate if result.betting else None,
-            roi_percent=result.betting.roi_percent if result.betting else None,
-            profit_loss=result.betting.profit_loss if result.betting else None,
-            sharpe_ratio=result.betting.sharpe_ratio if result.betting else None,
-            max_drawdown=result.betting.max_drawdown if result.betting else None,
-            expected_calibration_error=result.expected_calibration_error,
-            maximum_calibration_error=result.maximum_calibration_error,
-            full_metrics={
-                "classification": {
-                    "accuracy": result.classification.accuracy,
-                    "log_loss": result.classification.log_loss,
-                    "brier_score": result.classification.brier_score,
-                    "f1_macro": result.classification.f1_macro,
-                    "per_class_f1": result.classification.per_class_f1,
-                    "confusion_matrix": result.classification.confusion_matrix,
-                },
-                "betting": {
-                    "total_bets": result.betting.total_bets if result.betting else None,
-                    "win_rate": result.betting.win_rate if result.betting else None,
-                    "roi_percent": result.betting.roi_percent
+            accuracy=_convert_numpy_types(result.classification.accuracy),
+            log_loss=_convert_numpy_types(result.classification.log_loss),
+            brier_score=_convert_numpy_types(result.classification.brier_score),
+            f1_macro=_convert_numpy_types(result.classification.f1_macro),
+            f1_weighted=_convert_numpy_types(result.classification.f1_weighted),
+            precision_macro=_convert_numpy_types(result.classification.precision_macro),
+            recall_macro=_convert_numpy_types(result.classification.recall_macro),
+            top_2_accuracy=_convert_numpy_types(result.classification.top_2_accuracy),
+            cohen_kappa=_convert_numpy_types(result.classification.cohen_kappa),
+            f1_home=_convert_numpy_types(
+                result.classification.per_class_f1.get("H", 0.0)
+            ),
+            f1_draw=_convert_numpy_types(
+                result.classification.per_class_f1.get("D", 0.0)
+            ),
+            f1_away=_convert_numpy_types(
+                result.classification.per_class_f1.get("A", 0.0)
+            ),
+            total_bets=_convert_numpy_types(result.betting.total_bets)
+            if result.betting
+            else None,
+            win_rate=_convert_numpy_types(result.betting.win_rate)
+            if result.betting
+            else None,
+            roi_percent=_convert_numpy_types(result.betting.roi_percent)
+            if result.betting
+            else None,
+            profit_loss=_convert_numpy_types(result.betting.profit_loss)
+            if result.betting
+            else None,
+            sharpe_ratio=_convert_numpy_types(result.betting.sharpe_ratio)
+            if result.betting
+            else None,
+            max_drawdown=_convert_numpy_types(result.betting.max_drawdown)
+            if result.betting
+            else None,
+            expected_calibration_error=_convert_numpy_types(
+                result.expected_calibration_error
+            ),
+            maximum_calibration_error=_convert_numpy_types(
+                result.maximum_calibration_error
+            ),
+            full_metrics=_convert_numpy_types(
+                {
+                    "classification": {
+                        "accuracy": result.classification.accuracy,
+                        "log_loss": result.classification.log_loss,
+                        "brier_score": result.classification.brier_score,
+                        "f1_macro": result.classification.f1_macro,
+                        "per_class_f1": result.classification.per_class_f1,
+                        "confusion_matrix": result.classification.confusion_matrix,
+                    },
+                    "betting": {
+                        "total_bets": result.betting.total_bets
+                        if result.betting
+                        else None,
+                        "win_rate": result.betting.win_rate if result.betting else None,
+                        "roi_percent": result.betting.roi_percent
+                        if result.betting
+                        else None,
+                        "sharpe_ratio": result.betting.sharpe_ratio
+                        if result.betting
+                        else None,
+                        "max_drawdown": result.betting.max_drawdown
+                        if result.betting
+                        else None,
+                    }
                     if result.betting
                     else None,
-                    "sharpe_ratio": result.betting.sharpe_ratio
-                    if result.betting
-                    else None,
-                    "max_drawdown": result.betting.max_drawdown
-                    if result.betting
-                    else None,
+                    "calibration": {
+                        "expected_calibration_error": result.expected_calibration_error,
+                        "maximum_calibration_error": result.maximum_calibration_error,
+                    },
+                    "outcome_accuracy": result.outcome_accuracy,
                 }
-                if result.betting
-                else None,
-                "calibration": {
-                    "expected_calibration_error": result.expected_calibration_error,
-                    "maximum_calibration_error": result.maximum_calibration_error,
-                },
-                "outcome_accuracy": result.outcome_accuracy,
-            },
+            ),
         )
         db.add(backtest_record)
         db.commit()

@@ -1,5 +1,6 @@
 """Essential tests for FeaturePipeline."""
 
+import json
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -145,6 +146,20 @@ class TestFeaturePipeline:
         assert isinstance(result, pd.DataFrame)
         assert "feature1" in result.columns
 
+    def test_fit_transform_generates_raw_features_once(self, pipeline, mock_generators):
+        """fit_transform should not regenerate expensive raw features."""
+        matches = pd.DataFrame(
+            [
+                {"id": 1, "home_team_id": 10, "away_team_id": 20},
+                {"id": 2, "home_team_id": 30, "away_team_id": 40},
+            ]
+        )
+
+        pipeline.fit_transform(matches, MagicMock())
+
+        assert mock_generators.generate.call_count == 1
+        assert pipeline.last_raw_features is not None
+
     def test_transform_requires_fit(self, pipeline):
         """Test transform raises if not fitted."""
         with pytest.raises(ValueError) as exc_info:
@@ -212,6 +227,17 @@ class TestFeaturePipeline:
         assert pipeline.feature_names == ["feature1"]
         assert list(pipeline.get_schema().features) == ["feature1"]
 
+    def test_clear_selected_features_restores_full_feature_set(
+        self, pipeline, mock_generators
+    ):
+        """The training recovery path can restore pruned features."""
+        pipeline.set_selected_features(["feature1"])
+
+        pipeline.clear_selected_features()
+
+        assert pipeline.selected_feature_names is None
+        assert pipeline.feature_names == ["feature1", "feature2"]
+
     def test_save_load_preserves_selected_feature_subset(self, tmp_path):
         """Saved pipelines should reload the same selected feature shape."""
         pipeline = FeaturePipeline.create_default()
@@ -225,6 +251,24 @@ class TestFeaturePipeline:
 
         assert loaded.selected_feature_names == selected_features
         assert loaded.feature_names == selected_features
+
+    def test_load_raises_when_saved_selected_features_are_unavailable(self, tmp_path):
+        """Loading should fail loudly if generator code drift removed saved features."""
+        pipeline = FeaturePipeline.create_default()
+        pipeline.set_selected_features(["home_points_last_3", "away_points_last_3"])
+
+        pipeline_path = tmp_path / "pipeline"
+        pipeline.save(pipeline_path)
+
+        # Corrupt the saved config to reference a feature that no longer exists
+        with open(pipeline_path / "config.json") as f:
+            config_data = json.load(f)
+        config_data["selected_feature_names"] = ["home_points_last_3", "ghost_feature"]
+        with open(pipeline_path / "config.json", "w") as f:
+            json.dump(config_data, f)
+
+        with pytest.raises(ValueError, match="cannot be restored"):
+            FeaturePipeline.load(pipeline_path)
 
 
 class TestEnrichedStatsFeatureGenerator:
