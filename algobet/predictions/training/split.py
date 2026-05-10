@@ -5,6 +5,7 @@ in football match prediction models. Critical rule: never use future
 data to predict past matches.
 """
 
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -13,6 +14,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -328,15 +331,29 @@ class SeasonAwareSplitter:
         Yields:
             TemporalSplit objects
         """
+        # Rows with null season_id cannot be assigned to a season split.
+        null_mask = df[self.season_column].isna()
+        if null_mask.any():
+            logger.warning(
+                "SeasonAwareSplitter: dropping %d row(s) with null %s before splitting",
+                null_mask.sum(),
+                self.season_column,
+            )
+            df = df[~null_mask].copy()
+
         df = df.sort_values(self.date_column).reset_index(drop=True)
         dates = pd.to_datetime(df[self.date_column])
 
+        def _season_sort_key(s: Any) -> int:
+            s_str = str(s)
+            try:
+                return int(s_str.split("/")[0]) if "/" in s_str else int(float(s_str))
+            except (ValueError, TypeError):
+                return 0
+
         # Get unique seasons in chronological order
         seasons = df[self.season_column].unique()
-        seasons = sorted(
-            seasons,
-            key=lambda s: int(str(s).split("/")[0]) if "/" in str(s) else int(s),
-        )
+        seasons = sorted(seasons, key=_season_sort_key)
 
         if len(seasons) < self.train_seasons + self.val_seasons + self.test_seasons:
             raise ValueError(

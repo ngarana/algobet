@@ -215,6 +215,19 @@ pnpm test -- --exclude "**/__tests__/legacy/**"
    - Split large components into smaller ones
    - Extract utilities into separate files
 
+### Architecture Guardrails
+
+1. **Router Slimness Rule**
+   - Routers parse inputs, call one orchestrator/use-case, and shape responses
+   - Keep business logic, scraping workflows, training runs, and persistence
+     orchestration in `algobet/services/` or a domain package
+   - Document new router-boundary decisions in `docs/adr/`
+
+2. **No God Classes**
+   - Keep public service classes below 10 public methods where possible
+   - Split large services into cohesive collaborators behind a thin facade
+   - Run `python scripts/audit_architecture_antipatterns.py --min-lines 500 --max-score 5 --max-god-class-methods 10 --max-function-lines 60` before broad architecture changes
+
 ## Testing Patterns
 
 ### Test Setup

@@ -1,0 +1,40 @@
+name: Architecture Audit
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "algobet/**"
+      - "frontend/**"
+      - "scripts/audit_architecture_antipatterns.py"
+      - ".github/workflows/architecture-audit.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "algobet/**"
+      - "frontend/**"
+      - "scripts/audit_architecture_antipatterns.py"
+      - ".github/workflows/architecture-audit.yml"
+
+jobs:
+  audit:
+    name: Architecture Antipattern Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run architecture audit
+        continue-on-error: true
+        run: >
+          python scripts/audit_architecture_antipatterns.py
+          --min-lines 500
+          --max-score 5
+          --max-god-class-methods 10
+          --max-function-lines 60
