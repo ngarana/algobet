@@ -79,6 +79,10 @@ export const TrainModelResultSchema = z.object({
   val_metrics: z.record(z.number()),
   test_metrics: z.record(z.number()),
   feature_importance: z.record(z.number()).nullable(),
+  // Ensemble metadata
+  ensemble_weights: z.record(z.number()).nullable(),
+  ensemble_validation_metrics: z.record(z.number()).nullable(),
+  ensemble_types: z.array(z.string()).nullable(),
 });
 
 // =============================================================================

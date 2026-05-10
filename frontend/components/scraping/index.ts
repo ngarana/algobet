@@ -12,3 +12,6 @@ export { FetchStatsCards, FetchStatsSummary } from "./FetchStatsCards";
 export { FetchProgress } from "./FetchProgress";
 export type { FetchProgressData } from "./FetchProgress";
 export { FetchDialog } from "./FetchDialog";
+export { FetchConfirmationFooter } from "./FetchConfirmationFooter";
+export { FetchFormSection } from "./FetchFormSection";
+export { FetchProgressIndicator } from "./FetchProgressIndicator";

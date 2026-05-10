@@ -1,6 +1,6 @@
 "use client";
 
-import { Combine } from "lucide-react";
+import { Combine, Info } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -67,11 +67,14 @@ export function EnsembleSection({ config, onConfigChange }: DataRangeSectionProp
               </Badge>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Ensemble averaging combines predictions from {config.ensembleTypes.length}{" "}
-            models for improved robustness. The individual model type setting above is
-            ignored when ensemble is enabled.
-          </p>
+          <div className="flex items-start gap-1.5 rounded-md bg-muted/50 p-2">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <p className="text-xs text-muted-foreground">
+              Ensemble uses weighted soft-vote averaging with optimized weights (grid
+              search over validation set). The individual model type setting above is
+              ignored when ensemble is enabled.
+            </p>
+          </div>
         </div>
       )}
     </div>

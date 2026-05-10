@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { FetchConfirmationFooter } from "@/components/scraping/FetchConfirmationFooter";
+import { FetchFormSection } from "@/components/scraping/FetchFormSection";
+import { FetchProgressIndicator } from "@/components/scraping/FetchProgressIndicator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,7 +18,7 @@ import { useTournaments, useTournamentSeasons } from "@/lib/queries/use-tourname
 import { useTeams } from "@/lib/queries/use-teams";
 import { FetchDialogType, type FetchDialogTypeValue } from "@/lib/constants/fetch";
 import { FETCH_DIALOG_CONFIG } from "@/lib/constants/fetch";
-import { PlayIcon } from "lucide-react";
+import { emptyToUndefined, optionalNumber } from "@/lib/form-utils";
 
 const ALL_SCOPE = "all";
 const LEAGUE_SCOPE = "league";
@@ -168,7 +170,7 @@ export function FetchDialog({
         onConfirm({
           type: "upcoming",
           scope: LEAGUE_SCOPE,
-          tournament_url: upcomingLeagueLink,
+          tournament_url: emptyToUndefined(upcomingLeagueLink),
         });
       } else {
         onConfirm({
@@ -182,19 +184,19 @@ export function FetchDialog({
       if (resultsInputMode === "link") {
         onConfirm({
           type: "results",
-          tournament_url: leagueLink,
-          period_start: periodStart || undefined,
-          period_end: periodEnd || undefined,
-          max_pages: maxPages ? Number(maxPages) : undefined,
+          tournament_url: emptyToUndefined(leagueLink),
+          period_start: emptyToUndefined(periodStart),
+          period_end: emptyToUndefined(periodEnd),
+          max_pages: optionalNumber(maxPages),
         });
       } else if (tournamentId) {
         onConfirm({
           type: "results",
           tournament_id: tournamentId,
-          period: period || undefined,
-          period_start: periodStart || undefined,
-          period_end: periodEnd || undefined,
-          max_pages: maxPages ? Number(maxPages) : undefined,
+          period: emptyToUndefined(period),
+          period_start: emptyToUndefined(periodStart),
+          period_end: emptyToUndefined(periodEnd),
+          max_pages: optionalNumber(maxPages),
           team_id: teamId ?? undefined,
         });
       }
@@ -202,7 +204,7 @@ export function FetchDialog({
       onConfirm({
         type: "by-date",
         scope,
-        date: date || undefined,
+        date: emptyToUndefined(date),
         tournament_id: requiresLeague ? (tournamentId ?? undefined) : undefined,
         team_id: requiresLeague ? (teamId ?? undefined) : undefined,
       });
@@ -251,7 +253,8 @@ export function FetchDialog({
           </button>
         </div>
 
-        <div className="space-y-4">
+        <FetchFormSection>
+          <FetchProgressIndicator isLoading={isLoading} />
           {type !== FetchDialogType.RESULTS && (
             <div className="space-y-2">
               <Label htmlFor="scope">Scope</Label>
@@ -640,25 +643,13 @@ export function FetchDialog({
             </div>
           )}
 
-          <div className="flex gap-2 pt-2">
-            <Button
-              onClick={handleConfirm}
-              disabled={isConfirmDisabled}
-              className="font-semibold text-[#0a0c12]"
-              style={{ backgroundColor: config.color }}
-            >
-              <PlayIcon className="mr-2 h-4 w-4" />
-              Start Fetch
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleClose}
-              className="border-[#252a37] text-[#9ca3af]"
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
+          <FetchConfirmationFooter
+            color={config.color}
+            disabled={isConfirmDisabled}
+            onCancel={handleClose}
+            onConfirm={handleConfirm}
+          />
+        </FetchFormSection>
       </CardContent>
     </Card>
   );
