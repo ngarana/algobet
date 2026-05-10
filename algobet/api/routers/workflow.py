@@ -7,10 +7,6 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
-from algobet.api.routers.matches import (
-    build_match_detail_response,
-    build_match_workflow_detail,
-)
 from algobet.api.routers.predictions import _build_prediction_item
 from algobet.api.routers.value_bets import build_value_bets
 from algobet.api.schemas.match import MatchStatus
@@ -29,6 +25,10 @@ from algobet.api.schemas.workflow import (
     WatchlistResponse,
 )
 from algobet.models import Match, Prediction
+from algobet.services.match_detail_builder import (
+    build_match_detail_response,
+    build_match_workflow_detail,
+)
 from algobet.user_workflow.models import UserPrediction, WatchlistEntry
 from algobet.user_workflow.service import (
     add_watchlist_entry,
