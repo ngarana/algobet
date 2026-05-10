@@ -29,6 +29,7 @@ import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from algobet.importers.soccerdata import ScheduleImporter, StatsEnricher
 from algobet.matches.models import Match, MatchStatistics, PlayerMatchStats
 from algobet.models import Season, Team, TeamAlias, Tournament
 from algobet.utils.team_resolver import TeamResolver
@@ -166,6 +167,8 @@ class SoccerDataImporter:
         self.session = session
         self.progress_callback = progress_callback
         self._resolver = resolver or TeamResolver()
+        self._schedule_importer = ScheduleImporter(self)
+        self._stats_enricher = StatsEnricher(self)
 
     def _resolve_team_name(self, name: str) -> str:
         """Resolve a team name to canonical form via TeamResolver."""
@@ -404,6 +407,19 @@ class SoccerDataImporter:
         season: str,
         no_cache: bool = False,
     ) -> ImportResult:
+        """Import match schedule from FBref using soccerdata."""
+        return self._schedule_importer.run(
+            league,
+            season,
+            no_cache=no_cache,
+        )
+
+    def _import_schedule_impl(
+        self,
+        league: str,
+        season: str,
+        no_cache: bool = False,
+    ) -> ImportResult:
         """Import match schedule from FBref using soccerdata.
 
         Args:
@@ -599,6 +615,12 @@ class SoccerDataImporter:
     def enrich_understat_stats(
         self, league: str = "ENG-Premier League", season: str = "2024"
     ) -> int:
+        """Enrich MatchStatistics with Understat xG and advanced metrics."""
+        return self._stats_enricher.enrich_understat(league, season)
+
+    def _enrich_understat_stats_impl(
+        self, league: str = "ENG-Premier League", season: str = "2024"
+    ) -> int:
         """Enrich MatchStatistics with Understat xG and advanced metrics.
 
         Downloads team-level match stats from Understat (xG, npxG, PPDA,
@@ -677,6 +699,19 @@ class SoccerDataImporter:
         return enriched
 
     def enrich_player_stats(
+        self,
+        league: str = "ENG-Premier League",
+        season: str = "2024",
+        skip_existing: bool = True,
+    ) -> dict[str, int]:
+        """Enrich PlayerMatchStats from ESPN lineup data."""
+        return self._stats_enricher.enrich_player_stats(
+            league,
+            season,
+            skip_existing=skip_existing,
+        )
+
+    def _enrich_player_stats_impl(
         self,
         league: str = "ENG-Premier League",
         season: str = "2024",

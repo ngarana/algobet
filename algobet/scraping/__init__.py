@@ -1,19 +1,5 @@
-"""Scraping feature - Web scraping jobs and data extraction.
+"""Scraping primitives and scraper collaborators."""
 
-This module provides functionality for managing web scraping jobs,
-tracking their execution, and storing scraped data.
-"""
+from .scraper_collaborators import MatchExtractor, PageNavigator, UpcomingMatchExtractor
 
-from algobet.scraping.models import (
-    ScrapedOdds,
-    ScrapingJob,
-    ScrapingLog,
-    ScrapingSource,
-)
-
-__all__ = [
-    "ScrapingJob",
-    "ScrapingLog",
-    "ScrapedOdds",
-    "ScrapingSource",
-]
+__all__ = ["MatchExtractor", "PageNavigator", "UpcomingMatchExtractor"]

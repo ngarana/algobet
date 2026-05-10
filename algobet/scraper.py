@@ -19,6 +19,8 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
+from algobet.scraping import MatchExtractor, PageNavigator, UpcomingMatchExtractor
+
 logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -160,6 +162,9 @@ class OddsPortalScraper:
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._page: Page | None = None
+        self._navigator = PageNavigator(self)
+        self._match_extractor = MatchExtractor(self)
+        self._upcoming_extractor = UpcomingMatchExtractor(self)
 
     def __enter__(self) -> "OddsPortalScraper":
         """Context manager entry."""
@@ -253,6 +258,16 @@ class OddsPortalScraper:
         exceptions=(Exception,),
     )
     def navigate_to_results(self, url: str) -> None:
+        """Navigate to a results page."""
+        self._navigator.navigate_to_results(url)
+
+    @retry_on_network_error(
+        max_retries=3,
+        delay=5.0,
+        backoff=2.0,
+        exceptions=(Exception,),
+    )
+    def _navigate_to_results_impl(self, url: str) -> None:
         """Navigate to a results page.
 
         Args:
@@ -349,6 +364,10 @@ class OddsPortalScraper:
         return re.sub(pattern, replacement, normalized_base_url)
 
     def scrape_current_page(self) -> list[ScrapedMatch]:
+        """Scrape all matches from the current page."""
+        return self._match_extractor.scrape_current_page()
+
+    def _scrape_current_page_impl(self) -> list[ScrapedMatch]:
         """Scrape all matches from the current page.
 
         Returns:
@@ -496,6 +515,18 @@ class OddsPortalScraper:
     def navigate_to_upcoming(
         self, url: str = "https://www.oddsportal.com/matches/"
     ) -> None:
+        """Navigate to upcoming matches page (global or league-specific)."""
+        self._navigator.navigate_to_upcoming(url)
+
+    @retry_on_network_error(
+        max_retries=3,
+        delay=5.0,
+        backoff=2.0,
+        exceptions=(Exception,),
+    )
+    def _navigate_to_upcoming_impl(
+        self, url: str = "https://www.oddsportal.com/matches/"
+    ) -> None:
         """Navigate to upcoming matches page (global or league-specific).
 
         Args:
@@ -610,6 +641,15 @@ class OddsPortalScraper:
                     break
 
     def scrape_upcoming_matches(
+        self, only_future_matches: bool = True, buffer_minutes: int = 30
+    ) -> list[dict[str, Any]]:
+        """Scrape upcoming match rows."""
+        return self._upcoming_extractor.scrape_upcoming_matches(
+            only_future_matches=only_future_matches,
+            buffer_minutes=buffer_minutes,
+        )
+
+    def _scrape_upcoming_matches_impl(
         self, only_future_matches: bool = True, buffer_minutes: int = 30
     ) -> list[dict[str, Any]]:
         """Fully fixed version – handles 'Show more' + scroll + corrected JS."""
