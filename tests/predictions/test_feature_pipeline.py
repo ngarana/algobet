@@ -11,6 +11,7 @@ import pytest
 from algobet.predictions.features.generators import (
     EnrichedStatsFeatureGenerator,
     FeatureSchema,
+    HeadToHeadGenerator,
 )
 from algobet.predictions.features.pipeline import FeaturePipeline, PipelineConfig
 
@@ -212,6 +213,10 @@ class TestFeaturePipeline:
             not any(term in feature_name for term in forbidden_terms)
             for feature_name in pipeline.feature_names
         )
+        assert "h2h_goal_diff_avg_from_home_perspective" in pipeline.feature_names
+        assert "h2h_goal_diff_avg" not in pipeline.feature_names
+        assert "home_starter_minutes_avg_3" in pipeline.feature_names
+        assert "away_starter_count_avg_5" in pipeline.feature_names
 
     def test_set_selected_features_filters_names_and_schema(
         self, pipeline, mock_generators
@@ -307,6 +312,7 @@ class TestEnrichedStatsFeatureGenerator:
                         shots=5,
                         shots_on_target=3,
                         minutes_played=90,
+                        is_starter=True,
                     ),
                     SimpleNamespace(
                         team_id=1,
@@ -315,6 +321,7 @@ class TestEnrichedStatsFeatureGenerator:
                         shots=2,
                         shots_on_target=1,
                         minutes_played=85,
+                        is_starter=False,
                     ),
                 ],
             ),
@@ -345,6 +352,7 @@ class TestEnrichedStatsFeatureGenerator:
                         shots=4,
                         shots_on_target=2,
                         minutes_played=88,
+                        is_starter=True,
                     )
                 ],
             ),
@@ -377,6 +385,7 @@ class TestEnrichedStatsFeatureGenerator:
                         shots=3,
                         shots_on_target=2,
                         minutes_played=90,
+                        is_starter=True,
                     )
                 ],
             )
@@ -408,6 +417,51 @@ class TestEnrichedStatsFeatureGenerator:
         assert result.loc[99, "home_xg_against_avg_2"] == pytest.approx(0.75)
         assert result.loc[99, "home_player_shots_avg_2"] == pytest.approx(5.5)
         assert result.loc[99, "home_player_minutes_avg_2"] == pytest.approx(131.5)
+        assert result.loc[99, "home_starter_minutes_avg_2"] == pytest.approx(89.0)
+        assert result.loc[99, "home_starter_count_avg_2"] == pytest.approx(1.0)
         assert result.loc[99, "home_enriched_match_coverage_2"] == pytest.approx(1.0)
         assert result.loc[99, "away_xg_for_avg_2"] == pytest.approx(1.0)
+        assert result.loc[99, "away_starter_minutes_avg_2"] == pytest.approx(90.0)
+        assert result.loc[99, "away_starter_count_avg_2"] == pytest.approx(1.0)
         assert result.loc[99, "away_player_stats_coverage_2"] == pytest.approx(1.0)
+
+
+class TestHeadToHeadGenerator:
+    """Tests for head-to-head feature generation."""
+
+    def test_goal_diff_uses_home_perspective_schema_name(self) -> None:
+        """H2H goal difference should be keyed to the current home team."""
+        generator = HeadToHeadGenerator(max_h2h_matches=5)
+        repository = MagicMock()
+        repository.get_h2h_matches.return_value = [
+            SimpleNamespace(
+                home_team_id=1,
+                away_team_id=2,
+                home_score=2,
+                away_score=1,
+            ),
+            SimpleNamespace(
+                home_team_id=2,
+                away_team_id=1,
+                home_score=3,
+                away_score=1,
+            ),
+        ]
+        matches = pd.DataFrame(
+            [
+                {
+                    "id": 101,
+                    "match_date": datetime(2026, 5, 4, 19, 0, 0),
+                    "home_team_id": 1,
+                    "away_team_id": 2,
+                }
+            ]
+        )
+
+        result = generator.generate(matches, repository)
+
+        assert "h2h_goal_diff_avg" not in generator.feature_names
+        assert "h2h_goal_diff_avg" not in result.columns
+        assert result.loc[
+            101, "h2h_goal_diff_avg_from_home_perspective"
+        ] == pytest.approx(-0.5)

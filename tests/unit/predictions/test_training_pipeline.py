@@ -284,7 +284,7 @@ class TestTrainingPipelineFeatureSelection:
             feature_pipeline=feature_pipeline,
         )
 
-        selected = pipeline._choose_selected_feature_names(
+        selected, report = pipeline._choose_selected_feature_names(
             feature_names=["f1", "f2", "f3", "f4"],
             feature_importance={"f1": 8.0, "f2": 1.0, "f3": 0.5, "f4": 0.0},
             n_samples=4,
