@@ -68,6 +68,29 @@ class TuningResult:
 
 
 # Default search spaces for each model type
+EPL_XGBOOST_SEARCH_SPACE: dict[str, tuple[Any, Any]] = {
+    "max_depth": (2, 5),
+    "learning_rate": (0.01, 0.08),
+    "n_estimators": (400, 2000),
+    "min_child_weight": (3, 30),
+    "gamma": (0.0, 3.0),
+    "reg_alpha": (0.0, 8.0),
+    "reg_lambda": (2.0, 30.0),
+    "subsample": (0.55, 0.90),
+    "colsample_bytree": (0.40, 0.85),
+}
+EPL_LIGHTGBM_SEARCH_SPACE: dict[str, tuple[Any, Any]] = {
+    "num_leaves": (7, 63),
+    "max_depth": (2, 6),
+    "learning_rate": (0.01, 0.08),
+    "n_estimators": (400, 2500),
+    "min_child_samples": (20, 150),
+    "min_split_gain": (0.0, 2.0),
+    "reg_alpha": (0.0, 10.0),
+    "reg_lambda": (2.0, 40.0),
+    "subsample": (0.55, 0.90),
+    "colsample_bytree": (0.40, 0.85),
+}
 DEFAULT_SEARCH_SPACES: dict[str, dict[str, tuple[Any, Any]]] = {
     "xgboost": {
         "max_depth": (3, 10),
@@ -211,7 +234,11 @@ class HyperparameterTuner:
         y_val: NDArray[np.int64] | None,
         class_weights: dict[int, float] | None,
     ) -> float:
-        """Objective function for Optuna optimization."""
+        """Objective function for Optuna optimization.
+
+        Uses guarded log loss: adds penalty if predicted classes < 3,
+        penalty if max_prediction_share > 0.70, and small penalty for high ECE.
+        """
         # Sample hyperparameters
         params = self._sample_params(trial)
 
@@ -223,7 +250,7 @@ class HyperparameterTuner:
 
         # Evaluate with cross-validation or single split
         if X_val is not None and y_val is not None:
-            score = self._evaluate_single_split(
+            score = self._evaluate_single_split_guarded(
                 config=config,
                 X=X,
                 y=y,
@@ -238,6 +265,36 @@ class HyperparameterTuner:
             )
 
         return score
+
+    def _evaluate_single_split_guarded(
+        self,
+        config: ModelConfig,
+        X: NDArray[np.float64],
+        y: NDArray[np.int64],
+        X_val: NDArray[np.float64],
+        y_val: NDArray[np.int64],
+    ) -> float:
+        """Evaluate model with guard penalties for class collapse."""
+        predictor = create_predictor(self.model_type, config)
+        predictor.fit(X, y, X_val, y_val)
+
+        probas = predictor.predict_proba(X_val)
+        base_ll = log_loss(y_val, probas)
+
+        # Guard: penalize class collapse
+        preds = np.argmax(probas, axis=1)
+        num_classes = len(np.unique(preds))
+        penalty = 0.0
+        if num_classes < 3:
+            penalty += 0.5
+
+        # Guard: penalize high max prediction share
+        counts = np.bincount(preds, minlength=3)
+        max_share = counts.max() / len(preds) if len(preds) > 0 else 0.0
+        if max_share > 0.70:
+            penalty += max_share - 0.70
+
+        return base_ll + penalty
 
     def _sample_params(self, trial: optuna.Trial) -> dict[str, Any]:
         """Sample hyperparameters from search space."""

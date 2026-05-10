@@ -16,6 +16,7 @@ from algobet.predictions.training.classifiers import (
     compute_adaptive_regularization,
     create_predictor,
 )
+from algobet.predictions.training.ensemble import EnsembleWeightOptimizer
 from algobet.predictions.training.pipeline import (
     TrainingConfig,
     TrainingPipeline,
@@ -70,6 +71,8 @@ __all__ = [
     "CalibratedPredictor",
     "calculate_calibration_metrics",
     "calibration_curve",
+    # Ensemble
+    "EnsembleWeightOptimizer",
     # Pipeline
     "TrainingPipeline",
     "TrainingConfig",

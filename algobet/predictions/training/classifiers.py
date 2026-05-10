@@ -868,16 +868,8 @@ def create_predictor(
     Raises:
         ValueError: If model type is not recognized
     """
-    predictors = {
-        "xgboost": XGBoostPredictor,
-        "lightgbm": LightGBMPredictor,
-        "random_forest": RandomForestPredictor,
-    }
+    from algobet.predictions.training.classifier_factory import (
+        create_predictor as factory_create_predictor,
+    )
 
-    if model_type not in predictors:
-        raise ValueError(
-            f"Unknown model type: {model_type}. Available: {list(predictors.keys())}"
-        )
-
-    predictor_class = predictors[model_type]
-    return predictor_class(config=config)
+    return factory_create_predictor(model_type, config=config)

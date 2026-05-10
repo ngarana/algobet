@@ -24,6 +24,10 @@ from algobet.predictions.evaluation.metrics import (
     EvaluationResult,
     evaluate_predictions,
 )
+from algobet.predictions.evaluation.reporting import (
+    HtmlReportRenderer,
+    MarkdownReportRenderer,
+)
 
 
 @dataclass
@@ -48,8 +52,23 @@ class ReportGenerator:
             config: Report configuration
         """
         self.config = config or ReportConfig()
+        self._markdown_renderer = MarkdownReportRenderer(self)
+        self._html_renderer = HtmlReportRenderer(self)
 
     def generate_markdown(
+        self,
+        result: EvaluationResult,
+        calibration: CalibrationAnalysisResult | None = None,
+        feature_importance: dict[str, float] | None = None,
+    ) -> str:
+        """Generate Markdown report."""
+        return self._markdown_renderer.render(
+            result,
+            calibration=calibration,
+            feature_importance=feature_importance,
+        )
+
+    def _generate_markdown_impl(
         self,
         result: EvaluationResult,
         calibration: CalibrationAnalysisResult | None = None,
@@ -156,6 +175,19 @@ class ReportGenerator:
         return "\n".join(lines)
 
     def generate_html(
+        self,
+        result: EvaluationResult,
+        calibration: CalibrationAnalysisResult | None = None,
+        feature_importance: dict[str, float] | None = None,
+    ) -> str:
+        """Generate HTML report."""
+        return self._html_renderer.render(
+            result,
+            calibration=calibration,
+            feature_importance=feature_importance,
+        )
+
+    def _generate_html_impl(
         self,
         result: EvaluationResult,
         calibration: CalibrationAnalysisResult | None = None,

@@ -7,7 +7,8 @@ from datetime import datetime
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from algobet.matches.models import Match, MatchStatistics, PlayerMatchStats
+from algobet.matches.models import Match
+from algobet.predictions.data.historical_provider import HistoricalMatchProvider
 
 
 @dataclass
@@ -50,6 +51,7 @@ class MatchRepository:
         self._standings_cache: dict[
             tuple[int, int], dict[int, list[TeamStandings]]
         ] = {}
+        self._historical_provider = HistoricalMatchProvider(session)
 
     def preload_team_matches(self, team_ids: list[int], before_date: datetime) -> None:
         """Bulk-load all finished matches for a set of teams into memory.
@@ -400,72 +402,19 @@ class MatchRepository:
         Returns:
             List of Match objects ordered by date
         """
-        stmt = select(Match)
-
-        if min_date:
-            stmt = stmt.where(Match.match_date >= min_date)
-        if max_date:
-            stmt = stmt.where(Match.match_date <= max_date)
-        if tournament_id:
-            stmt = stmt.where(Match.tournament_id == tournament_id)
-        if tournament_ids:
-            stmt = stmt.where(Match.tournament_id.in_(tournament_ids))
-        if team_ids:
-            # Match where either home or away team is in the list
-            if venue_filter == "home":
-                stmt = stmt.where(Match.home_team_id.in_(team_ids))
-            elif venue_filter == "away":
-                stmt = stmt.where(Match.away_team_id.in_(team_ids))
-            else:  # "both" or None
-                stmt = stmt.where(
-                    or_(
-                        Match.home_team_id.in_(team_ids),
-                        Match.away_team_id.in_(team_ids),
-                    )
-                )
-        if require_odds:
-            stmt = stmt.where(
-                and_(
-                    Match.odds_home.is_not(None),
-                    Match.odds_draw.is_not(None),
-                    Match.odds_away.is_not(None),
-                )
-            )
-        if require_results:
-            stmt = stmt.where(
-                and_(
-                    Match.status == "FINISHED",
-                    Match.home_score.is_not(None),
-                    Match.away_score.is_not(None),
-                )
-            )
-        if require_enriched_stats:
-            has_understat = (
-                select(MatchStatistics.match_id)
-                .where(
-                    and_(
-                        MatchStatistics.match_id == Match.id,
-                        MatchStatistics.home_xg.is_not(None),
-                        MatchStatistics.away_xg.is_not(None),
-                    )
-                )
-                .exists()
-            )
-            has_player_stats = (
-                select(PlayerMatchStats.match_id)
-                .where(PlayerMatchStats.match_id == Match.id)
-                .exists()
-            )
-            stmt = stmt.where(and_(has_understat, has_player_stats))
-        # Goals filters must be applied after results are required (need scores)
-        if min_total_goals is not None:
-            stmt = stmt.where((Match.home_score + Match.away_score) >= min_total_goals)
-        if max_total_goals is not None:
-            stmt = stmt.where((Match.home_score + Match.away_score) <= max_total_goals)
-
-        stmt = stmt.order_by(Match.match_date)
-        result = self.session.execute(stmt)
-        return list(result.scalars().all())
+        return self._historical_provider.get_historical_matches(
+            min_date=min_date,
+            max_date=max_date,
+            tournament_id=tournament_id,
+            tournament_ids=tournament_ids,
+            team_ids=team_ids,
+            require_results=require_results,
+            require_odds=require_odds,
+            min_total_goals=min_total_goals,
+            max_total_goals=max_total_goals,
+            venue_filter=venue_filter,
+            require_enriched_stats=require_enriched_stats,
+        )
 
     def get_team_matches(
         self,

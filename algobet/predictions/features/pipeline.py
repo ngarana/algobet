@@ -15,9 +15,11 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 from algobet.predictions.data.queries import MatchRepository
-from algobet.predictions.features.generators import (
+from algobet.predictions.features.base import (
     FeatureGenerator,
     FeatureSchema,
+)
+from algobet.predictions.features.composite import (
     create_default_generators,
     create_generators_by_names,
 )
