@@ -33,6 +33,7 @@ from algobet.importers.soccerdata_importer import (
     SoccerDataImporter,
 )
 from algobet.models import Season, Tournament
+from algobet.services.scraping_orchestrator import ScrapingOrchestrator
 from algobet.services.scraping_service import (
     JobStatus,
     ScrapingProgress as ServiceScrapingProgress,
@@ -43,6 +44,7 @@ router = APIRouter(tags=["scraping"])
 
 # In-memory storage for scraping jobs (replace with Redis/database in production)
 scraping_jobs: dict[str, ScrapingJobResponse] = {}
+scraping_orchestrator = ScrapingOrchestrator()
 
 DEFAULT_UPCOMING_URL = "https://www.oddsportal.com/matches/football/"
 
@@ -259,6 +261,21 @@ def _map_job_status(status_value: JobStatus) -> ScrapingJobStatus:
     return ScrapingJobStatus(status_value.value)
 
 
+def _handle_endpoint_error(e: Exception) -> HTTPException:
+    """Convert exceptions to HTTP exceptions with appropriate status codes."""
+    if isinstance(e, HTTPException):
+        raise e from None
+    if isinstance(e, ValidationError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=e.errors(),
+        ) from None
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Failed to create scraping job: {str(e)}",
+    ) from None
+
+
 def _progress_callback_for_job(
     job_id: str,
 ) -> Callable[[ServiceScrapingProgress], None]:
@@ -305,6 +322,125 @@ def run_scraping_job(
     *,
     max_pages: int | None = None,
 ) -> None:
+    """Execute scraping job with progress updates."""
+    scraping_orchestrator.run_scraping_job(
+        job_id,
+        job_create,
+        max_pages=max_pages,
+    )
+
+
+def _set_job_running(job_id: str) -> datetime:
+    """Initialize job status to running."""
+    started = datetime.now(timezone.utc)
+    update_job_status(
+        job_id,
+        ScrapingJobUpdate(
+            status=ScrapingJobStatus.RUNNING,
+            progress=0.0,
+            message="Starting scraping operation...",
+            matches_scraped=0,
+            matches_saved=0,
+            errors=[],
+            started_at=started,
+            completed_at=None,
+        ),
+    )
+    return started
+
+
+def _set_job_completed(job_id: str, result: Any, started: datetime) -> None:
+    """Update job status to completed after successful scraping."""
+    matches_saved = result.matches_saved if result else 0
+    matches_scraped = result.matches_scraped if result else matches_saved
+    update_job_status(
+        job_id,
+        ScrapingJobUpdate(
+            status=ScrapingJobStatus.COMPLETED,
+            progress=100.0,
+            message=(
+                f"Scraping completed successfully. {matches_saved} matches processed."
+            ),
+            matches_scraped=matches_scraped,
+            matches_saved=matches_saved,
+            errors=[],
+            started_at=started,
+            completed_at=datetime.now(timezone.utc),
+        ),
+    )
+    if job_id in scraping_jobs:
+        scraping_jobs[job_id].completed_at = datetime.now(timezone.utc)
+
+
+def _set_job_failed(job_id: str, error: Exception, started: datetime) -> None:
+    """Update job status to failed after error."""
+    current_job = scraping_jobs.get(job_id)
+    errors = list(current_job.errors) if current_job and current_job.errors else []
+    errors.append(str(error))
+    update_job_status(
+        job_id,
+        ScrapingJobUpdate(
+            status=ScrapingJobStatus.FAILED,
+            progress=0.0,
+            message=f"Scraping failed: {str(error)}",
+            matches_scraped=0,
+            matches_saved=0,
+            errors=errors,
+            started_at=started,
+            completed_at=datetime.now(timezone.utc),
+        ),
+    )
+    if job_id in scraping_jobs:
+        scraping_jobs[job_id].completed_at = datetime.now(timezone.utc)
+
+
+def _execute_scraping(
+    service: ScrapingService,
+    job_create: ScrapingJobCreate,
+    max_pages: int | None,
+) -> Any:
+    """Execute the scraping operation based on job type."""
+    if job_create.scraping_type == ScrapingType.UPCOMING:
+        if not job_create.tournament_url:
+            return service.scrape_upcoming()
+        return service.scrape_upcoming(url=str(job_create.tournament_url))
+    elif job_create.scraping_type == ScrapingType.RESULTS:
+        if not job_create.tournament_url:
+            raise ValueError("Tournament URL is required for results scraping")
+        if job_create.period_start and job_create.period_end:
+            seasons = _generate_seasons(job_create.period_start, job_create.period_end)
+            return service.scrape_results_range(
+                url=str(job_create.tournament_url),
+                seasons=seasons,
+                max_pages=max_pages,
+                target_team_id=job_create.team_id,
+            )
+        return service.scrape_results(
+            url=str(job_create.tournament_url),
+            max_pages=max_pages,
+            target_team_id=job_create.team_id,
+            season=job_create.period,
+        )
+    elif job_create.scraping_type == ScrapingType.BY_DATE:
+        target_date = (
+            date.fromisoformat(job_create.period)
+            if job_create.period
+            else datetime.now(timezone.utc).date()
+        )
+        return service.scrape_matches_by_date(
+            url=str(job_create.tournament_url) if job_create.tournament_url else None,
+            target_date=target_date,
+        )
+    else:
+        raise ValueError(f"Unsupported scraping type: {job_create.scraping_type}")
+
+
+def _run_scraping_job_impl(
+    job_id: str,
+    job_create: ScrapingJobCreate,
+    *,
+    max_pages: int | None = None,
+) -> None:
     """Execute scraping job with progress updates.
 
     Note: This function creates its own database session since it runs
@@ -318,149 +454,24 @@ def run_scraping_job(
     logger = logging.getLogger(__name__)
     logger.info(f"[BG TASK] Starting scraping job {job_id}")
 
-    result = None  # Initialize result variable
+    started = _set_job_running(job_id)
 
     try:
-        # Update job status to running
-        update_job_status(
-            job_id,
-            ScrapingJobUpdate(
-                status=ScrapingJobStatus.RUNNING,
-                progress=0.0,
-                message="Starting scraping operation...",
-                matches_scraped=0,
-                matches_saved=0,
-                errors=[],
-                started_at=datetime.now(timezone.utc),
-                completed_at=None,
-            ),
-        )
-        logger.info(f"[BG TASK] Job {job_id} status updated to RUNNING")
-
-        # Create a new session for the background task
         with session_scope() as db:
-            logger.info(f"[BG TASK] Database session created for job {job_id}")
-            # Initialize scraping service with database session
             service = ScrapingService(
                 db, progress_callback=_progress_callback_for_job(job_id)
             )
-            logger.info(f"[BG TASK] ScrapingService initialized for job {job_id}")
+            result = _execute_scraping(service, job_create, max_pages)
 
-            # Execute scraping based on type
-            logger.info(
-                f"[BG TASK] Starting scrape for type {job_create.scraping_type}"
-            )
-            if job_create.scraping_type == ScrapingType.UPCOMING:
-                if not job_create.tournament_url:
-                    # Scrape all upcoming matches
-                    logger.info("[BG TASK] Calling service.scrape_upcoming()")
-                    result = service.scrape_upcoming()
-                    logger.info(f"[BG TASK] returned: {result.matches_saved} matches")
-                else:
-                    # Scrape specific tournament
-                    result = service.scrape_upcoming(url=str(job_create.tournament_url))
-            elif job_create.scraping_type == ScrapingType.RESULTS:
-                if not job_create.tournament_url:
-                    raise ValueError("Tournament URL is required for results scraping")
-
-                # Check if period range is specified
-                if job_create.period_start and job_create.period_end:
-                    # Generate seasons from the range
-                    seasons = _generate_seasons(
-                        job_create.period_start, job_create.period_end
-                    )
-                    result = service.scrape_results_range(
-                        url=str(job_create.tournament_url),
-                        seasons=seasons,
-                        max_pages=max_pages,
-                        target_team_id=job_create.team_id,
-                    )
-                else:
-                    # No period range, just scrape the provided URL
-                    result = service.scrape_results(
-                        url=str(job_create.tournament_url),
-                        max_pages=max_pages,
-                        target_team_id=job_create.team_id,
-                        season=job_create.period,
-                    )
-            elif job_create.scraping_type == ScrapingType.BY_DATE:
-                target_date = (
-                    date.fromisoformat(job_create.period)
-                    if job_create.period
-                    else datetime.now(timezone.utc).date()
-                )
-                result = service.scrape_matches_by_date(
-                    url=str(job_create.tournament_url)
-                    if job_create.tournament_url
-                    else None,
-                    target_date=target_date,
-                )
-            else:
-                raise ValueError(
-                    f"Unsupported scraping type: {job_create.scraping_type}"
-                )
-
-        logger.info(f"[BG TASK] Session closed, result: {result}")
-
-        # Update job status to completed
-        matches_saved = result.matches_saved if result else 0
-        matches_scraped = result.matches_scraped if result else matches_saved
-        job_obj = scraping_jobs.get(job_id)
-        started = job_obj.started_at if job_obj else datetime.now(timezone.utc)
-        update_job_status(
-            job_id,
-            ScrapingJobUpdate(
-                status=ScrapingJobStatus.COMPLETED,
-                progress=100.0,
-                message=(
-                    f"Scraping completed successfully. "
-                    f"{matches_saved} matches processed."
-                ),
-                matches_scraped=matches_scraped,
-                matches_saved=matches_saved,
-                errors=[],
-                started_at=started,
-                completed_at=datetime.now(timezone.utc),
-            ),
-        )
-        logger.info(f"[BG TASK] Job {job_id} completed with {matches_saved} matches")
-
-        # Update the completed_at timestamp directly on the job
-        if job_id in scraping_jobs:
-            scraping_jobs[job_id].completed_at = datetime.now(timezone.utc)
+        _set_job_completed(job_id, result, started)
+        logger.info(f"[BG TASK] Job {job_id} completed")
 
     except Exception as e:
         import traceback
 
         logger.error(f"[BG TASK] Job {job_id} failed: {e}")
         logger.error(traceback.format_exc())
-
-        # Update job status to failed
-        current_job = scraping_jobs.get(job_id)
-        errors = current_job.errors if current_job else []
-        errors.append(str(e))
-        job_obj_failed = scraping_jobs.get(job_id)
-        started_failed = (
-            job_obj_failed.started_at if job_obj_failed else datetime.now(timezone.utc)
-        )
-
-        update_job_status(
-            job_id,
-            ScrapingJobUpdate(
-                status=ScrapingJobStatus.FAILED,
-                progress=0.0,  # or current progress if available
-                message=f"Scraping failed: {str(e)}",
-                matches_scraped=0,  # or current count if available
-                matches_saved=0,
-                errors=errors,
-                started_at=started_failed,
-                completed_at=datetime.now(timezone.utc),
-            ),
-        )
-
-        # Update the completed_at timestamp directly on the job
-        if job_id in scraping_jobs:
-            scraping_jobs[job_id].completed_at = datetime.now(timezone.utc)
+        _set_job_failed(job_id, e, started)
 
 
 @router.post("/upcoming", response_model=ScrapingJobResponse)
@@ -531,18 +542,8 @@ async def scrape_upcoming(
 
         return job
 
-    except HTTPException:
-        raise
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=e.errors(),
-        ) from e
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create scraping job: {str(e)}",
-        ) from e
+        raise _handle_endpoint_error(e) from e
 
 
 @router.post("/results", response_model=ScrapingJobResponse)
@@ -645,18 +646,8 @@ async def scrape_results(
 
         return job
 
-    except HTTPException:
-        raise
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=e.errors(),
-        ) from e
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create scraping job: {str(e)}",
-        ) from e
+        raise _handle_endpoint_error(e) from e
 
 
 @router.post("/by-date", response_model=ScrapingJobResponse)
@@ -735,18 +726,8 @@ async def scrape_by_date(
 
         return job
 
-    except HTTPException:
-        raise
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=e.errors(),
-        ) from e
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create scraping job: {str(e)}",
-        ) from e
+        raise _handle_endpoint_error(e) from e
 
 
 @router.get("/jobs", response_model=PaginatedResponse[ScrapingJobResponse])

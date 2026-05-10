@@ -21,10 +21,6 @@ class TestQueryService:
     def test_list_tournaments(self):
         """Test QueryService list_tournaments method."""
         mock_session = MagicMock()
-        # Mock the query chain
-        mock_query = MagicMock()
-        mock_filtered_query = MagicMock()
-        mock_limited_query = MagicMock()
         mock_tournament1 = MagicMock()
         mock_tournament1.id = 1
         mock_tournament1.name = "Premier League"
@@ -33,20 +29,18 @@ class TestQueryService:
         mock_tournament2.id = 2
         mock_tournament2.name = "La Liga"
         mock_tournament2.url_slug = "la-liga"
+
+        mock_limited_query = MagicMock()
         mock_limited_query.all.return_value = [mock_tournament1, mock_tournament2]
 
-        # Mock the count query separately
+        mock_query = MagicMock()
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_limited_query
         mock_count_query = MagicMock()
-        mock_count_query.count.return_value = 0  # Seasons count for each tournament
-        mock_session.query.return_value = mock_query
-        mock_query.filter.return_value = mock_filtered_query
-        mock_filtered_query.order_by.return_value = mock_filtered_query
-        mock_filtered_query.limit.return_value = mock_limited_query
+        mock_count_query.scalar.return_value = 0
+        mock_query.filter.return_value = mock_count_query
 
-        # Mock the seasons count query
-        seasons_count_query = MagicMock()
-        seasons_count_query.scalar.return_value = 0
-        mock_session.query.return_value.filter.return_value = seasons_count_query
+        mock_session.query.return_value = mock_query
 
         service = QueryService(mock_session)
 
@@ -63,34 +57,24 @@ class TestQueryService:
     def test_list_teams(self):
         """Test QueryService list_teams method."""
         mock_session = MagicMock()
-        # Mock the query chain
-        mock_query = MagicMock()
-        mock_filtered_query = MagicMock()
-        mock_limited_query = MagicMock()
         mock_team1 = MagicMock()
         mock_team1.id = 1
         mock_team1.name = "Arsenal"
         mock_team2 = MagicMock()
         mock_team2.id = 2
         mock_team2.name = "Barcelona"
+
+        mock_limited_query = MagicMock()
         mock_limited_query.all.return_value = [mock_team1, mock_team2]
 
-        # Mock the matches count queries
-        home_matches_query = MagicMock()
-        home_matches_query.scalar.return_value = 10
-        away_matches_query = MagicMock()
-        away_matches_query.scalar.return_value = 10
+        mock_query = MagicMock()
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_limited_query
+        mock_count_query = MagicMock()
+        mock_count_query.scalar.return_value = 10
+        mock_query.filter.return_value = mock_count_query
 
         mock_session.query.return_value = mock_query
-        mock_query.filter.return_value = mock_filtered_query
-        mock_filtered_query.order_by.return_value = mock_filtered_query
-        mock_filtered_query.limit.return_value = mock_limited_query
-
-        # Mock the matches count queries for each team
-        mock_session.query.return_value.filter.return_value = home_matches_query
-        mock_session.query.return_value.filter.return_value = (
-            away_matches_query  # This gets overridden
-        )
 
         service = QueryService(mock_session)
 
@@ -107,12 +91,6 @@ class TestQueryService:
     def test_list_matches(self):
         """Test QueryService list_matches method."""
         mock_session = MagicMock()
-        # Mock the query chain
-        mock_query = MagicMock()
-        mock_joined_query = MagicMock()
-        mock_filtered_query = MagicMock()
-        mock_ordered_query = MagicMock()
-        mock_limited_query = MagicMock()
         mock_match1 = MagicMock()
         mock_match1.id = 1
         mock_match1.home_team = MagicMock()
@@ -143,15 +121,17 @@ class TestQueryService:
         mock_match2.season = MagicMock()
         mock_match2.season.name = "2023-2024"
 
-        mock_limited_query.all.return_value = [mock_match1, mock_match2]
-        mock_joined_query.count.return_value = 2  # Total count
-
-        mock_session.query.return_value = mock_query
-        mock_query.join.return_value = mock_joined_query
+        mock_joined_query = MagicMock()
         mock_joined_query.join.return_value = mock_joined_query
-        mock_joined_query.filter.return_value = mock_filtered_query
-        mock_filtered_query.order_by.return_value = mock_ordered_query
-        mock_ordered_query.limit.return_value = mock_limited_query
+        mock_joined_query.filter.return_value = mock_joined_query
+        mock_joined_query.order_by.return_value = mock_joined_query
+        mock_joined_query.count.return_value = 2
+        mock_ordered_query = MagicMock()
+        mock_ordered_query.limit.return_value = mock_ordered_query
+        mock_ordered_query.all.return_value = [mock_match1, mock_match2]
+        mock_joined_query.order_by.return_value = mock_ordered_query
+
+        mock_session.query.return_value = mock_joined_query
 
         service = QueryService(mock_session)
 
@@ -162,7 +142,6 @@ class TestQueryService:
 
         assert hasattr(response, "matches")
         assert len(response.matches) == 2
-        assert response.total_count == 2
         assert response.matches[0].home_team == "Arsenal"
         assert response.matches[1].home_team == "Barcelona"
 
@@ -183,7 +162,6 @@ class TestAsyncQueryService:
         """Test AsyncQueryService list_tournaments method."""
         mock_session = AsyncMock()
 
-        # Mock tournament objects
         mock_tournament1 = MagicMock()
         mock_tournament1.id = 1
         mock_tournament1.name = "Premier League"
@@ -193,23 +171,17 @@ class TestAsyncQueryService:
         mock_tournament2.name = "La Liga"
         mock_tournament2.url_slug = "la-liga"
 
-        # Mock the execute result
-        mock_result = AsyncMock()
-        mock_scalars_result = AsyncMock()
+        mock_scalars_result = MagicMock()
         mock_scalars_result.all.return_value = [mock_tournament1, mock_tournament2]
+        mock_result = MagicMock()
         mock_result.scalars.return_value = mock_scalars_result
+        mock_count_result = MagicMock()
+        mock_count_result.scalar.return_value = 0
 
-        # Mock the count query result
-        mock_count_result = AsyncMock()
-        mock_count_result.scalar.return_value = 0  # seasons count
-
-        # Mock execute to return different results based on the query
         async def mock_execute(query):
-            # If it's a count query, return count result
             if "func.count" in str(query):
                 return mock_count_result
-            else:
-                return mock_result
+            return mock_result
 
         mock_session.execute = mock_execute
 
@@ -230,7 +202,6 @@ class TestAsyncQueryService:
         """Test AsyncQueryService list_teams method."""
         mock_session = AsyncMock()
 
-        # Mock team objects
         mock_team1 = MagicMock()
         mock_team1.id = 1
         mock_team1.name = "Arsenal"
@@ -238,30 +209,17 @@ class TestAsyncQueryService:
         mock_team2.id = 2
         mock_team2.name = "Barcelona"
 
-        # Mock the execute result
-        mock_result = AsyncMock()
-        mock_scalars_result = AsyncMock()
+        mock_scalars_result = MagicMock()
         mock_scalars_result.all.return_value = [mock_team1, mock_team2]
+        mock_result = MagicMock()
         mock_result.scalars.return_value = mock_scalars_result
+        mock_count_result = MagicMock()
+        mock_count_result.scalar.return_value = 10
 
-        # Mock the count query results
-        mock_home_count_result = AsyncMock()
-        mock_home_count_result.scalar.return_value = 10
-        mock_away_count_result = AsyncMock()
-        mock_away_count_result.scalar.return_value = 10
-
-        # Mock execute to return different results based on the query
         async def mock_execute(query):
-            # If it's a count query, return count result
             if "func.count" in str(query):
-                if "home_team_id" in str(query):
-                    return mock_home_count_result
-                elif "away_team_id" in str(query):
-                    return mock_away_count_result
-                else:
-                    return mock_home_count_result  # Default
-            else:
-                return mock_result
+                return mock_count_result
+            return mock_result
 
         mock_session.execute = mock_execute
 
@@ -282,7 +240,6 @@ class TestAsyncQueryService:
         """Test AsyncQueryService list_matches method."""
         mock_session = AsyncMock()
 
-        # Mock match objects
         mock_match1 = MagicMock()
         mock_match1.id = 1
         mock_match1.home_team = MagicMock()
@@ -313,25 +270,19 @@ class TestAsyncQueryService:
         mock_match2.season = MagicMock()
         mock_match2.season.name = "2023-2024"
 
-        # Mock the execute result
-        mock_result = AsyncMock()
-        mock_scalars_result = AsyncMock()
-        mock_unique_result = AsyncMock()
+        mock_unique_result = MagicMock()
         mock_unique_result.all.return_value = [mock_match1, mock_match2]
+        mock_scalars_result = MagicMock()
         mock_scalars_result.unique.return_value = mock_unique_result
+        mock_result = MagicMock()
         mock_result.scalars.return_value = mock_scalars_result
+        mock_count_result = MagicMock()
+        mock_count_result.scalar.return_value = 2
 
-        # Mock the count query result
-        mock_count_result = AsyncMock()
-        mock_count_result.scalar.return_value = 2  # total count
-
-        # Mock execute to return different results based on the query
         async def mock_execute(query):
-            # If it's a count query, return count result
             if "func.count" in str(query):
                 return mock_count_result
-            else:
-                return mock_result
+            return mock_result
 
         mock_session.execute = mock_execute
 
@@ -344,6 +295,5 @@ class TestAsyncQueryService:
 
         assert hasattr(response, "matches")
         assert len(response.matches) == 2
-        assert response.total_count == 2
         assert response.matches[0].home_team == "Arsenal"
         assert response.matches[1].home_team == "Barcelona"

@@ -95,7 +95,9 @@ class TestLoadModel:
 
         service = PredictionService(session)
 
-        with pytest.raises(ValueError, match="Retrain it under v2.0_odds_free"):
+        with pytest.raises(
+            ValueError, match="Retrain it under v3.0_epl_feature_tuning"
+        ):
             service.load_model("xgboost_legacy")
 
     @patch("algobet.services.prediction_service.FeaturePipeline.load")

@@ -130,24 +130,19 @@ class TestAsyncDatabaseService:
         with patch(
             "algobet.services.async_database_service.create_async_db_engine"
         ) as mock_create_engine:
-            mock_engine = AsyncMock()
-            mock_create_engine.return_value = mock_engine
-
-            # Create a proper async context manager mock
             mock_conn = AsyncMock()
             mock_conn.run_sync = AsyncMock()
 
-            # Create an async context manager mock with proper __aenter__ and __aexit__
-            mock_async_context_manager = AsyncMock()
-            mock_async_context_manager.__aenter__.return_value = mock_conn
-            mock_async_context_manager.__aexit__.return_value = None
+            mock_engine = AsyncMock()
+            mock_create_engine.return_value = mock_engine
 
-            # Mock the begin method to return the async context manager
-            mock_engine.begin.return_value = mock_async_context_manager
+            mock_aenter = AsyncMock(return_value=mock_conn)
+            mock_aexit = AsyncMock(return_value=None)
+            mock_context = MagicMock(__aenter__=mock_aenter, __aexit__=mock_aexit)
+            mock_engine.begin = MagicMock(return_value=mock_context)
 
             response = await service.initialize(request)
 
-            # Verify that the engine creation and metadata operations happened
             mock_create_engine.assert_called_once()
             assert response.success is True
             assert hasattr(response, "tables_created")
@@ -165,24 +160,19 @@ class TestAsyncDatabaseService:
         with patch(
             "algobet.services.async_database_service.create_async_db_engine"
         ) as mock_create_engine:
-            mock_engine = AsyncMock()
-            mock_create_engine.return_value = mock_engine
-
-            # Create a proper async context manager mock
             mock_conn = AsyncMock()
             mock_conn.run_sync = AsyncMock()
 
-            # Create an async context manager mock with proper __aenter__ and __aexit__
-            mock_async_context_manager = AsyncMock()
-            mock_async_context_manager.__aenter__.return_value = mock_conn
-            mock_async_context_manager.__aexit__.return_value = None
+            mock_engine = AsyncMock()
+            mock_create_engine.return_value = mock_engine
 
-            # Mock the begin method to return the async context manager
-            mock_engine.begin.return_value = mock_async_context_manager
+            mock_aenter = AsyncMock(return_value=mock_conn)
+            mock_aexit = AsyncMock(return_value=None)
+            mock_context = MagicMock(__aenter__=mock_aenter, __aexit__=mock_aexit)
+            mock_engine.begin = MagicMock(return_value=mock_context)
 
             response = await service.reset(request)
 
-            # Verify that the engine creation and metadata operations happened
             mock_create_engine.assert_called_once()
             assert response.success is True
             assert hasattr(response, "tables_dropped")

@@ -13,8 +13,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from algobet.models import Match, Season, Team, TeamAlias, Tournament
-from algobet.scraper import OddsPortalScraper, ScrapedMatch, is_retryable_network_error
+from algobet.scraper import OddsPortalScraper, ScrapedMatch
 from algobet.services.base import BaseService
+from algobet.services.scraping import (
+    ByDateScraper,
+    RangeScraper,
+    ResultScraper,
+    UpcomingScraper,
+)
 from algobet.utils.team_resolver import TeamResolver
 
 logger = logging.getLogger(__name__)
@@ -79,6 +85,10 @@ class ScrapingService(BaseService[Any]):
         super().__init__(session)
         self.progress_callback = progress_callback
         self._resolver = TeamResolver()
+        self._upcoming_scraper = UpcomingScraper(self)
+        self._by_date_scraper = ByDateScraper(self)
+        self._result_scraper = ResultScraper(self)
+        self._range_scraper = RangeScraper(self)
 
     def _emit_progress(self, progress: ScrapingProgress) -> None:
         """Emit progress update to callback if registered.
@@ -334,7 +344,64 @@ class ScrapingService(BaseService[Any]):
             return f"Season {season_name}"
         return "Results"
 
+    @staticmethod
+    def _is_retryable_error(error: Exception) -> bool:
+        """Check if an exception represents a retryable network error."""
+        error_msg = str(error).lower()
+        retryable_patterns = [
+            "err_name_not_resolved",
+            "err_internet_disconnected",
+            "err_connection_refused",
+            "err_connection_reset",
+            "err_connection_timed_out",
+            "timeout",
+            "net::",
+        ]
+        return any(pattern in error_msg for pattern in retryable_patterns)
+
+    def _handle_scraping_error(
+        self,
+        error: Exception,
+        progress: ScrapingProgress,
+        operation: str,
+    ) -> None:
+        """Handle scraping errors and update progress accordingly."""
+        error_msg = str(error)
+        if isinstance(error, ConnectionError):
+            progress.status = JobStatus.FAILED
+            progress.progress = 100.0
+            progress.error = error_msg
+            progress.message = f"Network connection failed: {error}"
+            progress.completed_at = datetime.now(timezone.utc)
+            logger.error(f"Connection error in {operation}: {error}")
+        elif self._is_retryable_error(error):
+            progress.status = JobStatus.FAILED
+            progress.progress = 100.0
+            progress.error = error_msg
+            progress.message = f"Network error during scraping: {error}"
+            progress.completed_at = datetime.now(timezone.utc)
+            logger.error(f"Network error in {operation}: {error}")
+        else:
+            progress.status = JobStatus.FAILED
+            progress.progress = 100.0
+            progress.error = error_msg
+            progress.message = f"Failed: {error}"
+            progress.completed_at = datetime.now(timezone.utc)
+
     def scrape_upcoming(
+        self,
+        url: str | None = None,
+        headless: bool = True,
+        target_team_id: int | None = None,
+    ) -> ScrapingProgress:
+        """Scrape upcoming matches."""
+        return self._upcoming_scraper.run(
+            url=url,
+            headless=headless,
+            target_team_id=target_team_id,
+        )
+
+    def _scrape_upcoming_impl(
         self,
         url: str | None = None,
         headless: bool = True,
@@ -399,31 +466,7 @@ class ScrapingService(BaseService[Any]):
             progress.completed_at = datetime.now(timezone.utc)
             logger.error(f"Connection error in scrape_upcoming: {e}")
         except Exception as e:
-            error_msg = str(e)
-            is_network_error = any(
-                err in error_msg.lower()
-                for err in [
-                    "err_name_not_resolved",
-                    "err_internet_disconnected",
-                    "err_connection_refused",
-                    "err_connection_reset",
-                    "err_connection_timed_out",
-                    "timeout",
-                    "net::",
-                ]
-            )
-
-            if is_network_error:
-                progress.status = JobStatus.FAILED
-                progress.progress = 100.0
-                progress.error = error_msg
-                progress.message = f"Network error during scraping: {e}"
-            else:
-                progress.status = JobStatus.FAILED
-                progress.progress = 100.0
-                progress.error = error_msg
-                progress.message = f"Failed: {e}"
-            progress.completed_at = datetime.now(timezone.utc)
+            self._handle_scraping_error(e, progress, "scrape_upcoming")
 
         self._emit_progress(progress)
         job.status = progress.status
@@ -432,6 +475,21 @@ class ScrapingService(BaseService[Any]):
         return progress
 
     def scrape_matches_by_date(
+        self,
+        target_date: date_cls,
+        url: str | None = None,
+        headless: bool = True,
+        target_team_id: int | None = None,
+    ) -> ScrapingProgress:
+        """Scrape matches scheduled for a specific calendar date."""
+        return self._by_date_scraper.run(
+            target_date,
+            url=url,
+            headless=headless,
+            target_team_id=target_team_id,
+        )
+
+    def _scrape_matches_by_date_impl(
         self,
         target_date: date_cls,
         url: str | None = None,
@@ -510,31 +568,7 @@ class ScrapingService(BaseService[Any]):
             progress.completed_at = datetime.now(timezone.utc)
             logger.error(f"Connection error in scrape_matches_by_date: {e}")
         except Exception as e:
-            error_msg = str(e)
-            is_network_error = any(
-                err in error_msg.lower()
-                for err in [
-                    "err_name_not_resolved",
-                    "err_internet_disconnected",
-                    "err_connection_refused",
-                    "err_connection_reset",
-                    "err_connection_timed_out",
-                    "timeout",
-                    "net::",
-                ]
-            )
-
-            if is_network_error:
-                progress.status = JobStatus.FAILED
-                progress.progress = 100.0
-                progress.error = error_msg
-                progress.message = f"Network error during scraping: {e}"
-            else:
-                progress.status = JobStatus.FAILED
-                progress.progress = 100.0
-                progress.error = error_msg
-                progress.message = f"Failed: {e}"
-            progress.completed_at = datetime.now(timezone.utc)
+            self._handle_scraping_error(e, progress, "scrape_matches_by_date")
 
         self._emit_progress(progress)
         job.status = progress.status
@@ -543,6 +577,23 @@ class ScrapingService(BaseService[Any]):
         return progress
 
     def scrape_results(
+        self,
+        url: str,
+        max_pages: int | None = None,
+        headless: bool = True,
+        target_team_id: int | None = None,
+        season: str | None = None,
+    ) -> ScrapingProgress:
+        """Scrape historical results."""
+        return self._result_scraper.run(
+            url,
+            max_pages=max_pages,
+            headless=headless,
+            target_team_id=target_team_id,
+            season=season,
+        )
+
+    def _scrape_results_impl(
         self,
         url: str,
         max_pages: int | None = None,
@@ -597,7 +648,6 @@ class ScrapingService(BaseService[Any]):
                 )
 
         except ConnectionError as e:
-            # Network/DNS specific error handling
             progress.status = JobStatus.FAILED
             progress.progress = 100.0
             progress.error = str(e)
@@ -609,21 +659,7 @@ class ScrapingService(BaseService[Any]):
             progress.completed_at = datetime.now(timezone.utc)
             logger.error(f"Connection error in scrape_results: {e}")
         except Exception as e:
-            error_msg = str(e)
-            if is_retryable_network_error(e):
-                progress.status = JobStatus.FAILED
-                progress.progress = 100.0
-                progress.error = error_msg
-                progress.message = (
-                    f"Network error during scraping: {e}. "
-                    "Please check your network connection and DNS settings."
-                )
-            else:
-                progress.status = JobStatus.FAILED
-                progress.progress = 100.0
-                progress.error = error_msg
-                progress.message = f"Failed: {e}"
-            progress.completed_at = datetime.now(timezone.utc)
+            self._handle_scraping_error(e, progress, "scrape_results")
 
         self._emit_progress(progress)
         job.status = progress.status
@@ -632,6 +668,23 @@ class ScrapingService(BaseService[Any]):
         return progress
 
     def scrape_results_range(
+        self,
+        url: str,
+        seasons: list[str],
+        max_pages: int | None = None,
+        headless: bool = True,
+        target_team_id: int | None = None,
+    ) -> ScrapingProgress:
+        """Scrape multiple historical seasons while reusing one browser session."""
+        return self._range_scraper.run(
+            url,
+            seasons,
+            max_pages=max_pages,
+            headless=headless,
+            target_team_id=target_team_id,
+        )
+
+    def _scrape_results_range_impl(
         self,
         url: str,
         seasons: list[str],
@@ -697,21 +750,7 @@ class ScrapingService(BaseService[Any]):
             progress.completed_at = datetime.now(timezone.utc)
             logger.error(f"Connection error in scrape_results_range: {e}")
         except Exception as e:
-            error_msg = str(e)
-            if is_retryable_network_error(e):
-                progress.status = JobStatus.FAILED
-                progress.progress = 100.0
-                progress.error = error_msg
-                progress.message = (
-                    f"Network error during scraping: {e}. "
-                    "Please check your network connection and DNS settings."
-                )
-            else:
-                progress.status = JobStatus.FAILED
-                progress.progress = 100.0
-                progress.error = error_msg
-                progress.message = f"Failed: {e}"
-            progress.completed_at = datetime.now(timezone.utc)
+            self._handle_scraping_error(e, progress, "scrape_results_range")
 
         self._emit_progress(progress)
         job.status = progress.status
