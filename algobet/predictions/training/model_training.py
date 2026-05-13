@@ -52,7 +52,9 @@ class ModelTrainingMixin:
                 predictor.fit(X_train, y_train, X_val, y_val)
                 predictors.append(predictor)
 
-            return EnsemblePredictor(predictors=predictors)
+            ensemble = EnsemblePredictor(predictors=predictors)
+            ensemble._is_fitted = True
+            return ensemble
         else:
             # Train single model
             model_hyperparameters = resolve_training_hyperparameters(

@@ -1,9 +1,14 @@
-"""API router for ML operations (train, backtest, calibrate)."""
+"""API router for ML operations (train, backtest, calibrate, ablation)."""
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from algobet.api.dependencies import get_db
+from algobet.api.schemas.ablation import (
+    AblationRequest,
+    AblationStudyResponse,
+    PermutationImportanceResponse,
+)
 from algobet.api.schemas.ml_operations import (
     BacktestHistoryListResponse,
     BacktestRequest,
@@ -72,3 +77,22 @@ def get_backtest_detail(
 ) -> BacktestResultResponse:
     """Get detailed backtest result by ID."""
     return orchestrator.get_backtest_detail(backtest_id, db)
+
+
+@router.post(
+    "/ablation",
+    response_model=PermutationImportanceResponse | AblationStudyResponse,
+)
+def run_ablation(
+    request: AblationRequest,
+    db: Session = Depends(get_db),
+    orchestrator: MLOperationsOrchestrator = Depends(_ml_ops),
+) -> PermutationImportanceResponse | AblationStudyResponse:
+    """Run feature ablation or permutation importance analysis.
+
+    - **permutation**: Shuffles feature columns per family on a trained model
+      and measures the performance drop. Fast, no retraining.
+    - **ablation**: Retrains the model excluding each feature group
+      (leave-one-out) and compares metrics. Slow.
+    """
+    return orchestrator.run_ablation(request, db)

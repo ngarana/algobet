@@ -93,12 +93,18 @@ EPL_LIGHTGBM_SEARCH_SPACE: dict[str, tuple[Any, Any]] = {
 }
 DEFAULT_SEARCH_SPACES: dict[str, dict[str, tuple[Any, Any]]] = {
     "xgboost": {
-        "max_depth": (3, 10),
+        "max_depth": (
+            4,
+            7,
+        ),  # depth 3 produces only 8 leaves — too few to learn H/D/A boundaries
         "learning_rate": (0.01, 0.3),
         "n_estimators": (100, 1000),
         "subsample": (0.5, 1.0),
         "colsample_bytree": (0.5, 1.0),
-        "min_child_weight": (1, 10),
+        "min_child_weight": (
+            1,
+            6,
+        ),  # cap at 6 — higher values prevent DRAW leaf formation
         "gamma": (0.0, 0.5),
         "reg_alpha": (0.0, 2.0),
         "reg_lambda": (0.5, 5.0),
@@ -154,7 +160,11 @@ class HyperparameterTuner:
 
         self.model_type = model_type
         self.config = config or TuningConfig(model_type=model_type)
-        self.search_space = search_space or DEFAULT_SEARCH_SPACES.get(model_type, {})
+        self.search_space = (
+            search_space
+            or self.config.search_space
+            or DEFAULT_SEARCH_SPACES.get(model_type, {})
+        )
 
     def tune(
         self,
@@ -236,35 +246,18 @@ class HyperparameterTuner:
     ) -> float:
         """Objective function for Optuna optimization.
 
-        Uses guarded log loss: adds penalty if predicted classes < 3,
-        penalty if max_prediction_share > 0.70, and small penalty for high ECE.
+        Always uses CV to prevent overfitting to validation set.
+        Adds penalties for class collapse and high max prediction share.
         """
-        # Sample hyperparameters
         params = self._sample_params(trial)
-
         config = _build_model_config(
             model_type=self.model_type,
             hyperparameters=params,
             class_weights=class_weights,
         )
 
-        # Evaluate with cross-validation or single split
-        if X_val is not None and y_val is not None:
-            score = self._evaluate_single_split_guarded(
-                config=config,
-                X=X,
-                y=y,
-                X_val=X_val,
-                y_val=y_val,
-            )
-        else:
-            score = self._evaluate_cv(
-                config=config,
-                X=X,
-                y=y,
-            )
-
-        return score
+        # Always use CV during tuning (ignore X_val if provided)
+        return self._evaluate_cv_guarded(config=config, X=X, y=y)
 
     def _evaluate_single_split_guarded(
         self,
@@ -293,6 +286,14 @@ class HyperparameterTuner:
         max_share = counts.max() / len(preds) if len(preds) > 0 else 0.0
         if max_share > 0.70:
             penalty += max_share - 0.70
+
+        # Guard: penalize low draw recall
+        actual_draws = int((y_val == 1).sum())
+        if actual_draws > 0:
+            correct_draws = int(((preds == 1) & (y_val == 1)).sum())
+            draw_recall = correct_draws / actual_draws
+            draw_penalty = max(0.0, 0.10 - draw_recall) * 2.0
+            penalty += draw_penalty
 
         return base_ll + penalty
 
@@ -374,6 +375,63 @@ class HyperparameterTuner:
                 raise ValueError(f"Unknown metric: {self.config.metric}")
 
         return np.mean(scores)
+
+    def _evaluate_cv_guarded(
+        self,
+        config: ModelConfig,
+        X: NDArray[np.float64],
+        y: NDArray[np.int64],
+    ) -> float:
+        """Evaluate model with CV and collapse guards."""
+        splitter = ExpandingWindowSplitter(
+            min_train_size=max(100, len(X) // 4),
+            val_size=max(50, len(X) // 8),
+            test_size=max(50, len(X) // 8),
+            step_size=max(50, len(X) // 8),
+        )
+
+        import pandas as pd
+
+        dummy_df = pd.DataFrame({"match_date": range(len(X))})
+
+        scores = []
+        for split in splitter.split(dummy_df):
+            X_train = X[split.train_indices]
+            y_train = y[split.train_indices]
+            X_val = X[split.val_indices]
+            y_val = y[split.val_indices]
+
+            predictor = create_predictor(self.model_type, config)
+            predictor.fit(X_train, y_train, X_val, y_val)
+
+            probas = predictor.predict_proba(X_val)
+            base_ll = log_loss(y_val, probas)
+
+            # Guard: penalize class collapse
+            preds = np.argmax(probas, axis=1)
+            num_classes = len(np.unique(preds))
+            penalty = 0.0
+            if num_classes < 3:
+                penalty += 1.0  # Stronger penalty for complete collapse
+
+            # Guard: penalize extreme max prediction share
+            counts = np.bincount(preds, minlength=3)
+            max_share = counts.max() / len(preds) if len(preds) > 0 else 0.0
+            if max_share > 0.80:
+                penalty += (max_share - 0.80) * 2.0
+
+            # Guard: penalize low draw recall (critical for business goals)
+            actual_draws = int((y_val == 1).sum())
+            if actual_draws > 0:
+                correct_draws = int(((preds == 1) & (y_val == 1)).sum())
+                draw_recall = correct_draws / actual_draws
+                # Penalize heavily when draw recall is near zero; target >= 20%
+                draw_penalty = max(0.0, 0.20 - draw_recall) * 8.0
+                penalty += draw_penalty
+
+            scores.append(base_ll + penalty)
+
+        return float(np.mean(scores)) if scores else 10.0
 
 
 class GridSearchTuner:

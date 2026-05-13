@@ -1,17 +1,22 @@
 """Top-level training workflow runner."""
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from algobet.predictions.training.acceleration import resolve_training_hyperparameters
 from algobet.predictions.training.calibration import (
     CalibratedPredictor,
+    DrawAwarePredictor,
     ProbabilityCalibrator,
 )
 from algobet.predictions.training.classifiers import EnsemblePredictor
 from algobet.predictions.training.config import TrainingResult
 from algobet.predictions.training.ensemble import EnsembleWeightOptimizer
 from algobet.predictions.training.split import get_class_weights
+from algobet.predictions.training.stacking import StackingEnsemble
 from algobet.predictions.training.tuner import HAS_OPTUNA, TuningResult
 
 
@@ -31,7 +36,10 @@ class PipelineRunnerMixin:
 
         # Step 2: Handle class imbalance (opt-in only)
         if self.config.outcome_balance:
-            class_weights = get_class_weights(y_train)
+            class_weights = get_class_weights(
+                y_train,
+                strength=self.config.outcome_balance_strength,
+            )
         else:
             class_weights = None
 
@@ -86,24 +94,38 @@ class PipelineRunnerMixin:
             class_weights=class_weights,
         )
 
+        # Step 5b: Train stacking ensemble (optional)
+        if self.config.use_stacking_ensemble:
+            predictor = self._train_stacking_ensemble(
+                X_train=X_train,
+                y_train=y_train,
+                X_val=X_val,
+                y_val=y_val,
+                hyperparameters=best_params,
+                class_weights=class_weights,
+            )
+
         # Step 6: Calibrate probabilities (optional)
-        # For ensembles, split val into calibration + weight-optimization sets
         if self.config.calibrate_probabilities:
-            if self.config.use_ensemble:
+            self._calibrator = ProbabilityCalibrator(
+                method=self.config.calibration_method,
+            )
+
+            if self.config.use_cv_calibration:
+                # Robust: Use K-fold Out-Of-Fold predictions from training data
+                oof_probas, oof_y = self._get_oof_probas(
+                    X_train, y_train, class_weights, best_params
+                )
+                self._calibrator.fit(oof_probas, oof_y)
+            elif self.config.use_ensemble:
                 # Split val in half: first half for calibration, second for weights
                 val_n = len(y_val) // 2
                 X_calib, X_weight = X_val[:val_n], X_val[val_n:]
                 y_calib, y_weight = y_val[:val_n], y_val[val_n:]
-
-                self._calibrator = ProbabilityCalibrator(
-                    method=self.config.calibration_method,
-                )
                 val_probas = predictor.predict_proba(X_calib)
                 self._calibrator.fit(val_probas, y_calib)
             else:
-                self._calibrator = ProbabilityCalibrator(
-                    method=self.config.calibration_method,
-                )
+                # Simple: Use validation set
                 val_probas = predictor.predict_proba(X_val)
                 self._calibrator.fit(val_probas, y_val)
 
@@ -115,14 +137,56 @@ class PipelineRunnerMixin:
                 calibrated_predictor,
                 X_val,
             )
-            if self._is_prediction_collapsed(calibrated_report):
+            raw_val_probas = predictor.predict_proba(X_val)
+            calibrated_val_probas = calibrated_predictor.predict_proba(X_val)
+            raw_val_log_loss = self._validation_log_loss(y_val, raw_val_probas)
+            calibrated_val_log_loss = self._validation_log_loss(
+                y_val,
+                calibrated_val_probas,
+            )
+            calibration_report = {
+                "raw_validation_log_loss": raw_val_log_loss,
+                "calibrated_validation_log_loss": calibrated_val_log_loss,
+                "calibrated_validation_predictions": calibrated_report,
+            }
+            if not np.isfinite(calibrated_val_log_loss) or (
+                calibrated_val_log_loss > raw_val_log_loss + 1e-6
+            ):
                 self._calibrator = None
                 if self._collapse_recovery is None:
                     self._collapse_recovery = {}
                 self._collapse_recovery["calibration_disabled"] = True
-                self._collapse_recovery["calibrated_validation_predictions"] = (
-                    calibrated_report
+                self._collapse_recovery["calibration_disable_reason"] = (
+                    "validation_log_loss_worse"
                 )
+                self._collapse_recovery["calibration_report"] = calibration_report
+            elif self._is_prediction_collapsed(calibrated_report):
+                # Calibration collapsed predictions to fewer classes — disable it
+                # even if log_loss marginally improved. A marginal log_loss gain
+                # (e.g. 0.0006) is not worth destroying class diversity.
+                self._calibrator = None
+                if self._collapse_recovery is None:
+                    self._collapse_recovery = {}
+                self._collapse_recovery["calibration_disabled"] = True
+                self._collapse_recovery["calibration_disable_reason"] = (
+                    "calibration_collapsed_predictions"
+                )
+                self._collapse_recovery["calibration_report"] = calibration_report
+
+        # Step 6bb: Apply post-hoc draw boost if requested
+        self._draw_boost_calibrator = None
+        if self.config.draw_boost_factor > 1.0:
+            from algobet.predictions.training.calibration import DrawBoostCalibrator
+
+            self._draw_boost_calibrator = DrawBoostCalibrator(
+                boost_factor=self.config.draw_boost_factor,
+            )
+            # Wrap predictor so future predictions include the boost
+            predictor = CalibratedPredictor(
+                predictor,
+                self._calibrator,
+                self._draw_boost_calibrator,
+            )
 
         # Step 6b: Ensemble weight optimization (for ensembles, post-calibration)
         ensemble_weights = None
@@ -158,6 +222,64 @@ class PipelineRunnerMixin:
                 if isinstance(predictor, EnsemblePredictor):
                     predictor.weights = [0.5, 0.5]
 
+        # Step 6c: Fit DrawAwareCalibrator if enabled
+        self._draw_aware_calibrator = None
+        self._dc_model = None
+        draw_aware_alpha = None
+        if self.config.fit_draw_aware_calibrator:
+            try:
+                from algobet.predictions.training.calibration import DrawAwareCalibrator
+                from algobet.predictions.training.classifiers import (
+                    DixonColesPredictor,
+                    ModelConfig,
+                )
+
+                if self.config.dc_model_path:
+                    # Backward compatibility: load pre-trained DC model
+                    self._dc_model = DixonColesPredictor.load(
+                        Path(self.config.dc_model_path)
+                    )
+                else:
+                    # Inline Dixon-Coles training using real features
+                    home_goals = self._train_df["home_score"].values.astype(np.float64)
+                    away_goals = self._train_df["away_score"].values.astype(np.float64)
+                    dc_config = ModelConfig(
+                        model_type="dixon_coles",
+                        random_seed=self.config.random_seed,
+                    )
+                    self._dc_model = DixonColesPredictor(dc_config)
+                    self._dc_model.fit_with_scores(
+                        X_train,
+                        y_train,
+                        home_goals,
+                        away_goals,
+                        X_val,
+                        y_val,
+                    )
+
+                # Get base and DC probabilities on validation set
+                base_val_probas = predictor.predict_proba(X_val)
+                dc_val_probas = self._dc_model.predict_proba(X_val)
+
+                # Fit blend calibrator
+                self._draw_aware_calibrator = DrawAwareCalibrator()
+                self._draw_aware_calibrator.fit(base_val_probas, dc_val_probas, y_val)
+                draw_aware_alpha = self._draw_aware_calibrator.alpha
+
+                print(f"DrawAwareCalibrator fitted: α={draw_aware_alpha:.3f}")
+            except Exception as e:
+                print(f"Failed to fit DrawAwareCalibrator: {e}")
+                self._draw_aware_calibrator = None
+                self._dc_model = None
+
+        # Step 6d: Wrap predictor with DrawAwareCalibrator for inference
+        if self._draw_aware_calibrator is not None and self._dc_model is not None:
+            predictor = DrawAwarePredictor(
+                base_predictor=predictor,
+                dc_model=self._dc_model,
+                draw_aware_calibrator=self._draw_aware_calibrator,
+            )
+
         # Step 7: Evaluate
         # Train/val use raw probabilities (calibrator is fit on val, so
         # calibrating val again would leak data and make calibration metrics
@@ -169,8 +291,20 @@ class PipelineRunnerMixin:
             predictor, X_val, y_val, self._val_df, apply_calibration=False
         )
         test_metrics = self._evaluate(
-            predictor, X_test, y_test, self._test_df, apply_calibration=True
+            predictor, X_test, y_test, self._test_df, apply_calibration=False
         )
+
+        # Step 7b: Check test set for collapse (reject if collapsed)
+        test_report = self._prediction_class_report(predictor, X_test)
+        if self._is_prediction_collapsed(test_report):
+            raise ValueError(
+                f"Model passed validation but collapsed on test set: "
+                f"{test_report['num_classes']} classes predicted with counts "
+                f"{test_report['counts']}. This indicates overfitting to validation. "
+                f"Try: (1) disable hyperparameter tuning, "
+                f"(2) increase outcome_balance_strength, "
+                f"or (3) add more draw-signal features."
+            )
 
         # Step 8: Register model
         all_metrics = {
@@ -195,6 +329,7 @@ class PipelineRunnerMixin:
             "early_stopping_rounds": self.config.early_stopping_rounds,
             "use_ensemble": self.config.use_ensemble,
             "outcome_balance": class_weights is not None,
+            "outcome_balance_strength": self.config.outcome_balance_strength,
             "min_prediction_classes": self.config.min_prediction_classes,
         }
         if self._selected_feature_names is not None:
@@ -209,6 +344,11 @@ class PipelineRunnerMixin:
             }
         if self.config.use_ensemble:
             model_hyperparameters["ensemble_types"] = self.config.ensemble_types
+        if self.config.use_stacking_ensemble:
+            model_hyperparameters["use_stacking_ensemble"] = True
+            model_hyperparameters["stacking_base_models"] = (
+                self.config.stacking_base_models
+            )
         if ensemble_weights:
             model_hyperparameters["ensemble_weights"] = ensemble_weights
         if ensemble_val_metrics:
@@ -216,13 +356,21 @@ class PipelineRunnerMixin:
         if self.config.calibrate_probabilities:
             model_hyperparameters["calibration_method"] = self.config.calibration_method
             model_hyperparameters["calibration_enabled"] = self._calibrator is not None
+        if self.config.draw_boost_factor != 1.0:
+            model_hyperparameters["draw_boost_factor"] = self.config.draw_boost_factor
         if self._collapse_recovery is not None:
             model_hyperparameters["collapse_recovery"] = self._collapse_recovery
 
+        # Determine model artifact to persist
+        if isinstance(predictor, DrawAwarePredictor):
+            model_to_save = predictor
+        elif self._calibrator is not None:
+            model_to_save = CalibratedPredictor(predictor, self._calibrator)
+        else:
+            model_to_save = predictor
+
         model_version = self.model_registry.save_model(
-            model=CalibratedPredictor(predictor, self._calibrator)
-            if self._calibrator
-            else predictor,
+            model=model_to_save,
             name=self.config.model_name,
             metrics=all_metrics,
             model_type=self.config.model_type,
@@ -235,6 +383,20 @@ class PipelineRunnerMixin:
         self.feature_pipeline_path = model_dir / "feature_pipeline"
         self.feature_pipeline.save(self.feature_pipeline_path)
         model_hyperparameters["feature_pipeline_path"] = str(self.feature_pipeline_path)
+
+        # Save inline-trained Dixon-Coles model if available
+        if self._dc_model is not None and self.config.dc_model_path is None:
+            dc_path = model_dir / "dixon_coles_model.joblib"
+            self._dc_model.save(dc_path)
+            model_hyperparameters["dixon_coles_model_path"] = str(dc_path)
+
+        # Save DrawAwareCalibrator if fitted
+        if self._draw_aware_calibrator is not None:
+            draw_aware_path = model_dir / "draw_aware_calibrator.joblib"
+            self._draw_aware_calibrator.save(draw_aware_path)
+            model_hyperparameters["draw_aware_calibrator_path"] = str(draw_aware_path)
+            model_hyperparameters["draw_aware_alpha"] = draw_aware_alpha
+
         self.model_registry.update_model_hyperparameters(
             model_version=model_version,
             hyperparameters=model_hyperparameters,
@@ -265,3 +427,126 @@ class PipelineRunnerMixin:
             ensemble_validation_metrics=ensemble_val_metrics,
             model_path=model_dir,
         )
+
+    def _train_stacking_ensemble(
+        self,
+        X_train: Any,
+        y_train: Any,
+        X_val: Any,
+        y_val: Any,
+        hyperparameters: dict[str, Any],
+        class_weights: dict[int, float] | None,
+    ) -> StackingEnsemble:
+        """Train a stacking ensemble with base models and meta-learner."""
+        from algobet.predictions.training.acceleration import (
+            resolve_training_hyperparameters,
+        )
+        from algobet.predictions.training.classifiers import (
+            DixonColesPredictor,
+            ModelConfig,
+            create_predictor,
+        )
+
+        base_predictors: list[Any] = []
+        for model_type in self.config.stacking_base_models:
+            if model_type == "dixon_coles":
+                dc_config = ModelConfig(
+                    model_type="dixon_coles",
+                    random_seed=self.config.random_seed,
+                )
+                dc = DixonColesPredictor(dc_config)
+                home_goals = self._train_df["home_score"].values.astype(np.float64)
+                away_goals = self._train_df["away_score"].values.astype(np.float64)
+                dc.fit_with_scores(
+                    X_train, y_train, home_goals, away_goals, X_val, y_val
+                )
+                base_predictors.append(dc)
+            else:
+                model_params = hyperparameters.get(model_type, {})
+                if not model_params:
+                    model_params = (
+                        hyperparameters if self.config.model_type == model_type else {}
+                    )
+                if not model_params:
+                    model_params = self.config.hyperparameters.copy()
+                resolved = resolve_training_hyperparameters(
+                    model_type=model_type,
+                    hyperparameters=model_params,
+                )
+                config = ModelConfig(
+                    model_type=model_type,
+                    hyperparameters=resolved,
+                    class_weights=class_weights,
+                    random_seed=self.config.random_seed,
+                    early_stopping_rounds=self.config.early_stopping_rounds,
+                )
+                predictor = create_predictor(model_type, config)
+                predictor.set_feature_names(self.feature_pipeline.feature_names)
+                predictor.fit(X_train, y_train, X_val, y_val)
+                base_predictors.append(predictor)
+
+        ensemble = StackingEnsemble(base_predictors=base_predictors)
+        ensemble.fit(X_train, y_train, X_val, y_val)
+        return ensemble
+
+    def _get_oof_probas(
+        self,
+        X: Any,
+        y: Any,
+        class_weights: dict[int, float] | None,
+        hyperparameters: dict[str, Any],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Generate Out-Of-Fold predictions for calibration."""
+        from sklearn.model_selection import StratifiedKFold
+
+        from algobet.predictions.training.acceleration import (
+            resolve_training_hyperparameters,
+        )
+        from algobet.predictions.training.classifiers import (
+            ModelConfig,
+            create_predictor,
+        )
+
+        n_folds = self.config.calibration_cv_folds
+        skf = StratifiedKFold(
+            n_splits=n_folds, shuffle=True, random_state=self.config.random_seed
+        )
+
+        # If X is a DataFrame, convert to values for indexing
+        X_values = X.values if hasattr(X, "values") else X
+        y_values = np.asarray(y)
+
+        oof_probas = np.zeros((len(y_values), 3))
+
+        for train_idx, val_idx in skf.split(X_values, y_values):
+            X_fold_train, X_fold_val = X_values[train_idx], X_values[val_idx]
+            y_fold_train, y_fold_val = y_values[train_idx], y_values[val_idx]
+
+            resolved = resolve_training_hyperparameters(
+                model_type=self.config.model_type,
+                hyperparameters=hyperparameters,
+            )
+            config = ModelConfig(
+                model_type=self.config.model_type,
+                hyperparameters=resolved,
+                class_weights=class_weights,
+                random_seed=self.config.random_seed,
+                early_stopping_rounds=self.config.early_stopping_rounds,
+            )
+            fold_predictor = create_predictor(self.config.model_type, config)
+            fold_predictor.fit(X_fold_train, y_fold_train, X_fold_val, y_fold_val)
+
+            oof_probas[val_idx] = fold_predictor.predict_proba(X_fold_val)
+
+        return oof_probas, y_values
+
+    @staticmethod
+    def _validation_log_loss(
+        y_true: Any,
+        probas: Any,
+    ) -> float:
+        """Return guarded multiclass log loss for calibration decisions."""
+        from sklearn.metrics import log_loss
+
+        normalized = np.asarray(probas, dtype=np.float64)
+        return float(log_loss(y_true, normalized, labels=[0, 1, 2]))

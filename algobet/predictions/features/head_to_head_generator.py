@@ -35,9 +35,6 @@ class HeadToHeadGenerator(FeatureGenerator):
     def feature_names(self) -> list[str]:
         return [
             "h2h_matches_count",
-            "h2h_home_wins",
-            "h2h_draws",
-            "h2h_away_wins",
             "h2h_home_win_rate",
             "h2h_avg_total_goals",
             "h2h_home_avg_goals",
@@ -94,22 +91,20 @@ class HeadToHeadGenerator(FeatureGenerator):
         away_team_id: int,
     ) -> dict[str, float]:
         if not h2h_matches:
+            nan = float("nan")
             return {
                 "h2h_matches_count": 0,
-                "h2h_home_wins": 0,
-                "h2h_draws": 0,
-                "h2h_away_wins": 0,
-                "h2h_home_win_rate": 0.0,
-                "h2h_avg_total_goals": 0.0,
-                "h2h_home_avg_goals": 0.0,
-                "h2h_away_avg_goals": 0.0,
-                "h2h_recent_home_form": 0.0,
-                "h2h_draw_rate": 0.0,
-                "h2h_away_win_rate": 0.0,
-                "h2h_low_scoring_rate": 0.0,
-                "h2h_btts_rate": 0.0,
-                "h2h_goal_diff_avg_from_home_perspective": 0.0,
-                "h2h_recency_weighted_home_points": 0.0,
+                "h2h_home_win_rate": nan,
+                "h2h_avg_total_goals": nan,
+                "h2h_home_avg_goals": nan,
+                "h2h_away_avg_goals": nan,
+                "h2h_recent_home_form": nan,
+                "h2h_draw_rate": nan,
+                "h2h_away_win_rate": nan,
+                "h2h_low_scoring_rate": nan,
+                "h2h_btts_rate": nan,
+                "h2h_goal_diff_avg_from_home_perspective": nan,
+                "h2h_recency_weighted_home_points": nan,
             }
 
         home_wins = 0
@@ -165,9 +160,6 @@ class HeadToHeadGenerator(FeatureGenerator):
 
         return {
             "h2h_matches_count": n,
-            "h2h_home_wins": home_wins,
-            "h2h_draws": draws,
-            "h2h_away_wins": away_wins,
             "h2h_home_win_rate": home_wins / n,
             "h2h_avg_total_goals": total_goals / n,
             "h2h_home_avg_goals": home_goals / n,

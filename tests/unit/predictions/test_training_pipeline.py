@@ -14,6 +14,7 @@ from algobet.predictions.training.pipeline import (
     TrainingConfig,
     TrainingPipeline,
 )
+from algobet.predictions.training.split import SeasonAwareSplitter, get_class_weights
 
 
 class TestTrainingConfig:
@@ -30,6 +31,7 @@ class TestTrainingConfig:
         assert config.calibrate_probabilities is True
         assert config.calibration_method == "sigmoid"
         assert config.outcome_balance is False
+        assert config.outcome_balance_strength == pytest.approx(0.5)
         assert config.feature_schema_version == MODEL_FEATURE_SCHEMA_VERSION
         assert config.use_ensemble is False
         assert config.random_seed == 42
@@ -131,6 +133,70 @@ class TestTrainingPipelineInit:
             feature_pipeline=custom_pipeline,
         )
         assert pipeline.feature_pipeline is custom_pipeline
+
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_init_preserves_nan_preprocessing_for_xgboost(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """XGBoost training should keep NaNs for native missing-value splits."""
+        from algobet.predictions.features.transformers import PreserveMissingValues
+
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(model_type="xgboost"),
+            session=MagicMock(),
+        )
+
+        assert isinstance(
+            pipeline.feature_pipeline.transformers.steps[0][1],
+            PreserveMissingValues,
+        )
+
+
+class TestTrainingSplitters:
+    """Tests for time-aware split index behavior."""
+
+    def test_season_aware_split_returns_original_positions_after_sort_and_drop(
+        self,
+    ) -> None:
+        """Null season rows must not shift returned indices into wrong seasons."""
+        df = pd.DataFrame(
+            [
+                {"match_date": datetime(2024, 8, 1), "season_id": 2024},
+                {"match_date": datetime(2022, 8, 1), "season_id": 2022},
+                {"match_date": datetime(2025, 1, 1), "season_id": None},
+                {"match_date": datetime(2025, 8, 1), "season_id": 2025},
+                {"match_date": datetime(2023, 8, 1), "season_id": 2023},
+            ]
+        )
+
+        split = next(
+            SeasonAwareSplitter(
+                train_seasons=2,
+                val_seasons=1,
+                test_seasons=1,
+            ).split(df)
+        )
+
+        assert df.iloc[split.train_indices]["season_id"].tolist() == [2022, 2023]
+        assert df.iloc[split.val_indices]["season_id"].tolist() == [2024]
+        assert df.iloc[split.test_indices]["season_id"].tolist() == [2025]
+
+    def test_get_class_weights_supports_tempered_strength(self) -> None:
+        """Outcome balancing can be softened to protect probability quality."""
+        y = np.array([0, 0, 0, 1, 2, 2], dtype=np.int64)
+
+        full = get_class_weights(y)
+        half = get_class_weights(y, strength=0.5)
+        disabled = get_class_weights(y, strength=0.0)
+
+        assert full[1] > half[1] > disabled[1]
+        assert full[0] < half[0] < disabled[0]
+        assert disabled == {0: 1.0, 1: 1.0, 2: 1.0}
 
 
 class TestTrainingPipelineEvaluate:
@@ -593,6 +659,7 @@ class TestTrainingPipelineOddsFree:
             config=TrainingConfig(
                 calibrate_probabilities=False,
                 outcome_balance=False,
+                feature_selection=False,
             ),
             session=MagicMock(),
             feature_pipeline=feature_pipeline,

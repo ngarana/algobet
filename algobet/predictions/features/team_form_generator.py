@@ -41,37 +41,15 @@ class TeamFormGenerator(FeatureGenerator):
         for w in self.window_sizes:
             names.extend(
                 [
-                    f"home_points_last_{w}",
                     f"home_win_rate_{w}",
                     f"home_goals_for_avg_{w}",
-                    f"home_goals_against_avg_{w}",
-                    f"home_goal_diff_avg_{w}",
-                    f"away_points_last_{w}",
+                    f"home_clean_sheet_rate_{w}",
+                    f"home_goal_variance_{w}",
+                    f"home_points_volatility_{w}",
                     f"away_win_rate_{w}",
                     f"away_goals_for_avg_{w}",
-                    f"away_goals_against_avg_{w}",
-                    f"away_goal_diff_avg_{w}",
-                ]
-            )
-
-        for w in self.window_sizes:
-            names.extend(
-                [
-                    f"home_draw_rate_{w}",
-                    f"away_draw_rate_{w}",
-                    f"home_loss_rate_{w}",
-                    f"away_loss_rate_{w}",
-                    f"home_clean_sheet_rate_{w}",
                     f"away_clean_sheet_rate_{w}",
-                    f"home_failed_to_score_rate_{w}",
-                    f"away_failed_to_score_rate_{w}",
-                    f"home_btts_rate_{w}",
-                    f"away_btts_rate_{w}",
-                    f"home_low_scoring_rate_{w}",
-                    f"away_low_scoring_rate_{w}",
-                    f"home_goal_variance_{w}",
                     f"away_goal_variance_{w}",
-                    f"home_points_volatility_{w}",
                     f"away_points_volatility_{w}",
                 ]
             )
@@ -82,10 +60,6 @@ class TeamFormGenerator(FeatureGenerator):
                     [
                         f"home_home_form_{w}",
                         f"away_away_form_{w}",
-                        f"home_home_draw_rate_{w}",
-                        f"away_away_draw_rate_{w}",
-                        f"away_away_win_rate_{w}",
-                        f"away_away_clean_sheet_rate_{w}",
                     ]
                 )
 
@@ -148,26 +122,10 @@ class TeamFormGenerator(FeatureGenerator):
                 home_form = self._summarize_extended_form(
                     home_history[:w], home_team_id
                 )
-                match_features[f"home_points_last_{w}"] = home_form["avg_points"]
                 match_features[f"home_win_rate_{w}"] = home_form["win_rate"]
                 match_features[f"home_goals_for_avg_{w}"] = home_form["avg_goals_for"]
-                match_features[f"home_goals_against_avg_{w}"] = home_form[
-                    "avg_goals_against"
-                ]
-                match_features[f"home_goal_diff_avg_{w}"] = (
-                    home_form["avg_goals_for"] - home_form["avg_goals_against"]
-                )
-                match_features[f"home_draw_rate_{w}"] = home_form["draw_rate"]
-                match_features[f"home_loss_rate_{w}"] = home_form["loss_rate"]
                 match_features[f"home_clean_sheet_rate_{w}"] = home_form[
                     "clean_sheet_rate"
-                ]
-                match_features[f"home_failed_to_score_rate_{w}"] = home_form[
-                    "failed_to_score_rate"
-                ]
-                match_features[f"home_btts_rate_{w}"] = home_form["btts_rate"]
-                match_features[f"home_low_scoring_rate_{w}"] = home_form[
-                    "low_scoring_rate"
                 ]
                 match_features[f"home_goal_variance_{w}"] = home_form["goal_variance"]
                 match_features[f"home_points_volatility_{w}"] = home_form[
@@ -177,26 +135,10 @@ class TeamFormGenerator(FeatureGenerator):
                 away_form = self._summarize_extended_form(
                     away_history[:w], away_team_id
                 )
-                match_features[f"away_points_last_{w}"] = away_form["avg_points"]
                 match_features[f"away_win_rate_{w}"] = away_form["win_rate"]
                 match_features[f"away_goals_for_avg_{w}"] = away_form["avg_goals_for"]
-                match_features[f"away_goals_against_avg_{w}"] = away_form[
-                    "avg_goals_against"
-                ]
-                match_features[f"away_goal_diff_avg_{w}"] = (
-                    away_form["avg_goals_for"] - away_form["avg_goals_against"]
-                )
-                match_features[f"away_draw_rate_{w}"] = away_form["draw_rate"]
-                match_features[f"away_loss_rate_{w}"] = away_form["loss_rate"]
                 match_features[f"away_clean_sheet_rate_{w}"] = away_form[
                     "clean_sheet_rate"
-                ]
-                match_features[f"away_failed_to_score_rate_{w}"] = away_form[
-                    "failed_to_score_rate"
-                ]
-                match_features[f"away_btts_rate_{w}"] = away_form["btts_rate"]
-                match_features[f"away_low_scoring_rate_{w}"] = away_form[
-                    "low_scoring_rate"
                 ]
                 match_features[f"away_goal_variance_{w}"] = away_form["goal_variance"]
                 match_features[f"away_points_volatility_{w}"] = away_form[
@@ -210,24 +152,12 @@ class TeamFormGenerator(FeatureGenerator):
                     match_features[f"home_home_form_{w}"] = home_home_stats[
                         "avg_points"
                     ]
-                    match_features[f"home_home_draw_rate_{w}"] = home_home_stats[
-                        "draw_rate"
-                    ]
 
                     away_away_stats = self._summarize_venue_form(
                         away_venue_history[:w], away_team_id
                     )
                     match_features[f"away_away_form_{w}"] = away_away_stats[
                         "avg_points"
-                    ]
-                    match_features[f"away_away_draw_rate_{w}"] = away_away_stats[
-                        "draw_rate"
-                    ]
-                    match_features[f"away_away_win_rate_{w}"] = away_away_stats[
-                        "win_rate"
-                    ]
-                    match_features[f"away_away_clean_sheet_rate_{w}"] = away_away_stats[
-                        "clean_sheet_rate"
                     ]
 
             match_features["home_form_trend"] = self._calculate_trend_from_history(
@@ -238,9 +168,10 @@ class TeamFormGenerator(FeatureGenerator):
                 away_history,
                 away_team_id,
             )
+            # Form diff using win rate instead of points for better normalization
             match_features["form_diff"] = match_features.get(
-                "home_points_last_5", 0
-            ) - match_features.get("away_points_last_5", 0)
+                "home_win_rate_5", float("nan")
+            ) - match_features.get("away_win_rate_5", float("nan"))
 
             features.append(match_features)
 
@@ -268,19 +199,20 @@ class TeamFormGenerator(FeatureGenerator):
         team_id: int,
     ) -> dict[str, float]:
         if not matches:
+            nan = float("nan")
             return {
-                "avg_points": 0.0,
-                "win_rate": 0.0,
-                "avg_goals_for": 0.0,
-                "avg_goals_against": 0.0,
-                "draw_rate": 0.0,
-                "loss_rate": 0.0,
-                "clean_sheet_rate": 0.0,
-                "failed_to_score_rate": 0.0,
-                "btts_rate": 0.0,
-                "low_scoring_rate": 0.0,
-                "goal_variance": 0.0,
-                "points_volatility": 0.0,
+                "avg_points": nan,
+                "win_rate": nan,
+                "avg_goals_for": nan,
+                "avg_goals_against": nan,
+                "draw_rate": nan,
+                "loss_rate": nan,
+                "clean_sheet_rate": nan,
+                "failed_to_score_rate": nan,
+                "btts_rate": nan,
+                "low_scoring_rate": nan,
+                "goal_variance": nan,
+                "points_volatility": nan,
             }
 
         total_points = 0
@@ -350,11 +282,12 @@ class TeamFormGenerator(FeatureGenerator):
         team_id: int,
     ) -> dict[str, float]:
         if not matches:
+            nan = float("nan")
             return {
-                "avg_points": 0.0,
-                "win_rate": 0.0,
-                "draw_rate": 0.0,
-                "clean_sheet_rate": 0.0,
+                "avg_points": nan,
+                "win_rate": nan,
+                "draw_rate": nan,
+                "clean_sheet_rate": nan,
             }
         total_points = 0
         wins = 0

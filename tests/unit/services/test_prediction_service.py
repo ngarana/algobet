@@ -96,7 +96,7 @@ class TestLoadModel:
         service = PredictionService(session)
 
         with pytest.raises(
-            ValueError, match="Retrain it under v3.0_epl_feature_tuning"
+            ValueError, match="Retrain it under v4.0_attack_defense_clash"
         ):
             service.load_model("xgboost_legacy")
 

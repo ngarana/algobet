@@ -9,7 +9,27 @@ import numpy as np
 from numpy.typing import NDArray
 
 FEATURE_FAMILIES: dict[str, list[str]] = {
+    "elo": [
+        "elo_diff",
+        "elo_expected",
+        "elo_change",
+    ],
+    "xpts": [
+        "xpts_diff",
+        "points_vs_xpts",
+        "xpts_coverage",
+    ],
     "draw": ["draw_rate", "draws", "home_draw", "away_draw", "h2h_draw"],
+    "draw_signal": [
+        "defensive_balance",
+        "low_scoring_probability",
+        "clean_sheet_interaction",
+        "goal_convergence",
+        "volatility_sum",
+        "xg_parity",
+        "strength_parity",
+        "h2h_draw_boost",
+    ],
     "away": [
         "away_win",
         "away_away",

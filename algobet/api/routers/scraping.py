@@ -71,7 +71,7 @@ def update_job_status(job_id: str, update: ScrapingJobUpdate) -> None:
         job = scraping_jobs[job_id]
         old_status = job.status
         job_data = job.model_dump()
-        for field, value in update.model_dump(exclude_unset=True).items():
+        for field, value in update.model_dump(exclude_none=True).items():
             job_data[field] = value
         scraping_jobs[job_id] = ScrapingJobResponse(**job_data)
 

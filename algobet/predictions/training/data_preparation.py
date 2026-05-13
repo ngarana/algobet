@@ -169,8 +169,13 @@ class DataPreparationMixin:
                     raw_features,
                     schema_version=self.config.feature_schema_version,
                 )
+                savepoint = self.session.begin_nested()
                 self.feature_store.store_bulk(features_list)
+                savepoint.commit()
             except Exception:
-                pass  # Feature caching is best-effort
+                try:
+                    savepoint.rollback()
+                except Exception:
+                    self.session.rollback()
 
         return X_train, X_val, X_test, y_train, y_val, y_test

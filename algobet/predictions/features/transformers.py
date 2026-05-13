@@ -435,6 +435,29 @@ class OddsTransformer(BaseEstimator, TransformerMixin):  # type: ignore[misc]
         return names
 
 
+class PreserveMissingValues(BaseEstimator, TransformerMixin):  # type: ignore[misc]
+    """Pass numeric features through while preserving NaNs for tree boosters."""
+
+    def fit(
+        self,
+        X: pd.DataFrame | np.ndarray,
+        y: Any = None,
+    ) -> "PreserveMissingValues":
+        """Fit is a no-op; the transformer keeps the original numeric signal."""
+        return self
+
+    def transform(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
+        """Return a numeric array without imputing or scaling missing values."""
+        if isinstance(X, pd.DataFrame):
+            return X.to_numpy(dtype=np.float64, copy=True)
+        return np.asarray(X, dtype=np.float64)
+
+    def fit_transform(self, X: pd.DataFrame | np.ndarray, y: Any = None) -> np.ndarray:
+        """Fit and transform in one step."""
+        self.fit(X, y)
+        return self.transform(X)
+
+
 class TransformerPipeline(BaseEstimator, TransformerMixin):  # type: ignore[misc]
     """Chain multiple transformers into a single pipeline.
 
@@ -535,7 +558,15 @@ def create_default_transformer_pipeline() -> TransformerPipeline:
     """
     return TransformerPipeline(
         steps=[
-            ("imputer", MissingValueHandler(numeric_strategy="median")),
+            (
+                "imputer",
+                MissingValueHandler(numeric_strategy="median", add_indicator=True),
+            ),
             ("scaler", FeatureScaler(with_mean=True, with_std=True)),
         ]
     )
+
+
+def create_tree_model_transformer_pipeline() -> TransformerPipeline:
+    """Create preprocessing for XGBoost/LightGBM native missing-value handling."""
+    return TransformerPipeline(steps=[("preserve_missing", PreserveMissingValues())])

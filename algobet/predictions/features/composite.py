@@ -4,10 +4,23 @@ import pandas as pd
 
 from algobet.predictions.data.queries import MatchRepository
 from algobet.predictions.features.base import FeatureGenerator, FeatureSchema
+from algobet.predictions.features.draw_signal_generator import (
+    DrawSignalFeatureGenerator,
+)
+from algobet.predictions.features.elo_rating_generator import EloRatingGenerator
 from algobet.predictions.features.enriched_stats_generator import (
     EnrichedStatsFeatureGenerator,
 )
+from algobet.predictions.features.expected_points_generator import (
+    ExpectedPointsGenerator,
+)
 from algobet.predictions.features.head_to_head_generator import HeadToHeadGenerator
+from algobet.predictions.features.matchup_interaction_generator import (
+    MatchupInteractionGenerator,
+)
+from algobet.predictions.features.player_quality_generator import (
+    PlayerQualityGenerator,
+)
 from algobet.predictions.features.standings_generator import StandingsFeatureGenerator
 from algobet.predictions.features.team_form_generator import TeamFormGenerator
 from algobet.predictions.features.temporal_generator import TemporalFeatureGenerator
@@ -93,6 +106,8 @@ def create_default_generators() -> CompositeFeatureGenerator:
             "temporal",
             "standings",
             "enriched_stats",
+            "draw_signals",
+            "matchup_interaction",
         ]
     )
 
@@ -101,7 +116,7 @@ def create_generators_by_names(generator_names: list[str]) -> CompositeFeatureGe
     """Create feature generators by their stable group names."""
     generator_factories = {
         "team_form": lambda: TeamFormGenerator(
-            window_sizes=[3, 5, 10],
+            window_sizes=[5, 10],
             include_venue_specific=True,
         ),
         "head_to_head": lambda: HeadToHeadGenerator(
@@ -121,6 +136,27 @@ def create_generators_by_names(generator_names: list[str]) -> CompositeFeatureGe
         "enriched_stats": lambda: EnrichedStatsFeatureGenerator(
             window_sizes=[3, 5],
             include_diffs=False,
+            include_basic_stats=False,
+            include_player_stats=False,
+        ),
+        "elo_rating": lambda: EloRatingGenerator(
+            k_factor=32.0,
+            home_advantage=65.0,
+            initial_rating=1500.0,
+            window_sizes=[5, 10, 20],
+        ),
+        "expected_points": lambda: ExpectedPointsGenerator(
+            window_sizes=[3, 5, 10],
+        ),
+        "draw_signals": lambda: DrawSignalFeatureGenerator(
+            window_sizes=[3, 5, 10],
+            xg_window_sizes=[3, 5],
+        ),
+        "matchup_interaction": lambda: MatchupInteractionGenerator(
+            window_sizes=[5, 10],
+        ),
+        "player_quality": lambda: PlayerQualityGenerator(
+            window_sizes=[3, 5],
         ),
     }
 

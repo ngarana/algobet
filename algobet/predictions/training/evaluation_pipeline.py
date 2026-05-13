@@ -39,10 +39,16 @@ class EvaluationPipelineMixin:
         # Get predictions
         probas = predictor.predict_proba(X)
 
-        # Apply calibration only when explicitly requested.
-        # We skip calibration for train/val because the calibrator was fit on
-        # the validation set; applying it back to val would make calibration
-        # metrics look artificially perfect (data leakage).
+        # Apply DrawAwareCalibrator blending first (if available)
+        if (
+            apply_calibration
+            and hasattr(self, "_draw_aware_calibrator")
+            and self._draw_aware_calibrator is not None
+        ):
+            dc_probas = self._dc_model.predict_proba(X)
+            probas = self._draw_aware_calibrator.calibrate(probas, dc_probas)
+
+        # Then apply isotonic calibration (if available)
         if apply_calibration and self._calibrator is not None:
             probas = self._calibrator.calibrate(probas)
 

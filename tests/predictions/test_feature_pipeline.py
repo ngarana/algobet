@@ -5,6 +5,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -215,8 +216,8 @@ class TestFeaturePipeline:
         )
         assert "h2h_goal_diff_avg_from_home_perspective" in pipeline.feature_names
         assert "h2h_goal_diff_avg" not in pipeline.feature_names
-        assert "home_starter_minutes_avg_3" in pipeline.feature_names
-        assert "away_starter_count_avg_5" in pipeline.feature_names
+        assert "home_starter_minutes_avg_3" not in pipeline.feature_names
+        assert "away_starter_count_avg_5" not in pipeline.feature_names
 
     def test_set_selected_features_filters_names_and_schema(
         self, pipeline, mock_generators
@@ -246,7 +247,7 @@ class TestFeaturePipeline:
     def test_save_load_preserves_selected_feature_subset(self, tmp_path):
         """Saved pipelines should reload the same selected feature shape."""
         pipeline = FeaturePipeline.create_default()
-        selected_features = ["home_points_last_3", "away_points_last_3"]
+        selected_features = ["home_win_rate_5", "away_win_rate_5"]
         pipeline.set_selected_features(selected_features)
 
         pipeline_path = tmp_path / "pipeline"
@@ -260,7 +261,7 @@ class TestFeaturePipeline:
     def test_load_raises_when_saved_selected_features_are_unavailable(self, tmp_path):
         """Loading should fail loudly if generator code drift removed saved features."""
         pipeline = FeaturePipeline.create_default()
-        pipeline.set_selected_features(["home_points_last_3", "away_points_last_3"])
+        pipeline.set_selected_features(["home_win_rate_5", "away_win_rate_5"])
 
         pipeline_path = tmp_path / "pipeline"
         pipeline.save(pipeline_path)
@@ -268,7 +269,7 @@ class TestFeaturePipeline:
         # Corrupt the saved config to reference a feature that no longer exists
         with open(pipeline_path / "config.json") as f:
             config_data = json.load(f)
-        config_data["selected_feature_names"] = ["home_points_last_3", "ghost_feature"]
+        config_data["selected_feature_names"] = ["home_win_rate_5", "ghost_feature"]
         with open(pipeline_path / "config.json", "w") as f:
             json.dump(config_data, f)
 
@@ -424,6 +425,51 @@ class TestEnrichedStatsFeatureGenerator:
         assert result.loc[99, "away_starter_minutes_avg_2"] == pytest.approx(90.0)
         assert result.loc[99, "away_starter_count_avg_2"] == pytest.approx(1.0)
         assert result.loc[99, "away_player_stats_coverage_2"] == pytest.approx(1.0)
+
+    def test_player_rollups_preserve_all_missing_fields_as_nan(self) -> None:
+        """Unavailable source columns should not be converted into false zeros."""
+        generator = EnrichedStatsFeatureGenerator(window_sizes=[1])
+        repository = MagicMock()
+        repository.get_team_matches.return_value = [
+            SimpleNamespace(
+                home_team_id=1,
+                away_team_id=2,
+                statistics=None,
+                player_stats=[
+                    SimpleNamespace(
+                        team_id=1,
+                        goals=None,
+                        shots=None,
+                        minutes_played=90,
+                        is_starter=True,
+                    ),
+                    SimpleNamespace(
+                        team_id=1,
+                        goals=None,
+                        shots=None,
+                        minutes_played=30,
+                        is_starter=False,
+                    ),
+                ],
+            )
+        ]
+
+        matches = pd.DataFrame(
+            [
+                {
+                    "id": 100,
+                    "match_date": datetime(2026, 5, 4, 19, 0, 0),
+                    "home_team_id": 1,
+                    "away_team_id": 2,
+                }
+            ]
+        )
+
+        result = generator.generate(matches, repository)
+
+        assert np.isnan(result.loc[100, "home_player_goals_avg_1"])
+        assert np.isnan(result.loc[100, "home_player_shots_avg_1"])
+        assert result.loc[100, "home_player_minutes_avg_1"] == pytest.approx(120.0)
 
 
 class TestHeadToHeadGenerator:

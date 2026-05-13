@@ -110,23 +110,26 @@ class TemporalSplitter:
         Yields:
             TemporalSplit objects with indices and date ranges
         """
-        # Ensure sorted by date
-        df = df.sort_values(self.date_column).reset_index(drop=True)
+        # Keep original row positions so callers can use the returned indices
+        # against their own unsorted frame without drifting after sorting.
+        df = df.sort_values(self.date_column)
         dates = pd.to_datetime(df[self.date_column])
+        positions = df.index.to_numpy()
 
         n = len(df)
 
         if n_splits == 1:
             # Single split
-            yield self._single_split(df, dates, n)
+            yield self._single_split(df, dates, positions, n)
         else:
             # Multiple rolling splits for time-series CV
-            yield from self._rolling_splits(df, dates, n, n_splits)
+            yield from self._rolling_splits(df, dates, positions, n, n_splits)
 
     def _single_split(
         self,
         df: pd.DataFrame,
         dates: pd.Series,
+        positions: NDArray[np.int64],
         n: int,
     ) -> TemporalSplit:
         """Create a single temporal split."""
@@ -142,9 +145,15 @@ class TemporalSplitter:
             gap_mask = dates > gap_end_date
             gap_offset = gap_mask[:val_end_idx].sum() - gap_mask[:train_end_idx].sum()
 
-        train_indices = np.arange(0, train_end_idx)
-        val_indices = np.arange(train_end_idx + gap_offset, val_end_idx + gap_offset)
-        test_indices = np.arange(val_end_idx + gap_offset, n)
+        train_start_pos = 0
+        train_end_pos = train_end_idx
+        val_start_pos = train_end_idx + gap_offset
+        val_end_pos = val_end_idx + gap_offset
+        test_start_pos = val_end_idx + gap_offset
+
+        train_indices = positions[train_start_pos:train_end_pos]
+        val_indices = positions[val_start_pos:val_end_pos]
+        test_indices = positions[test_start_pos:n]
 
         return TemporalSplit(
             train_indices=train_indices,
@@ -152,9 +161,9 @@ class TemporalSplitter:
             test_indices=test_indices,
             train_start=dates.iloc[0],
             train_end=dates.iloc[train_end_idx - 1],
-            val_start=dates.iloc[train_end_idx],
-            val_end=dates.iloc[val_end_idx - 1],
-            test_start=dates.iloc[val_end_idx],
+            val_start=dates.iloc[val_start_pos],
+            val_end=dates.iloc[val_end_pos - 1],
+            test_start=dates.iloc[test_start_pos],
             test_end=dates.iloc[-1],
         )
 
@@ -162,6 +171,7 @@ class TemporalSplitter:
         self,
         df: pd.DataFrame,
         dates: pd.Series,
+        positions: NDArray[np.int64],
         n: int,
         n_splits: int,
     ) -> Iterator[TemporalSplit]:
@@ -184,9 +194,9 @@ class TemporalSplitter:
             if val_start <= 0 or train_end <= 0:
                 break
 
-            train_indices = np.arange(0, train_end)
-            val_indices = np.arange(val_start, val_end)
-            test_indices = np.arange(test_start, test_end)
+            train_indices = positions[:train_end]
+            val_indices = positions[val_start:val_end]
+            test_indices = positions[test_start:test_end]
 
             yield TemporalSplit(
                 train_indices=train_indices,
@@ -248,8 +258,9 @@ class ExpandingWindowSplitter:
         Yields:
             TemporalSplit objects
         """
-        df = df.sort_values(self.date_column).reset_index(drop=True)
+        df = df.sort_values(self.date_column)
         dates = pd.to_datetime(df[self.date_column])
+        positions = df.index.to_numpy()
         n = len(df)
 
         train_end = self.min_train_size
@@ -257,9 +268,9 @@ class ExpandingWindowSplitter:
         test_end = val_end + self.test_size
 
         while test_end <= n:
-            train_indices = np.arange(0, train_end)
-            val_indices = np.arange(train_end, val_end)
-            test_indices = np.arange(val_end, test_end)
+            train_indices = positions[:train_end]
+            val_indices = positions[train_end:val_end]
+            test_indices = positions[val_end:test_end]
 
             yield TemporalSplit(
                 train_indices=train_indices,
@@ -341,7 +352,7 @@ class SeasonAwareSplitter:
             )
             df = df[~null_mask].copy()
 
-        df = df.sort_values(self.date_column).reset_index(drop=True)
+        df = df.sort_values(self.date_column)
         dates = pd.to_datetime(df[self.date_column])
 
         def _season_sort_key(s: Any) -> int:
@@ -375,30 +386,30 @@ class SeasonAwareSplitter:
         val_mask = df[self.season_column].isin(val_seasons_list)
         test_mask = df[self.season_column].isin(test_seasons_list)
 
-        train_indices = np.where(train_mask)[0]
-        val_indices = np.where(val_mask)[0]
-        test_indices = np.where(test_mask)[0]
+        train_indices = df.index[train_mask].to_numpy()
+        val_indices = df.index[val_mask].to_numpy()
+        test_indices = df.index[test_mask].to_numpy()
 
         yield TemporalSplit(
             train_indices=train_indices,
             val_indices=val_indices,
             test_indices=test_indices,
-            train_start=dates.iloc[train_indices[0]]
+            train_start=dates.loc[train_indices[0]]
             if len(train_indices) > 0
             else dates.iloc[0],
-            train_end=dates.iloc[train_indices[-1]]
+            train_end=dates.loc[train_indices[-1]]
             if len(train_indices) > 0
             else dates.iloc[0],
-            val_start=dates.iloc[val_indices[0]]
+            val_start=dates.loc[val_indices[0]]
             if len(val_indices) > 0
             else dates.iloc[0],
-            val_end=dates.iloc[val_indices[-1]]
+            val_end=dates.loc[val_indices[-1]]
             if len(val_indices) > 0
             else dates.iloc[0],
-            test_start=dates.iloc[test_indices[0]]
+            test_start=dates.loc[test_indices[0]]
             if len(test_indices) > 0
             else dates.iloc[0],
-            test_end=dates.iloc[test_indices[-1]]
+            test_end=dates.loc[test_indices[-1]]
             if len(test_indices) > 0
             else dates.iloc[0],
         )
@@ -434,7 +445,10 @@ def decode_targets(encoded: NDArray[np.int64]) -> list[str]:
     return [mapping[int(e)] for e in encoded]
 
 
-def get_class_weights(y: NDArray[np.int64]) -> dict[int, float]:
+def get_class_weights(
+    y: NDArray[np.int64],
+    strength: float = 1.0,
+) -> dict[int, float]:
     """Calculate class weights for imbalanced classification.
 
     Args:
@@ -446,9 +460,11 @@ def get_class_weights(y: NDArray[np.int64]) -> dict[int, float]:
     unique, counts = np.unique(y, return_counts=True)
     total = len(y)
 
+    strength = min(max(float(strength), 0.0), 1.0)
     weights = {}
     for cls, count in zip(unique, counts, strict=False):
         # Inverse frequency weighting
-        weights[int(cls)] = total / (len(unique) * count)
+        balanced_weight = total / (len(unique) * count)
+        weights[int(cls)] = 1.0 + ((balanced_weight - 1.0) * strength)
 
     return weights

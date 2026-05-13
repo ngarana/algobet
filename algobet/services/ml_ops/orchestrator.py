@@ -2,6 +2,11 @@
 
 from sqlalchemy.orm import Session
 
+from algobet.api.schemas.ablation import (
+    AblationRequest,
+    AblationStudyResponse,
+    PermutationImportanceResponse,
+)
 from algobet.api.schemas.ml_operations import (
     BacktestHistoryListResponse,
     BacktestRequest,
@@ -11,6 +16,7 @@ from algobet.api.schemas.ml_operations import (
     TrainModelRequest,
     TrainModelResponse,
 )
+from algobet.services.ml_ops.ablation_runner import AblationRunner
 from algobet.services.ml_ops.backtest_runner import BacktestRunner
 from algobet.services.ml_ops.calibration_runner import CalibrationRunner
 from algobet.services.ml_ops.history_reader import BacktestHistoryReader
@@ -26,11 +32,13 @@ class MLOperationsOrchestrator:
         backtest_runner: BacktestRunner | None = None,
         calibration_runner: CalibrationRunner | None = None,
         history_reader: BacktestHistoryReader | None = None,
+        ablation_runner: AblationRunner | None = None,
     ) -> None:
         self.training_runner = training_runner or TrainingRunner()
         self.backtest_runner = backtest_runner or BacktestRunner()
         self.calibration_runner = calibration_runner or CalibrationRunner()
         self.history_reader = history_reader or BacktestHistoryReader()
+        self.ablation_runner = ablation_runner or AblationRunner()
 
     def run_training(
         self,
@@ -73,3 +81,10 @@ class MLOperationsOrchestrator:
         db: Session,
     ) -> BacktestResultResponse:
         return self.history_reader.get_backtest_detail(backtest_id, db)
+
+    def run_ablation(
+        self,
+        request: AblationRequest,
+        db: Session,
+    ) -> PermutationImportanceResponse | AblationStudyResponse:
+        return self.ablation_runner.run(request, db)

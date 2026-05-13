@@ -289,7 +289,7 @@ class FeaturePipeline:
                 stacklevel=3,
             )
             for name in missing:
-                features[name] = 0.0
+                features[name] = float("nan")
 
         # Reorder to match expected order
         return features[[c for c in self.feature_names if c in features.columns]]

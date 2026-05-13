@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from algobet.predictions.data.queries import MatchRepository
@@ -74,8 +75,15 @@ class TemporalFeatureGenerator(FeatureGenerator):
                 [
                     "home_matches_last_14_days",
                     "away_matches_last_14_days",
+                    "home_matches_last_7_days",
+                    "away_matches_last_7_days",
+                    "congestion_diff",
+                    "congestion_symmetry",
                 ]
             )
+
+        if self.include_rest_days and self.include_fixture_density:
+            names.append("rest_symmetry")
 
         return names
 
@@ -163,19 +171,50 @@ class TemporalFeatureGenerator(FeatureGenerator):
 
             # Fixture density
             if self.include_fixture_density:
-                match_features["home_matches_last_14_days"] = (
-                    self._count_recent_matches_from_history(
-                        home_history,
-                        match_date,
-                        days=14,
-                    )
+                home_14 = self._count_recent_matches_from_history(
+                    home_history,
+                    match_date,
+                    days=14,
                 )
-                match_features["away_matches_last_14_days"] = (
-                    self._count_recent_matches_from_history(
-                        away_history,
-                        match_date,
-                        days=14,
-                    )
+                away_14 = self._count_recent_matches_from_history(
+                    away_history,
+                    match_date,
+                    days=14,
+                )
+                home_7 = self._count_recent_matches_from_history(
+                    home_history,
+                    match_date,
+                    days=7,
+                )
+                away_7 = self._count_recent_matches_from_history(
+                    away_history,
+                    match_date,
+                    days=7,
+                )
+                match_features["home_matches_last_14_days"] = home_14
+                match_features["away_matches_last_14_days"] = away_14
+                match_features["home_matches_last_7_days"] = home_7
+                match_features["away_matches_last_7_days"] = away_7
+                match_features["congestion_diff"] = (
+                    home_14 - away_14
+                    if not (np.isnan(home_14) or np.isnan(away_14))
+                    else float("nan")
+                )
+                # Symmetry: 1 = equal congestion, 0 = very different
+                match_features["congestion_symmetry"] = (
+                    1.0 / (1.0 + abs(home_7 - away_7))
+                    if not (np.isnan(home_7) or np.isnan(away_7))
+                    else float("nan")
+                )
+
+            # Rest symmetry: how similar is rest between the two teams
+            if self.include_rest_days and self.include_fixture_density:
+                home_r = match_features.get("home_rest_days", float("nan"))
+                away_r = match_features.get("away_rest_days", float("nan"))
+                match_features["rest_symmetry"] = (
+                    1.0 / (1.0 + abs(home_r - away_r))
+                    if not (np.isnan(home_r) or np.isnan(away_r))
+                    else float("nan")
                 )
 
             features.append(match_features)
@@ -204,7 +243,7 @@ class TemporalFeatureGenerator(FeatureGenerator):
     ) -> float:
         """Get days since last match from an already-fetched history."""
         if not matches:
-            return 7.0  # Default: week of rest
+            return float("nan")
 
         last_match = matches[0]
         rest_days = (match_date - last_match.match_date).days
@@ -230,8 +269,10 @@ class TemporalFeatureGenerator(FeatureGenerator):
         matches: list[Any],
         match_date: datetime,
         days: int = 14,
-    ) -> int:
+    ) -> float:
         """Count matches in the recent period from an already-fetched history."""
+        if not matches:
+            return float("nan")
         period_start = match_date - timedelta(days=days)
         recent_count = sum(
             1 for match in matches if period_start <= match.match_date < match_date

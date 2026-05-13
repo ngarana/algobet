@@ -24,7 +24,11 @@ class TuningPipelineMixin:
         y_val: NDArray[np.int64],
         class_weights: dict[int, float] | None,
     ) -> TuningResult | None:
-        """Run hyperparameter tuning for the primary model type."""
+        """Run hyperparameter tuning for the primary model type.
+
+        Uses time-series CV inside the training set so the val set remains
+        uncontaminated for early stopping and calibration.
+        """
         from algobet.predictions.training.tuner import DEFAULT_SEARCH_SPACES
 
         model_type = self.config.model_type
@@ -54,7 +58,11 @@ class TuningPipelineMixin:
             config=tuning_config,
         )
 
-        return tuner.tune(X_train, y_train, X_val, y_val, class_weights)
+        # Pass X_val=None so the tuner uses time-series CV inside X_train,
+        # keeping val free for early stopping and calibration.
+        return tuner.tune(
+            X_train, y_train, X_val=None, y_val=None, class_weights=class_weights
+        )
 
     def _tune_per_model(
         self,
@@ -64,7 +72,7 @@ class TuningPipelineMixin:
         y_val: NDArray[np.int64],
         class_weights: dict[int, float] | None,
     ) -> dict[str, TuningResult]:
-        """Tune each ensemble model independently with its own search space."""
+        """Tune each ensemble model independently using CV inside the training set."""
         from algobet.predictions.training.tuner import DEFAULT_SEARCH_SPACES
 
         results: dict[str, TuningResult] = {}
@@ -93,7 +101,10 @@ class TuningPipelineMixin:
                 model_type=model_type,
                 config=tuning_config,
             )
-            result = tuner.tune(X_train, y_train, X_val, y_val, class_weights)
+            # CV inside train; val stays clean for early stopping + calibration.
+            result = tuner.tune(
+                X_train, y_train, X_val=None, y_val=None, class_weights=class_weights
+            )
             results[model_type] = result
 
         return results

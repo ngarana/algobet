@@ -6,8 +6,8 @@
 # =============================================================================
 FROM node:20-alpine AS base
 
-# Install system dependencies
-RUN apk add --no-cache libc6-compat git
+# Update package index and install system dependencies
+RUN apk update && apk add --no-cache libc6-compat git
 
 # Install pnpm
 RUN npm install -g pnpm@10.29.3

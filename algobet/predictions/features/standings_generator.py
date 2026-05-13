@@ -46,8 +46,6 @@ class StandingsFeatureGenerator(FeatureGenerator):
             "away_points_total",
             "home_matches_played",
             "away_matches_played",
-            "home_goals_for_season",
-            "away_goals_for_season",
             "home_goals_against_season",
             "away_goals_against_season",
             "home_goal_diff_season",
@@ -68,15 +66,15 @@ class StandingsFeatureGenerator(FeatureGenerator):
             "away_position_normalized",
             "home_draw_rate_season",
             "away_draw_rate_season",
-            "home_loss_rate_season",
-            "away_loss_rate_season",
             "draw_rate_diff_season",
-            "loss_rate_diff_season",
             "points_per_game_diff",
             "home_top_six",
             "away_top_six",
             "home_bottom_six",
             "away_bottom_six",
+            # Fixture motivation interactions
+            "both_mid_table",
+            "combined_stakes",
         ]
 
     def generate(
@@ -137,15 +135,43 @@ class StandingsFeatureGenerator(FeatureGenerator):
 
             # Differential features
             if home_standings and away_standings:
+                h_n = max(home_standings.matches_played, 1)
+                a_n = max(away_standings.matches_played, 1)
                 match_features["position_diff"] = float(
                     home_standings.position - away_standings.position
                 )
                 match_features["points_diff"] = float(
                     home_standings.points - away_standings.points
                 )
+                match_features["draw_rate_diff_season"] = (
+                    home_standings.draws / h_n - away_standings.draws / a_n
+                )
+                match_features["points_per_game_diff"] = (
+                    home_standings.points_per_game - away_standings.points_per_game
+                )
+                # Fixture motivation: teams with nothing to play for draw more
+                h_stakes = (
+                    match_features["home_in_relegation"]
+                    + match_features["home_in_euro_spot"]
+                    + match_features["home_is_leader"]
+                )
+                a_stakes = (
+                    match_features["away_in_relegation"]
+                    + match_features["away_in_euro_spot"]
+                    + match_features["away_is_leader"]
+                )
+                match_features["combined_stakes"] = h_stakes + a_stakes
+                match_features["both_mid_table"] = float(
+                    h_stakes == 0 and a_stakes == 0
+                )
             else:
-                match_features["position_diff"] = 0.0
-                match_features["points_diff"] = 0.0
+                nan = float("nan")
+                match_features["position_diff"] = nan
+                match_features["points_diff"] = nan
+                match_features["draw_rate_diff_season"] = nan
+                match_features["points_per_game_diff"] = nan
+                match_features["combined_stakes"] = nan
+                match_features["both_mid_table"] = nan
 
             features.append(match_features)
 
@@ -167,19 +193,22 @@ class StandingsFeatureGenerator(FeatureGenerator):
             Dictionary of feature name to float value
         """
         if standings is None:
+            nan = float("nan")
             return {
-                f"{prefix}_league_position": 0.0,
-                f"{prefix}_points_total": 0.0,
-                f"{prefix}_matches_played": 0.0,
-                f"{prefix}_goals_for_season": 0.0,
-                f"{prefix}_goals_against_season": 0.0,
-                f"{prefix}_goal_diff_season": 0.0,
-                f"{prefix}_points_per_game": 0.0,
-                f"{prefix}_win_rate_season": 0.0,
-                f"{prefix}_in_relegation": 0.0,
-                f"{prefix}_in_euro_spot": 0.0,
-                f"{prefix}_is_leader": 0.0,
-                f"{prefix}_position_normalized": 0.5,
+                f"{prefix}_league_position": nan,
+                f"{prefix}_points_total": nan,
+                f"{prefix}_matches_played": nan,
+                f"{prefix}_goals_against_season": nan,
+                f"{prefix}_goal_diff_season": nan,
+                f"{prefix}_points_per_game": nan,
+                f"{prefix}_win_rate_season": nan,
+                f"{prefix}_draw_rate_season": nan,
+                f"{prefix}_in_relegation": nan,
+                f"{prefix}_in_euro_spot": nan,
+                f"{prefix}_is_leader": nan,
+                f"{prefix}_top_six": nan,
+                f"{prefix}_bottom_six": nan,
+                f"{prefix}_position_normalized": nan,
             }
 
         total_teams = max(standings.total_teams, 1)
@@ -194,19 +223,23 @@ class StandingsFeatureGenerator(FeatureGenerator):
             else 0.0
         )
         is_leader = 1.0 if standings.position == 1 else 0.0
+        top_six = 1.0 if standings.position <= 6 else 0.0
+        bottom_six = 1.0 if standings.position > total_teams - 6 else 0.0
 
         return {
             f"{prefix}_league_position": float(standings.position),
             f"{prefix}_points_total": float(standings.points),
             f"{prefix}_matches_played": float(standings.matches_played),
-            f"{prefix}_goals_for_season": float(standings.goals_for),
             f"{prefix}_goals_against_season": float(standings.goals_against),
             f"{prefix}_goal_diff_season": float(standings.goal_diff),
             f"{prefix}_points_per_game": standings.points_per_game,
             f"{prefix}_win_rate_season": standings.wins / n_played,
+            f"{prefix}_draw_rate_season": standings.draws / n_played,
             f"{prefix}_in_relegation": in_relegation,
             f"{prefix}_in_euro_spot": in_euro,
             f"{prefix}_is_leader": is_leader,
+            f"{prefix}_top_six": top_six,
+            f"{prefix}_bottom_six": bottom_six,
             f"{prefix}_position_normalized": (
                 (standings.position - 1) / max(total_teams - 1, 1)
             ),

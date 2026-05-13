@@ -18,6 +18,9 @@ from sqlalchemy.orm import Session
 from algobet.predictions.data.queries import MatchRepository
 from algobet.predictions.features.pipeline import FeaturePipeline
 from algobet.predictions.features.store import FeatureStore
+from algobet.predictions.features.transformers import (
+    create_tree_model_transformer_pipeline,
+)
 from algobet.predictions.models.registry import ModelRegistry
 from algobet.predictions.training.calibration import ProbabilityCalibrator
 from algobet.predictions.training.classifiers import MatchPredictor
@@ -86,6 +89,10 @@ class TrainingPipeline(
             )
         else:
             self.feature_pipeline = FeaturePipeline.create_default()
+        if feature_pipeline is None and self._uses_native_missing_value_model():
+            self.feature_pipeline.transformers = (
+                create_tree_model_transformer_pipeline()
+            )
         self.feature_pipeline.config.schema_version = config.feature_schema_version
         self.feature_store = FeatureStore(
             session=session,
@@ -115,6 +122,14 @@ class TrainingPipeline(
         self._selected_feature_names: list[str] | None = None
         self._feature_selection_report: FeatureSelectionReport | None = None
         self._collapse_recovery: dict[str, Any] | None = None
+
+    def _uses_native_missing_value_model(self) -> bool:
+        """Return True when every trained model can consume NaN values directly."""
+        if self.config.use_ensemble:
+            model_types = self.config.ensemble_types
+        else:
+            model_types = [self.config.model_type]
+        return all(model_type in {"xgboost", "lightgbm"} for model_type in model_types)
 
     def save_training_config(self, path: Path) -> None:
         """Save training configuration to file.

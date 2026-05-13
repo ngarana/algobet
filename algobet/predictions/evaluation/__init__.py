@@ -1,9 +1,17 @@
 """Model evaluation module for match prediction.
 
 Provides comprehensive evaluation including classification metrics,
-betting simulation, calibration analysis, and report generation.
+betting simulation, calibration analysis, ablation testing,
+and report generation.
 """
 
+from algobet.predictions.evaluation.ablation import (
+    PermutationFamilyResult,
+    PermutationImportanceResult,
+    compute_permutation_importance,
+    group_features_by_family,
+    group_features_by_generator,
+)
 from algobet.predictions.evaluation.calibration import (
     CalibrationAnalysisResult,
     CalibrationBin,
@@ -49,6 +57,12 @@ __all__ = [
     "compute_calibration_curve",
     "detect_calibration_issues",
     "reliability_diagram_data",
+    # Ablation
+    "PermutationFamilyResult",
+    "PermutationImportanceResult",
+    "compute_permutation_importance",
+    "group_features_by_family",
+    "group_features_by_generator",
     # Reports
     "ReportConfig",
     "ReportGenerator",

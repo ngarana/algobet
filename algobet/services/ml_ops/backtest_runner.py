@@ -120,38 +120,59 @@ class BacktestRunner:
             axis=1,
         )
 
-        # Generate features - load the saved feature pipeline from the model
+        # Load the saved feature pipeline (MANDATORY for backtest consistency)
+        feature_pipeline = None
+        pipeline_path = (
+            model_meta.hyperparameters.get("feature_pipeline_path")
+            if model_meta and model_meta.hyperparameters
+            else None
+        )
+
+        # 1. Try path from metadata
+        if pipeline_path:
+            p_path = Path(pipeline_path)
+            if p_path.exists() and (p_path / "config.json").exists():
+                with contextlib.suppress(Exception):
+                    feature_pipeline = FeaturePipeline.load(p_path)
+
+        # 2. Try path relative to model file (most robust for portability)
+        if feature_pipeline is None and db_model and db_model.file_path:
+            rel_path = Path(db_model.file_path).parent / "feature_pipeline"
+            if rel_path.exists() and (rel_path / "config.json").exists():
+                feature_pipeline = FeaturePipeline.load(rel_path)
+
+        if feature_pipeline is None or not feature_pipeline.is_fitted:
+            raise HTTPException(
+                status_code=500,
+                detail="Could not load fitted feature pipeline. Backtest aborted to prevent scaling drift.",  # noqa: E501
+            )
+
         repo = MatchRepository(db)
 
-        # Try to load the saved feature pipeline from model hyperparameters
-        feature_pipeline = None
-        pipeline_path = None
-        if model_meta and model_meta.hyperparameters:
-            pipeline_path = model_meta.hyperparameters.get("feature_pipeline_path")
+        # Preload data into cache — standings has no DB fallback and returns
+        # None for every match without this, causing all standings features to
+        # be NaN and the model to output its base-rate prediction for all rows.
+        team_ids = list(
+            {m.home_team_id for m in matches} | {m.away_team_id for m in matches}
+        )
+        tournament_season_pairs = list(
+            {
+                (m.tournament_id, m.season_id)
+                for m in matches
+                if m.tournament_id is not None and m.season_id is not None
+            }
+        )
+        repo.preload_team_matches(team_ids, before_date=end_date)
+        repo.preload_h2h_matches(
+            [(m.home_team_id, m.away_team_id) for m in matches],
+            before_date=end_date,
+        )
+        repo.preload_season_standings(tournament_season_pairs, before_date=end_date)
 
-        if pipeline_path:
-            pipeline_path = Path(pipeline_path)
-            if pipeline_path.exists() and (pipeline_path / "config.json").exists():
-                with contextlib.suppress(Exception):
-                    feature_pipeline = FeaturePipeline.load(pipeline_path)
-
-        if feature_pipeline is None:
-            feature_pipeline = FeaturePipeline.create_default()
-
-        # Use temporal split - first 30% for training features, rest for backtest
-        train_size = int(len(matches) * 0.3)
-        train_matches = matches_df.iloc[:train_size]
-        test_matches = matches_df.iloc[train_size:]
-
-        # Only fit the pipeline if it wasn't already loaded from the model
-        # artifact (e.g. fallback default pipeline). Refitting a saved pipeline
-        # would overwrite the scaling/imputation statistics from training.
-        if not feature_pipeline.is_fitted:
-            feature_pipeline.fit(train_matches, repo)
-        X_test = feature_pipeline.transform(test_matches, repo)
+        X_test = feature_pipeline.transform(matches_df, repo)
 
         # Get odds for betting simulation
-        odds = test_matches[["odds_home", "odds_draw", "odds_away"]].values
+        odds = matches_df[["odds_home", "odds_draw", "odds_away"]].values
 
         # Get predictions
         y_proba = model.predict_proba(X_test)
@@ -159,12 +180,12 @@ class BacktestRunner:
 
         # Encode true labels
         result_map = {"H": 0, "D": 1, "A": 2}
-        y_true = test_matches["result"].map(result_map).values
+        y_true = matches_df["result"].map(result_map).values
 
         # Evaluate
         date_range = (
-            str(test_matches["match_date"].min().date()),
-            str(test_matches["match_date"].max().date()),
+            str(matches_df["match_date"].min().date()),
+            str(matches_df["match_date"].max().date()),
         )
 
         result = evaluate_predictions(
@@ -174,6 +195,7 @@ class BacktestRunner:
             odds=odds,
             model_version=model_meta.version if model_meta else "unknown",
             date_range=date_range,
+            min_edge=request.min_edge,
         )
 
         # Save backtest results to database

@@ -13,22 +13,18 @@ from algobet.predictions.features.base import FeatureGenerator
 class EnrichedStatsFeatureGenerator(FeatureGenerator):
     """Generate rolling team features from enriched match and player statistics."""
 
-    _MATCH_STAT_FIELDS: tuple[tuple[str, str], ...] = (
+    # Available from Understat for 2014/15 onwards (~65-98% coverage per season)
+    _UNDERSTAT_FIELDS: tuple[tuple[str, str], ...] = (
         ("xg_for", "xg"),
         ("xg_against", "xg"),
-        ("npxg_for", "npxg"),
-        ("npxg_against", "npxg"),
-        ("shots_for", "shots"),
-        ("shots_against", "shots"),
-        ("shots_on_target_for", "shots_on_target"),
-        ("shots_on_target_against", "shots_on_target"),
-        ("corners_for", "corners"),
-        ("corners_against", "corners"),
         ("ppda_for", "ppda"),
         ("ppda_against", "ppda"),
         ("deep_completions_for", "deep_completions"),
         ("deep_completions_against", "deep_completions"),
     )
+    # Only available from OddsPortal scrape
+    _BASIC_STAT_FIELDS: tuple[tuple[str, str], ...] = (("shots_for", "shots"),)
+    _MATCH_STAT_FIELDS = _UNDERSTAT_FIELDS + _BASIC_STAT_FIELDS
     _PLAYER_STAT_FIELDS: tuple[tuple[str, str], ...] = (
         ("player_goals", "goals"),
         ("player_assists", "assists"),
@@ -50,9 +46,19 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
         self,
         window_sizes: list[int] | None = None,
         include_diffs: bool = False,
+        include_basic_stats: bool = False,
+        include_player_stats: bool = True,
     ) -> None:
         self.window_sizes = window_sizes or [3, 5]
-        self.include_diffs = include_diffs
+        self.include_diffs = False  # Pruned as per report
+        self.include_basic_stats = include_basic_stats
+        self.include_player_stats = include_player_stats
+
+    @property
+    def _active_match_stat_fields(self) -> tuple[tuple[str, str], ...]:
+        if self.include_basic_stats:
+            return self._MATCH_STAT_FIELDS
+        return self._UNDERSTAT_FIELDS
 
     @property
     def name(self) -> str:
@@ -63,35 +69,14 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
         names = []
         for prefix in ("home", "away"):
             for w in self.window_sizes:
-                for feature_name, _ in self._MATCH_STAT_FIELDS:
+                for feature_name, _ in self._active_match_stat_fields:
                     names.append(f"{prefix}_{feature_name}_avg_{w}")
-                for feature_name, _ in self._PLAYER_STAT_FIELDS:
-                    names.append(f"{prefix}_{feature_name}_avg_{w}")
+                if self.include_player_stats:
+                    for feature_name, _ in self._PLAYER_STAT_FIELDS:
+                        names.append(f"{prefix}_{feature_name}_avg_{w}")
                 names.append(f"{prefix}_enriched_match_coverage_{w}")
-                names.append(f"{prefix}_player_stats_coverage_{w}")
-                names.append(f"{prefix}_has_enriched_match_stats_{w}")
-                names.append(f"{prefix}_has_player_stats_{w}")
-                # Derived features
-                names.append(f"{prefix}_shot_quality_for_avg_{w}")
-                names.append(f"{prefix}_shot_quality_against_avg_{w}")
-                names.append(f"{prefix}_shots_on_target_rate_for_avg_{w}")
-                names.append(f"{prefix}_shots_on_target_rate_against_avg_{w}")
-                names.append(f"{prefix}_xg_conversion_for_avg_{w}")
-                names.append(f"{prefix}_xg_conversion_against_avg_{w}")
-        if self.include_diffs:
-            for w in self.window_sizes:
-                for feature_name, _ in self._MATCH_STAT_FIELDS:
-                    names.append(f"{feature_name}_diff_avg_{w}")
-                for feature_name, _ in self._PLAYER_STAT_FIELDS:
-                    names.append(f"{feature_name}_diff_avg_{w}")
-                names.append(f"shot_quality_for_diff_avg_{w}")
-                names.append(f"shot_quality_against_diff_avg_{w}")
-                names.append(f"shots_on_target_rate_for_diff_avg_{w}")
-                names.append(f"shots_on_target_rate_against_diff_avg_{w}")
-                names.append(f"xg_conversion_for_diff_avg_{w}")
-                names.append(f"xg_conversion_against_diff_avg_{w}")
-                names.append(f"ppda_diff_avg_{w}")
-                names.append(f"deep_completions_diff_avg_{w}")
+                if self.include_player_stats:
+                    names.append(f"{prefix}_player_stats_coverage_{w}")
         return names
 
     def generate(
@@ -125,10 +110,6 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
             match_features.update(home_feats)
             match_features.update(away_feats)
 
-            if self.include_diffs:
-                diff_feats = self._compute_diffs(home_feats, away_feats)
-                match_features.update(diff_feats)
-
             features.append(match_features)
 
         return pd.DataFrame(features).set_index("match_id")
@@ -142,28 +123,33 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
         diffs: dict[str, float] = {}
         for w in self.window_sizes:
             suffix = f"_avg_{w}"
-            for feature_name, _ in self._MATCH_STAT_FIELDS:
+            for feature_name, _ in self._active_match_stat_fields:
                 home_key = f"home_{feature_name}{suffix}"
                 away_key = f"away_{feature_name}{suffix}"
                 diffs[f"{feature_name}_diff{suffix}"] = home_feats.get(
                     home_key, 0.0
                 ) - away_feats.get(away_key, 0.0)
-            for feature_name, _ in self._PLAYER_STAT_FIELDS:
-                home_key = f"home_{feature_name}{suffix}"
-                away_key = f"away_{feature_name}{suffix}"
-                diffs[f"{feature_name}_diff{suffix}"] = home_feats.get(
-                    home_key, 0.0
-                ) - away_feats.get(away_key, 0.0)
+            if self.include_player_stats:
+                for feature_name, _ in self._PLAYER_STAT_FIELDS:
+                    home_key = f"home_{feature_name}{suffix}"
+                    away_key = f"away_{feature_name}{suffix}"
+                    diffs[f"{feature_name}_diff{suffix}"] = home_feats.get(
+                        home_key, 0.0
+                    ) - away_feats.get(away_key, 0.0)
             # Derived diffs
-            derived_keys = [
-                "shot_quality_for",
-                "shot_quality_against",
-                "shots_on_target_rate_for",
-                "shots_on_target_rate_against",
-                "xg_conversion_for",
-                "xg_conversion_against",
-            ]
-            for derived in derived_keys:
+            if self.include_basic_stats:
+                for derived in (
+                    "shot_quality_for",
+                    "shot_quality_against",
+                    "shots_on_target_rate_for",
+                    "shots_on_target_rate_against",
+                ):
+                    home_key = f"home_{derived}{suffix}"
+                    away_key = f"away_{derived}{suffix}"
+                    diffs[f"{derived}_diff{suffix}"] = home_feats.get(
+                        home_key, 0.0
+                    ) - away_feats.get(away_key, 0.0)
+            for derived in ("xg_conversion_for", "xg_conversion_against"):
                 home_key = f"home_{derived}{suffix}"
                 away_key = f"away_{derived}{suffix}"
                 diffs[f"{derived}_diff{suffix}"] = home_feats.get(
@@ -241,66 +227,20 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
         player_coverage = len(player_rows) / denominator if denominator else 0.0
 
         features: dict[str, float] = {}
-        for feature_name, _ in self._MATCH_STAT_FIELDS:
+        for feature_name, _ in self._active_match_stat_fields:
             features[f"{prefix}_{feature_name}_avg_{window_size}"] = self._mean(
                 rows=match_rows,
                 key=feature_name,
             )
-        for feature_name, _ in self._PLAYER_STAT_FIELDS:
-            features[f"{prefix}_{feature_name}_avg_{window_size}"] = self._mean(
-                rows=player_rows,
-                key=feature_name,
-            )
+        if self.include_player_stats:
+            for feature_name, _ in self._PLAYER_STAT_FIELDS:
+                features[f"{prefix}_{feature_name}_avg_{window_size}"] = self._mean(
+                    rows=player_rows,
+                    key=feature_name,
+                )
         features[f"{prefix}_enriched_match_coverage_{window_size}"] = coverage
-        features[f"{prefix}_player_stats_coverage_{window_size}"] = player_coverage
-        features[f"{prefix}_has_enriched_match_stats_{window_size}"] = float(
-            len(match_rows) > 0
-        )
-        features[f"{prefix}_has_player_stats_{window_size}"] = float(
-            len(player_rows) > 0
-        )
-
-        # Derived features
-        xg_for_avg = features.get(f"{prefix}_xg_for_avg_{window_size}", 0.0)
-        xg_against_avg = features.get(f"{prefix}_xg_against_avg_{window_size}", 0.0)
-        shots_for_avg = features.get(f"{prefix}_shots_for_avg_{window_size}", 0.0)
-        shots_against_avg = features.get(
-            f"{prefix}_shots_against_avg_{window_size}", 0.0
-        )
-        sot_for_avg = features.get(
-            f"{prefix}_shots_on_target_for_avg_{window_size}", 0.0
-        )
-        sot_against_avg = features.get(
-            f"{prefix}_shots_on_target_against_avg_{window_size}", 0.0
-        )
-        goals_for_avg = features.get(f"{prefix}_player_goals_avg_{window_size}", 0.0)
-        goals_against_avg = features.get(
-            f"{prefix}_player_goals_conceded_avg_{window_size}", 0.0
-        )
-
-        # shot_quality = xg / shots (how much xG per shot)
-        features[f"{prefix}_shot_quality_for_avg_{window_size}"] = (
-            xg_for_avg / shots_for_avg if shots_for_avg > 0 else 0.0
-        )
-        features[f"{prefix}_shot_quality_against_avg_{window_size}"] = (
-            xg_against_avg / shots_against_avg if shots_against_avg > 0 else 0.0
-        )
-
-        # shots_on_target_rate = shots_on_target / shots
-        features[f"{prefix}_shots_on_target_rate_for_avg_{window_size}"] = (
-            sot_for_avg / shots_for_avg if shots_for_avg > 0 else 0.0
-        )
-        features[f"{prefix}_shots_on_target_rate_against_avg_{window_size}"] = (
-            sot_against_avg / shots_against_avg if shots_against_avg > 0 else 0.0
-        )
-
-        # xg_conversion = goals - xG (positive = overperforming xG)
-        features[f"{prefix}_xg_conversion_for_avg_{window_size}"] = (
-            goals_for_avg - xg_for_avg
-        )
-        features[f"{prefix}_xg_conversion_against_avg_{window_size}"] = (
-            goals_against_avg - xg_against_avg
-        )
+        if self.include_player_stats:
+            features[f"{prefix}_player_stats_coverage_{window_size}"] = player_coverage
 
         return features
 
@@ -345,7 +285,7 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
             return None
 
         return {
-            feature_name: float(value) if value is not None else 0.0
+            feature_name: float(value) if value is not None else float("nan")
             for feature_name, value in raw_stats.items()
         }
 
@@ -390,9 +330,14 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
 
     @staticmethod
     def _sum_player_attr(players: list[Any], attr_name: str) -> float:
-        return float(
-            sum(float(getattr(player, attr_name, 0) or 0.0) for player in players)
-        )
+        values = [
+            float(value)
+            for player in players
+            if (value := getattr(player, attr_name, None)) is not None
+        ]
+        if not values:
+            return float("nan")
+        return float(sum(values))
 
     @staticmethod
     def _sum_starter_minutes(players: list[Any]) -> float:
@@ -413,5 +358,6 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
     @staticmethod
     def _mean(rows: list[dict[str, float]], key: str) -> float:
         if not rows:
-            return 0.0
-        return float(np.mean([row[key] for row in rows]))
+            return float("nan")
+        vals = [row[key] for row in rows if not np.isnan(row[key])]
+        return float(np.mean(vals)) if vals else float("nan")

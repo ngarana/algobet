@@ -52,6 +52,7 @@ class TrainingRunner:
                     "calibration_method": request.calibration_method,
                     "use_ensemble": request.use_ensemble,
                     "split_strategy": request.split_strategy,
+                    "outcome_balance_strength": request.outcome_balance_strength,
                 }
             )
         )
@@ -93,6 +94,7 @@ class TrainingRunner:
             calibration_method=request.calibration_method,
             # Outcome balancing
             outcome_balance=request.outcome_balance or False,
+            outcome_balance_strength=request.outcome_balance_strength,
             # Feature importance pruning
             feature_selection=request.feature_selection,
             feature_selection_threshold=request.feature_selection_threshold,
@@ -136,9 +138,15 @@ class TrainingRunner:
 
         registry = ModelRegistry(storage_path=Path("data/models"), session=db)
         is_active = False
-        if request.activate:
+        if request.activate and self._passes_activation_gate(result):
             registry.activate_model(result.model_version)
             is_active = True
+        elif request.activate:
+            logger.warning(
+                "Model %s was trained but not activated because it failed "
+                "post-training quality gates.",
+                result.model_version,
+            )
 
         db_model = (
             db.query(ModelVersion)
@@ -169,3 +177,18 @@ class TrainingRunner:
             ensemble_validation_metrics=result.ensemble_validation_metrics,
             ensemble_types=config.ensemble_types if config.use_ensemble else None,
         )
+
+    def _passes_activation_gate(self, result: object) -> bool:
+        """Prevent known-poor models from becoming active automatically."""
+        test_metrics = getattr(result, "test_metrics", {}) or {}
+
+        predicted_classes = float(test_metrics.get("predicted_classes", 3.0))
+        if predicted_classes < 2.0:
+            return False
+
+        model_log_loss = test_metrics.get("log_loss")
+        market_log_loss = test_metrics.get("market_log_loss")
+        if model_log_loss is None or market_log_loss is None:
+            return True
+
+        return float(model_log_loss) <= float(market_log_loss)

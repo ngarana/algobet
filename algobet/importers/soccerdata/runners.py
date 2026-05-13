@@ -16,6 +16,7 @@ class SoccerDataImplementation(Protocol):
         league: str,
         season: str,
         no_cache: bool = False,
+        headless: bool = True,
     ) -> ImportResult: ...
 
     def _enrich_understat_stats_impl(
@@ -43,11 +44,13 @@ class ScheduleImporter:
         league: str,
         season: str,
         no_cache: bool = False,
+        headless: bool = True,
     ) -> ImportResult:
         return self.implementation._import_schedule_impl(
             league,
             season,
             no_cache=no_cache,
+            headless=headless,
         )
 
 

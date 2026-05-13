@@ -110,3 +110,8 @@ docker-compose.override.yml
 # Misc
 *.pem
 node_modules/
+whoscored_events_2020_2021_optimized/*.json
+whoscored_events_full_2020_2021/*.json
+scripts/throw-away/*.py
+scripts/throw-away/dedup_2324_2425_match_ids.txt
+model-backtest.txt

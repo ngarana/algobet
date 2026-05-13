@@ -52,6 +52,7 @@ class PredictionService(BaseService[Any]):
         session: Session,
         models_path: Path = Path("data/models"),
         pipelines_path: Path = Path("data/pipelines"),
+        dc_model_path: Path | None = None,
     ) -> None:
         """Initialize the prediction service.
 
@@ -59,14 +60,18 @@ class PredictionService(BaseService[Any]):
             session: SQLAlchemy database session
             models_path: Path to model storage directory
             pipelines_path: Path to pipeline storage directory
+            dc_model_path: Optional path to Dixon-Coles model for blending
         """
         super().__init__(session)
         self.registry = ModelRegistry(storage_path=models_path, session=session)
         self.repo = MatchRepository(session)
         self.calc = FormCalculator(self.repo)
         self.pipelines_path = Path(pipelines_path)
+        self.dc_model_path = dc_model_path
         self._feature_pipeline: FeaturePipeline | None = None
         self._feature_pipeline_path: Path | None = None
+        self._dc_model: Any = None
+        self._draw_aware_calibrator: Any = None
 
     def _load_feature_pipeline(
         self,
@@ -105,6 +110,43 @@ class PredictionService(BaseService[Any]):
                     e,
                 )
         return None
+
+    def _load_dc_model(self) -> Any:
+        """Load Dixon-Coles model for blending (lazy, cached)."""
+        if self._dc_model is not None:
+            return self._dc_model
+
+        if self.dc_model_path is None:
+            return None
+
+        try:
+            from algobet.predictions.training.classifiers import DixonColesPredictor
+
+            self._dc_model = DixonColesPredictor.load(self.dc_model_path)
+            logger.info("Loaded Dixon-Coles model from %s", self.dc_model_path)
+            return self._dc_model
+        except Exception as e:
+            logger.warning("Failed to load Dixon-Coles model: %s", e)
+            return None
+
+    def _load_draw_aware_calibrator(self, model_dir: Path) -> Any:
+        """Load DrawAwareCalibrator if available."""
+        if self._draw_aware_calibrator is not None:
+            return self._draw_aware_calibrator
+
+        calibrator_path = model_dir / "draw_aware_calibrator.joblib"
+        if not calibrator_path.exists():
+            return None
+
+        try:
+            from algobet.predictions.training.calibration import DrawAwareCalibrator
+
+            self._draw_aware_calibrator = DrawAwareCalibrator.load(calibrator_path)
+            logger.info("Loaded DrawAwareCalibrator from %s", calibrator_path)
+            return self._draw_aware_calibrator
+        except Exception as e:
+            logger.warning("Failed to load DrawAwareCalibrator: %s", e)
+            return None
 
     def load_model(self, model_version: str | None = None) -> tuple[Any, str]:
         """Load model from registry.
@@ -220,13 +262,21 @@ class PredictionService(BaseService[Any]):
             ) from e
 
     def get_prediction(
-        self, model: Any, features: dict[str, float] | np.ndarray
+        self,
+        model: Any,
+        features: dict[str, float] | np.ndarray,
+        draw_boost: float = 1.0,
+        blend_factor: float | None = None,
+        dc_probas: np.ndarray | None = None,
     ) -> tuple[str, float, dict[str, float]]:
         """Get prediction from model.
 
         Args:
             model: Loaded model object
             features: Feature dictionary or numpy array
+            draw_boost: Draw prob multiplier (1.0 = no change, 1.5 = 50% boost)
+            blend_factor: Manual blend weight for Dixon-Coles (overrides fitted)
+            dc_probas: Dixon-Coles probabilities for blending
 
         Returns:
             Tuple of (predicted_outcome, confidence, probabilities)
@@ -241,6 +291,25 @@ class PredictionService(BaseService[Any]):
         except AttributeError:
             probs = model.predict(feature_array)[0]
 
+        # Apply Dixon-Coles blend if available
+        if dc_probas is not None:
+            dc_probs_single = dc_probas[0] if dc_probas.ndim == 2 else dc_probas
+
+            if blend_factor is not None:
+                # Manual blend factor
+                probs = (1 - blend_factor) * probs + blend_factor * dc_probs_single
+            elif self._draw_aware_calibrator is not None:
+                # Use fitted calibrator
+                probs = self._draw_aware_calibrator.calibrate(
+                    probs.reshape(1, -1), dc_probs_single.reshape(1, -1)
+                )[0]
+
+            # Renormalize
+            probs = probs / probs.sum()
+        elif draw_boost != 1.0:
+            # Fallback to draw boost if no DC blend
+            probs = self._apply_draw_boost(probs, draw_boost)
+
         outcomes = ["HOME", "DRAW", "AWAY"]
         max_idx = int(np.argmax(probs))
         confidence = float(probs[max_idx])
@@ -252,6 +321,26 @@ class PredictionService(BaseService[Any]):
         }
 
         return outcomes[max_idx], confidence, probabilities
+
+    def _apply_draw_boost(self, probs: np.ndarray, boost_factor: float) -> np.ndarray:
+        """Apply draw boost calibration to probabilities.
+
+        Args:
+            probs: Raw probabilities [home, draw, away]
+            boost_factor: Multiplier for draw probability
+
+        Returns:
+            Calibrated probabilities with boosted draws
+        """
+        calibrated = probs.copy()
+        calibrated[1] = calibrated[1] * boost_factor  # Boost draw column
+
+        # Renormalize so probabilities sum to 1
+        row_sum = calibrated.sum()
+        if row_sum > 0:
+            calibrated = calibrated / row_sum
+
+        return calibrated
 
     def predict_match(
         self,

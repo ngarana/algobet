@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 
@@ -28,6 +28,12 @@ class GeneratePredictionsRequest(BaseModel):
     model_version: str | None = None
     tournament_id: int | None = None
     days_ahead: int | None = None
+    draw_boost: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=3.0,
+        description="Draw probability multiplier (1.0 = no change, 1.5 = 50%% boost)",
+    )
 
 
 def _build_prediction_item(prediction: Prediction) -> PredictionListItemResponse:
@@ -255,7 +261,9 @@ def generate_predictions(
                 ),
             )
 
-        outcome, confidence, probabilities = service.get_prediction(model, features)
+        outcome, confidence, probabilities = service.get_prediction(
+            model, features, request.draw_boost
+        )
 
         prediction_results.append(
             PredictionResult(

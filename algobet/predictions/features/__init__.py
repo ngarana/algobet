@@ -6,8 +6,12 @@ from algobet.predictions.features.composite import (
     create_default_generators,
     create_generators_by_names,
 )
+from algobet.predictions.features.elo_rating_generator import EloRatingGenerator
 from algobet.predictions.features.enriched_stats_generator import (
     EnrichedStatsFeatureGenerator,
+)
+from algobet.predictions.features.expected_points_generator import (
+    ExpectedPointsGenerator,
 )
 from algobet.predictions.features.form_features import FormCalculator
 from algobet.predictions.features.head_to_head_generator import HeadToHeadGenerator
@@ -33,8 +37,10 @@ from algobet.predictions.features.transformers import (
     FeatureSelector,
     MissingValueHandler,
     OddsTransformer,
+    PreserveMissingValues,
     TransformerPipeline,
     create_default_transformer_pipeline,
+    create_tree_model_transformer_pipeline,
 )
 
 __all__ = [
@@ -50,6 +56,8 @@ __all__ = [
     "EnrichedStatsFeatureGenerator",
     "StandingsFeatureGenerator",
     "TemporalFeatureGenerator",
+    "EloRatingGenerator",
+    "ExpectedPointsGenerator",
     "CompositeFeatureGenerator",
     "create_default_generators",
     "create_generators_by_names",
@@ -58,8 +66,10 @@ __all__ = [
     "MissingValueHandler",
     "FeatureSelector",
     "OddsTransformer",
+    "PreserveMissingValues",
     "TransformerPipeline",
     "create_default_transformer_pipeline",
+    "create_tree_model_transformer_pipeline",
     # Pipeline
     "FeaturePipeline",
     "PipelineConfig",

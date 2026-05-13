@@ -4,6 +4,8 @@ Provides classifier implementations for football match outcome prediction.
 All classifiers follow a common interface for easy swapping and ensemble use.
 """
 
+import contextlib
+import math
 import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
@@ -262,10 +264,10 @@ def compute_adaptive_regularization(
 
     if ratio < 20:
         adjusted["max_depth"] = min(
-            params.get("max_depth", base.get("max_depth", 6)), 3
+            params.get("max_depth", base.get("max_depth", 6)), 4
         )
         adjusted["min_child_weight"] = max(
-            params.get("min_child_weight", base.get("min_child_weight", 3)), 10
+            params.get("min_child_weight", base.get("min_child_weight", 3)), 5
         )
         adjusted["gamma"] = max(params.get("gamma", base.get("gamma", 0.1)), 1.0)
         adjusted["reg_alpha"] = max(
@@ -524,6 +526,68 @@ class XGBoostPredictor(MatchPredictor):
             result[name] = importance.get(key, 0.0)
 
         return result
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Serialize booster(s) as raw bytes to avoid XGBoost version warnings."""
+        import logging
+
+        state = self.__dict__.copy()
+        model = state.get("_model")
+        if model is None:
+            return state
+
+        # SYCL path: list of per-class binary boosters
+        if isinstance(model, list):
+            raw_models: list[bytes] = []
+            for b in model:
+                try:
+                    raw_models.append(b.save_raw())
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "XGBoostPredictor.__getstate__: falling back to raw booster "
+                        "for one-vs-rest model — may produce compat warning on load"
+                    )
+                    raw_models.append(b)
+            state["_model"] = raw_models
+            return state
+
+        # Standard single booster
+        with contextlib.suppress(Exception):
+            state["_model"] = model.save_raw()
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Deserialize booster(s) from raw bytes or legacy pickle."""
+
+        model = state.get("_model")
+        if model is None:
+            self.__dict__.update(state)
+            return
+
+        # Already a live booster (backward compat with old pickle format)
+        if not isinstance(model, bytes | bytearray | list):
+            self.__dict__.update(state)
+            return
+
+        # List of raw bytes → per-class boosters (SYCL one-vs-rest)
+        if isinstance(model, list):
+            restored: list[Any] = []
+            for item in model:
+                if isinstance(item, bytes | bytearray):
+                    b = xgb.Booster()
+                    b.load_model(item)
+                    restored.append(b)
+                else:
+                    restored.append(item)  # already a booster (fallback)
+            state["_model"] = restored
+            self.__dict__.update(state)
+            return
+
+        # Single raw bytes → single booster
+        b = xgb.Booster()
+        b.load_model(model)
+        state["_model"] = b
+        self.__dict__.update(state)
 
 
 class LightGBMPredictor(MatchPredictor):
@@ -850,6 +914,212 @@ class EnsemblePredictor(MatchPredictor):
             weights=meta["weights"],
             config=meta["config"],
         )
+
+
+class DixonColesPredictor(MatchPredictor):
+    """Dixon-Coles score-based predictor with draw inflation.
+
+    Uses Poisson regression for goal prediction with a correlation parameter (ρ)
+    that inflates draw probabilities. Professional syndicates use this approach
+    to better capture the true draw rate in football.
+    """
+
+    def __init__(self, config: ModelConfig) -> None:
+        super().__init__(config)
+        self._home_model: Any = None
+        self._away_model: Any = None
+        self._best_rho: float = 0.0
+        self._factorial_cache = [math.factorial(i) for i in range(11)]
+        self._stored_home_goals: NDArray[np.float64] | None = None
+        self._stored_away_goals: NDArray[np.float64] | None = None
+
+    @property
+    def model_type(self) -> str:
+        return "dixon_coles"
+
+    def _poisson_probs(
+        self,
+        home_mu: NDArray[np.float64],
+        away_mu: NDArray[np.float64],
+        rho: float = 0.0,
+        max_goals: int = 10,
+    ) -> NDArray[np.float64]:
+        """Compute match outcome probabilities from Poisson goal expectations."""
+        n = len(home_mu)
+        out = np.zeros((n, 3), dtype=np.float64)
+
+        for i in range(n):
+            lh = float(np.clip(home_mu[i], 0.15, 4.5))
+            la = float(np.clip(away_mu[i], 0.15, 4.5))
+
+            grid = np.zeros((max_goals + 1, max_goals + 1), dtype=np.float64)
+
+            for h in range(max_goals + 1):
+                ph = math.exp(-lh) * (lh**h) / self._factorial_cache[h]
+                for a in range(max_goals + 1):
+                    pa = math.exp(-la) * (la**a) / self._factorial_cache[a]
+
+                    # Dixon-Coles correlation adjustment
+                    w = 1.0
+                    if rho != 0.0:
+                        if h == 0 and a == 0:
+                            w = max(0.05, 1 - lh * la * rho)
+                        elif h == 0 and a == 1:
+                            w = max(0.05, 1 + lh * rho)
+                        elif h == 1 and a == 0:
+                            w = max(0.05, 1 + la * rho)
+                        elif h == 1 and a == 1:
+                            w = max(0.05, 1 - rho)
+
+                    grid[h, a] = ph * pa * w
+
+            s = grid.sum()
+            if s > 0:
+                grid /= s
+
+            out[i, 0] = np.tril(grid, -1).sum()  # Home win
+            out[i, 1] = np.trace(grid)  # Draw
+            out[i, 2] = np.triu(grid, 1).sum()  # Away win
+
+        return out
+
+    def fit_with_scores(
+        self,
+        X: NDArray[np.float64],
+        y: NDArray[np.int64],
+        home_goals: NDArray[np.float64],
+        away_goals: NDArray[np.float64],
+        X_val: NDArray[np.float64] | None = None,
+        y_val: NDArray[np.int64] | None = None,
+    ) -> "DixonColesPredictor":
+        """Fit Dixon-Coles model with goal data."""
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        from sklearn.metrics import log_loss as sk_log_loss
+
+        params = {
+            "max_iter": 450,
+            "learning_rate": 0.025,
+            "l2_regularization": 0.1,
+            "max_leaf_nodes": 15,
+            "min_samples_leaf": 35,
+            "random_state": self.config.random_seed,
+        }
+
+        self._home_model = HistGradientBoostingRegressor(loss="poisson", **params)
+        self._away_model = HistGradientBoostingRegressor(loss="poisson", **params)
+
+        self._home_model.fit(X, home_goals)
+        self._away_model.fit(X, away_goals)
+
+        # Grid search for best rho on validation set
+        if X_val is not None and y_val is not None:
+            vh = self._home_model.predict(X_val)
+            va = self._away_model.predict(X_val)
+
+            best_ll = float("inf")
+            best_rho = 0.0
+
+            for rho in np.linspace(-0.3, 0.3, 31):
+                probs = self._poisson_probs(vh, va, rho=float(rho))
+                ll = sk_log_loss(y_val, probs, labels=[0, 1, 2])
+                if ll < best_ll:
+                    best_ll = ll
+                    best_rho = float(rho)
+
+            self._best_rho = best_rho
+        else:
+            self._best_rho = 0.0
+
+        self._is_fitted = True
+        return self
+
+    def set_goal_data(
+        self,
+        home_goals: NDArray[np.float64],
+        away_goals: NDArray[np.float64],
+    ) -> None:
+        """Store goal data so fit() can delegate to fit_with_scores()."""
+        self._stored_home_goals = np.asarray(home_goals, dtype=np.float64)
+        self._stored_away_goals = np.asarray(away_goals, dtype=np.float64)
+
+    def fit(
+        self,
+        X: NDArray[np.float64],
+        y: NDArray[np.int64],
+        X_val: NDArray[np.float64] | None = None,
+        y_val: NDArray[np.int64] | None = None,
+    ) -> "DixonColesPredictor":
+        """Fit Dixon-Coles, delegating to fit_with_scores() when goals are stored."""
+        if self._stored_home_goals is not None and self._stored_away_goals is not None:
+            return self.fit_with_scores(
+                X,
+                y,
+                self._stored_home_goals,
+                self._stored_away_goals,
+                X_val,
+                y_val,
+            )
+        raise NotImplementedError(
+            "DixonColesPredictor requires fit_with_scores() with goal data "
+            "or set_goal_data() before fit()"
+        )
+
+    def predict(self, X: NDArray[np.float64]) -> list[str]:
+        """Predict match outcomes."""
+        probas = self.predict_proba(X)
+        outcomes = ["HOME", "DRAW", "AWAY"]
+        return [outcomes[int(np.argmax(p))] for p in probas]
+
+    def predict_proba(self, X: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Predict match outcome probabilities."""
+        if not self._is_fitted:
+            raise ValueError("Model not fitted")
+
+        home_mu = self._home_model.predict(X)
+        away_mu = self._away_model.predict(X)
+
+        return self._poisson_probs(home_mu, away_mu, rho=self._best_rho)
+
+    @property
+    def feature_importance(self) -> dict[str, float]:
+        """Return averaged feature importances from home/away models."""
+        if not self._is_fitted or self._feature_names is None:
+            return {}
+
+        home_imp = self._home_model.feature_importances_
+        away_imp = self._away_model.feature_importances_
+        avg_imp = (home_imp + away_imp) / 2
+
+        return dict(zip(self._feature_names, avg_imp, strict=False))
+
+    def save(self, path: Path) -> None:
+        """Save model to disk."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        joblib.dump(
+            {
+                "config": self.config,
+                "home_model": self._home_model,
+                "away_model": self._away_model,
+                "best_rho": self._best_rho,
+                "feature_names": self._feature_names,
+                "is_fitted": self._is_fitted,
+            },
+            path,
+        )
+
+    @classmethod
+    def load(cls, path: Path) -> "DixonColesPredictor":
+        """Load model from disk."""
+        data = joblib.load(path)
+        predictor = cls(data["config"])
+        predictor._home_model = data["home_model"]
+        predictor._away_model = data["away_model"]
+        predictor._best_rho = data["best_rho"]
+        predictor._feature_names = data["feature_names"]
+        predictor._is_fitted = data["is_fitted"]
+        return predictor
 
 
 def create_predictor(

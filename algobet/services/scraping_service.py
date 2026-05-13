@@ -947,7 +947,7 @@ class ScrapingService(BaseService[Any]):
                 Match.tournament_id == tournament.id,
                 Match.home_team_id == home_team.id,
                 Match.away_team_id == away_team.id,
-                Match.match_date == scraped.match_date,
+                func.date(Match.match_date) == func.date(scraped.match_date),
             )
             if season is not None:
                 existing = self.session.execute(

@@ -68,10 +68,16 @@ class CollapseRecoveryMixin:
         self,
         hyperparameters: dict[str, Any],
     ) -> dict[str, Any]:
-        """Relax XGBoost parameters enough to avoid class-prior collapse."""
-        if self.config.model_type != "xgboost":
-            return dict(hyperparameters)
+        """Relax regularization parameters enough to avoid class-prior collapse."""
+        if self.config.model_type == "xgboost":
+            return self._xgboost_collapse_recovery(hyperparameters)
+        if self.config.model_type == "lightgbm":
+            return self._lightgbm_collapse_recovery(hyperparameters)
+        return dict(hyperparameters)
 
+    @staticmethod
+    def _xgboost_collapse_recovery(hyperparameters: dict[str, Any]) -> dict[str, Any]:
+        """Relax XGBoost parameters enough to avoid class-prior collapse."""
         recovered = dict(hyperparameters)
         recovered["max_depth"] = max(int(recovered.get("max_depth", 3)), 3)
         recovered["learning_rate"] = max(
@@ -89,6 +95,34 @@ class CollapseRecoveryMixin:
         recovered["subsample"] = max(float(recovered.get("subsample", 0.7)), 0.8)
         recovered["colsample_bytree"] = max(
             float(recovered.get("colsample_bytree", 0.5)),
+            0.8,
+        )
+        return recovered
+
+    @staticmethod
+    def _lightgbm_collapse_recovery(hyperparameters: dict[str, Any]) -> dict[str, Any]:
+        """Relax LightGBM parameters enough to avoid class-prior collapse."""
+        recovered = dict(hyperparameters)
+        recovered["max_depth"] = max(int(recovered.get("max_depth", 3)), 3)
+        recovered["num_leaves"] = max(int(recovered.get("num_leaves", 15)), 15)
+        recovered["learning_rate"] = max(
+            float(recovered.get("learning_rate", 0.05)),
+            0.05,
+        )
+        recovered["n_estimators"] = max(int(recovered.get("n_estimators", 500)), 500)
+        recovered["min_child_samples"] = min(
+            int(recovered.get("min_child_samples", 20)),
+            10,
+        )
+        recovered["min_split_gain"] = min(
+            float(recovered.get("min_split_gain", 0.0)),
+            0.0,
+        )
+        recovered["reg_alpha"] = min(float(recovered.get("reg_alpha", 0.1)), 0.5)
+        recovered["reg_lambda"] = min(float(recovered.get("reg_lambda", 1.0)), 5.0)
+        recovered["subsample"] = max(float(recovered.get("subsample", 0.8)), 0.8)
+        recovered["colsample_bytree"] = max(
+            float(recovered.get("colsample_bytree", 0.8)),
             0.8,
         )
         return recovered
@@ -128,7 +162,11 @@ class CollapseRecoveryMixin:
             }
             return predictor, X_train, X_val, X_test, class_weights, hyperparameters
 
-        if not self.config.collapse_recovery or self.config.model_type != "xgboost":
+        is_ensemble = getattr(self.config, "use_ensemble", False)
+        supports_recovery = self.config.model_type in ("xgboost", "lightgbm")
+        if not self.config.collapse_recovery or (
+            not supports_recovery and not is_ensemble
+        ):
             raise ValueError(
                 "Training produced a degenerate model: validation predictions "
                 f"covered {initial_report['num_classes']} classes with counts "
@@ -184,6 +222,27 @@ class CollapseRecoveryMixin:
                 "validation_predictions": recovered_report,
             }
         )
+
+        # For ensembles, XGBoost-specific param relaxation is not applicable
+        # (hyperparameters is a nested dict). Accept the class-weight predictor and
+        # let the weight optimizer / calibration step handle residual collapse.
+        if is_ensemble:
+            self._collapse_recovery = {
+                "enabled": True,
+                "triggered": True,
+                "strategy": "class_weighted_ensemble_best_effort",
+                "validation_predictions": recovered_report,
+                "notes": recovery_notes,
+            }
+            return (
+                predictor,
+                X_train,
+                X_val,
+                X_test,
+                recovered_weights,
+                recovered_hyperparameters,
+            )
+
         recovered_hyperparameters = self._collapse_recovery_hyperparameters(
             hyperparameters
         )
@@ -200,7 +259,7 @@ class CollapseRecoveryMixin:
             self._collapse_recovery = {
                 "enabled": True,
                 "triggered": True,
-                "strategy": "class_weighted_relaxed_xgboost",
+                "strategy": f"class_weighted_relaxed_{self.config.model_type}",
                 "validation_predictions": relaxed_report,
                 "notes": recovery_notes,
             }

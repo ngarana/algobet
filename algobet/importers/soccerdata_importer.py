@@ -406,12 +406,28 @@ class SoccerDataImporter:
         league: str,
         season: str,
         no_cache: bool = False,
+        headless: bool = True,
     ) -> ImportResult:
-        """Import match schedule from FBref using soccerdata."""
+        """Import match schedule from FBref using FBrefScraper.
+
+        Uses the Playwright-based FBrefScraper which handles Cloudflare
+        protection via cookie persistence and playwright-stealth, bypassing
+        the CAPTCHA issues with soccerdata's FBref implementation.
+
+        Args:
+            league: soccerdata league ID (e.g., 'ENG-Premier League')
+            season: soccerdata season string (e.g., '2021' or '20-21')
+            no_cache: Ignored; FBrefScraper reads live pages
+            headless: Whether to run browser in headless mode (default: True)
+
+        Returns:
+            ImportResult with import statistics
+        """
         return self._schedule_importer.run(
             league,
             season,
             no_cache=no_cache,
+            headless=headless,
         )
 
     def _import_schedule_impl(
@@ -419,31 +435,42 @@ class SoccerDataImporter:
         league: str,
         season: str,
         no_cache: bool = False,
+        headless: bool = True,
     ) -> ImportResult:
-        """Import match schedule from FBref using soccerdata.
+        """Import match schedule from FBref using FBrefScraper.
+
+        Uses the Playwright-based FBrefScraper which handles Cloudflare
+        protection via cookie persistence and playwright-stealth, bypassing
+        the CAPTCHA issues with soccerdata's FBref implementation.
 
         Args:
             league: soccerdata league ID (e.g., 'ENG-Premier League')
             season: soccerdata season string (e.g., '2021' or '20-21')
-            no_cache: If True, bypass soccerdata cache
+            no_cache: Ignored; FBrefScraper reads live pages
+            headless: Whether to run browser in headless mode (default: True)
 
         Returns:
             ImportResult with import statistics
         """
-        import soccerdata as sd
+        from algobet.fbref_scraper import FBrefScraper
 
         progress = ImportProgress()
 
         try:
-            fbref = sd.FBref(
-                leagues=[league],
-                seasons=[season],
-                no_cache=no_cache,
-                no_store=False,
-            )
-            schedule: pd.DataFrame = fbref.read_schedule()
+            with FBrefScraper(
+                leagues=league, seasons=season, headless=headless
+            ) as scraper:
+                schedule: pd.DataFrame = scraper.read_schedule().reset_index()
         except Exception as e:
             error_msg = f"Failed to fetch schedule from FBref: {e}"
+            # Check if this is a Cloudflare-related error
+            if "Cloudflare challenge not resolved" in str(e) or "CAPTCHA" in str(e):
+                error_msg = (
+                    "Cloudflare CAPTCHA detected while accessing FBref. "
+                    "Run the scraper once with headless=False to solve manually. "
+                    "The scraper will save cookies for future headless runs. "
+                    "Example: FBrefScraper(headless=False).read_schedule()"
+                )
             logger.error(error_msg)
             progress.errors.append(error_msg)
             return ImportResult(success=False, progress=progress, message=error_msg)
@@ -549,6 +576,7 @@ class SoccerDataImporter:
         leagues: list[str],
         seasons: list[str],
         no_cache: bool = False,
+        headless: bool = True,
     ) -> list[ImportResult]:
         """Import match data for multiple leagues and seasons.
 
@@ -556,6 +584,7 @@ class SoccerDataImporter:
             leagues: List of soccerdata league IDs
             seasons: List of soccerdata season strings
             no_cache: If True, bypass soccerdata cache
+            headless: Whether to run browser in headless mode (default: True)
 
         Returns:
             List of ImportResult objects, one per league+season combination
@@ -564,35 +593,52 @@ class SoccerDataImporter:
         for league in leagues:
             for season in seasons:
                 result = self.import_schedule(
-                    league=league, season=season, no_cache=no_cache
+                    league=league, season=season, no_cache=no_cache, headless=headless
                 )
                 results.append(result)
         return results
 
     def populate_team_aliases(
-        self, source: str = "fbref", league: str = "ENG-Premier League"
+        self,
+        source: str = "fbref",
+        league: str = "ENG-Premier League",
+        headless: bool = True,
     ) -> int:
-        """Populate TeamAlias table from soccerdata team names.
+        """Populate TeamAlias table from FBref team names.
 
         Scrapes team names from FBref for a given league and creates
         TeamAlias records for name variants found in teamname_replacements.json.
+        Uses FBrefScraper to bypass Cloudflare CAPTCHA issues.
 
         Args:
             source: Source identifier (e.g., 'fbref')
             league: soccerdata league ID
+            headless: Whether to run browser in headless mode (default: True)
 
         Returns:
             Number of aliases created
         """
-        import soccerdata as sd
+        from algobet.fbref_scraper import FBrefScraper
 
         aliases_created = 0
 
         try:
-            fbref = sd.FBref(leagues=[league], seasons=["2425"])
-            schedule: pd.DataFrame = fbref.read_schedule()
+            with FBrefScraper(
+                leagues=league, seasons="2425", headless=headless
+            ) as scraper:
+                schedule: pd.DataFrame = scraper.read_schedule().reset_index()
         except Exception as e:
-            logger.error("Failed to populate aliases: %s", e)
+            # Check if this is a Cloudflare-related error
+            if "Cloudflare challenge not resolved" in str(e) or "CAPTCHA" in str(e):
+                logger.error(
+                    "Cloudflare CAPTCHA detected while accessing FBref. "
+                    "Run the scraper once with headless=False to solve manually. "
+                    "The scraper will save cookies for future headless runs. "
+                    "Example: FBrefScraper(leagues='%s', headless=False).read_schedule()",  # noqa: E501
+                    league,
+                )
+            else:
+                logger.error("Failed to populate aliases: %s", e)
             return 0
 
         all_team_names: set[str] = set()
@@ -639,14 +685,36 @@ class SoccerDataImporter:
         us = sd.Understat(leagues=[league], seasons=[season])
         stats: pd.DataFrame = us.read_team_match_stats()
 
+        # Handle empty DataFrames (seasons with no Understat data coverage)
+        if stats.empty or len(stats) == 0:
+            logger.warning(
+                "No Understat data available for %s season %s - skipping enrichment",
+                league,
+                season,
+            )
+            return 0
+
+        # Some old seasons return a malformed DataFrame with index rows but no columns
+        if "date" not in stats.columns:
+            logger.warning(
+                "Understat %s %s missing 'date' column - skipping enrichment",
+                league,
+                season,
+            )
+            return 0
+
+        # Get tournament and season objects to filter matches
+        tournament = self.get_or_create_tournament(league)
+        if not tournament:
+            logger.error("Unknown league: %s", league)
+            return 0
+        season_obj = self.get_or_create_season(tournament, season)
+
         db_matches = (
             self.session.execute(
                 select(Match).where(
-                    Match.tournament_id.in_(
-                        select(Tournament.id).where(
-                            Tournament.url_slug == LEAGUE_MAPPING[league]["url_slug"]
-                        )
-                    )
+                    Match.tournament_id == tournament.id,
+                    Match.season_id == season_obj.id,
                 )
             )
             .scalars()
@@ -670,11 +738,16 @@ class SoccerDataImporter:
 
         enriched = 0
         for _idx, row in stats.iterrows():
-            key = (
-                pd.to_datetime(row["date"]).date(),
-                self._resolver.resolve(str(row["home_team"])),
-                self._resolver.resolve(str(row["away_team"])),
-            )
+            try:
+                key = (
+                    pd.to_datetime(row["date"]).date(),
+                    self._resolver.resolve(str(row["home_team"])),
+                    self._resolver.resolve(str(row["away_team"])),
+                )
+            except KeyError as e:
+                logger.debug("Skipping row %s: missing column %s", _idx, e)
+                continue
+
             db_match = match_by_key.get(key)
             if not db_match:
                 continue
@@ -688,7 +761,7 @@ class SoccerDataImporter:
                 self.session.add(ms)
 
             for src_fld, db_fld in field_map.items():
-                val = row[src_fld]
+                val = row.get(src_fld)
                 if pd.notna(val):
                     setattr(ms, db_fld, float(val))
 
@@ -732,17 +805,22 @@ class SoccerDataImporter:
         """
         import soccerdata as sd
 
+        # Get the season object to filter matches
+        tournament = self.get_or_create_tournament(league)
+        if not tournament:
+            logger.error("Unknown league: %s", league)
+            return {"players_added": 0, "matches_processed": 0}
+        season_obj = self.get_or_create_season(tournament, season)
+
         espn = sd.ESPN(leagues=[league], seasons=[season])
         schedule = espn.read_schedule()
 
+        # Only fetch matches belonging to the target season
         db_matches = (
             self.session.execute(
                 select(Match).where(
-                    Match.tournament_id.in_(
-                        select(Tournament.id).where(
-                            Tournament.url_slug == LEAGUE_MAPPING[league]["url_slug"]
-                        )
-                    )
+                    Match.tournament_id == tournament.id,
+                    Match.season_id == season_obj.id,
                 )
             )
             .scalars()

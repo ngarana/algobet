@@ -8,38 +8,43 @@ from typing import Any
 from algobet.predictions.training.feature_selection import FeatureSelectionReport
 from algobet.predictions.training.tuner import TuningResult
 
-MODEL_FEATURE_SCHEMA_VERSION = "v3.0_epl_feature_tuning"
+MODEL_FEATURE_SCHEMA_VERSION = "v4.0_attack_defense_clash"
 ALLOWED_FEATURE_GROUPS = (
     "team_form",
     "head_to_head",
     "temporal",
     "standings",
     "enriched_stats",
+    "elo_rating",
+    "expected_points",
+    "draw_signals",
+    "matchup_interaction",
+    "player_quality",
 )
 
-# Search spaces for per-model tuning
+# Search spaces for per-model tuning (~1900 training rows, ~200 features)
 XGBOOST_SEARCH_SPACE = {
-    "max_depth": (2, 5),
+    "max_depth": (2, 4),
     "learning_rate": (0.01, 0.08),
-    "n_estimators": (400, 2000),
-    "min_child_weight": (3, 30),
+    "n_estimators": (200, 800),
+    "min_child_weight": (8, 50),
     "gamma": (0.0, 3.0),
-    "reg_alpha": (0.0, 8.0),
-    "reg_lambda": (2.0, 30.0),
-    "subsample": (0.55, 0.90),
-    "colsample_bytree": (0.40, 0.85),
+    "reg_alpha": (0.5, 10.0),
+    "reg_lambda": (5.0, 40.0),
+    "subsample": (0.55, 0.85),
+    "colsample_bytree": (0.35, 0.75),
 }
 LIGHTGBM_SEARCH_SPACE = {
-    "num_leaves": (7, 63),
-    "max_depth": (2, 6),
+    "num_leaves": (7, 31),
+    "max_depth": (2, 5),
     "learning_rate": (0.01, 0.08),
-    "n_estimators": (400, 2500),
-    "min_child_samples": (20, 150),
+    "n_estimators": (200, 1000),
+    "min_child_samples": (30, 200),
     "min_split_gain": (0.0, 2.0),
-    "reg_alpha": (0.0, 10.0),
-    "reg_lambda": (2.0, 40.0),
-    "subsample": (0.55, 0.90),
-    "colsample_bytree": (0.40, 0.85),
+    "reg_alpha": (0.5, 10.0),
+    "reg_lambda": (5.0, 50.0),
+    "subsample": (0.55, 0.85),
+    "colsample_bytree": (0.35, 0.75),
 }
 
 
@@ -52,6 +57,12 @@ class TrainingConfig:
     hyperparameters: dict[str, Any] = field(default_factory=dict)
     use_ensemble: bool = False
     ensemble_types: list[str] = field(default_factory=lambda: ["xgboost", "lightgbm"])
+
+    # Stacking ensemble settings
+    use_stacking_ensemble: bool = False
+    stacking_base_models: list[str] = field(
+        default_factory=lambda: ["xgboost", "dixon_coles"]
+    )
 
     # Data range settings
     start_date: datetime | None = None
@@ -78,15 +89,17 @@ class TrainingConfig:
     train_ratio: float = 0.7
     val_ratio: float = 0.15
     test_ratio: float = 0.15
-    split_strategy: str = "temporal"  # "temporal", "expanding_window", "season_aware"
-    gap_days: int = 0
+    split_strategy: str = (
+        "season_aware"  # "temporal", "expanding_window", "season_aware"
+    )
+    gap_days: int = 14
     # Expanding window params
     min_train_size: int = 100
     ew_val_size: int = 50
     ew_test_size: int = 50
     step_size: int = 50
     # Season-aware params
-    train_seasons: int = 3
+    train_seasons: int = 8
     val_seasons: int = 1
     test_seasons: int = 1
 
@@ -97,7 +110,16 @@ class TrainingConfig:
 
     # Calibration settings
     calibrate_probabilities: bool = True
-    calibration_method: str = "sigmoid"
+    calibration_method: str = "temperature"
+    use_cv_calibration: bool = True
+    calibration_cv_folds: int = 5
+
+    # Draw-aware calibration (Dixon-Coles blend)
+    fit_draw_aware_calibrator: bool = False
+    dc_model_path: str | None = None
+
+    # Simple post-hoc draw boost (multiplies draw probability)
+    draw_boost_factor: float = 1.0
 
     # Training settings
     early_stopping_rounds: int = 50
@@ -106,16 +128,17 @@ class TrainingConfig:
     # Outcome balancing control (opt-in; disabled by default to preserve
     # calibrated probabilities)
     outcome_balance: bool = False
+    outcome_balance_strength: float = 0.5
 
     # Degenerate model protection
     collapse_recovery: bool = True
     min_prediction_classes: int = 3
 
     # Feature selection settings
-    feature_selection: bool = False
-    feature_selection_threshold: float = 0.002
+    feature_selection: bool = True
+    feature_selection_threshold: float = 0.005
     min_samples_per_feature: int | None = None
-    max_feature_correlation: float = 0.94
+    max_feature_correlation: float = 0.90
 
     # Family retention guards (minimum features to keep per family)
     min_draw_features: int = 3

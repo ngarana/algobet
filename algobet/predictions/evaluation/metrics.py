@@ -47,6 +47,13 @@ class ClassificationMetrics:
     # Confusion matrix
     confusion_matrix: list[list[int]]
 
+    # Draw-specific metrics
+    draw_recall: float = 0.0
+    draw_precision: float = 0.0
+    draw_f1: float = 0.0
+    draw_ece: float = 0.0
+    draw_predicted_share: float = 0.0
+
     # Additional metrics
     top_2_accuracy: float = 0.0
     cohen_kappa: float = 0.0
@@ -184,6 +191,27 @@ def calculate_classification_metrics(
 
     kappa = cohen_kappa_score(y_true, y_pred)
 
+    # Draw-specific metrics
+    draw_recall = float(recalls[1])
+    draw_precision = float(precisions[1])
+    draw_f1 = float(f1s[1])
+    draw_predicted_share = float((y_pred == 1).mean())
+
+    # Draw ECE
+    draw_probas = y_proba[:, 1]
+    draw_true = (y_true == 1).astype(int)
+    draw_ece = 0.0
+    n_bins = 10
+    bin_boundaries = np.linspace(0, 1, n_bins + 1)
+    for i in range(n_bins):
+        in_bin = (draw_probas > bin_boundaries[i]) & (
+            draw_probas <= bin_boundaries[i + 1]
+        )
+        if in_bin.sum() > 0:
+            confidence = draw_probas[in_bin].mean()
+            accuracy_in_bin = draw_true[in_bin].mean()
+            draw_ece += abs(confidence - accuracy_in_bin) * in_bin.mean()
+
     return ClassificationMetrics(
         accuracy=accuracy,
         log_loss=log_loss_val,
@@ -198,6 +226,11 @@ def calculate_classification_metrics(
         per_class_recall=per_class_recall,
         per_class_f1=per_class_f1,
         confusion_matrix=cm_list,
+        draw_recall=draw_recall,
+        draw_precision=draw_precision,
+        draw_f1=draw_f1,
+        draw_ece=draw_ece,
+        draw_predicted_share=draw_predicted_share,
         top_2_accuracy=top_2_accuracy,
         cohen_kappa=kappa,
     )
@@ -246,35 +279,41 @@ def calculate_betting_metrics(
         probas = y_proba[i]
         match_odds = odds[i]
 
-        # Find value bets (where predicted prob > implied prob)
+        # Place at most one bet per match: the outcome with the single
+        # highest positive edge.  Betting on multiple outcomes per match
+        # only makes sense when the model is perfectly calibrated; with
+        # any calibration error it triggers false value across every
+        # outcome and destroys ROI through over-betting.
+        edges = []
         for cls in range(3):
             implied_prob = 1.0 / match_odds[cls]
             edge = probas[cls] - implied_prob
+            edges.append((edge, cls))
 
-            if edge > min_edge:
-                # Calculate Kelly stake
-                b = match_odds[cls] - 1
-                p = probas[cls]
-                q = 1 - p
-                kelly = (b * p - q) / b if b > 0 else 0
-                kelly = max(0, kelly) * kelly_fraction
-                kelly_fractions.append(kelly)
+        best_edge, best_cls = max(edges, key=lambda x: x[0])
 
-                bet_stake = stake * kelly if kelly > 0 else stake
-                total_stake += bet_stake
+        if best_edge > min_edge:
+            # Calculate Kelly stake
+            b = match_odds[best_cls] - 1
+            p = probas[best_cls]
+            q = 1 - p
+            kelly = (b * p - q) / b if b > 0 else 0
+            kelly = max(0, kelly) * kelly_fraction
+            kelly_fractions.append(kelly)
 
-                if cls == true_outcome:
-                    # Won
-                    winnings = bet_stake * match_odds[cls]
-                    total_return += winnings
-                    winning_bets += 1
-                    winning_odds.append(match_odds[cls])
-                    equity.append(equity[-1] + (winnings - bet_stake))
-                else:
-                    # Lost
-                    losing_bets += 1
-                    losing_odds.append(match_odds[cls])
-                    equity.append(equity[-1] - bet_stake)
+            bet_stake = stake * kelly if kelly > 0 else stake
+            total_stake += bet_stake
+
+            if best_cls == true_outcome:
+                winnings = bet_stake * match_odds[best_cls]
+                total_return += winnings
+                winning_bets += 1
+                winning_odds.append(match_odds[best_cls])
+                equity.append(equity[-1] + (winnings - bet_stake))
+            else:
+                losing_bets += 1
+                losing_odds.append(match_odds[best_cls])
+                equity.append(equity[-1] - bet_stake)
 
     # Calculate metrics
     total_bets = winning_bets + losing_bets
@@ -363,6 +402,7 @@ def evaluate_predictions(
     odds: NDArray[np.float64] | None = None,
     model_version: str = "unknown",
     date_range: tuple[str, str] | None = None,
+    min_edge: float = 0.0,
 ) -> EvaluationResult:
     """Complete evaluation of predictions.
 
@@ -385,7 +425,9 @@ def evaluate_predictions(
     # Betting metrics (if odds provided)
     betting_metrics = None
     if odds is not None:
-        betting_metrics = calculate_betting_metrics(y_true, y_proba, odds)
+        betting_metrics = calculate_betting_metrics(
+            y_true, y_proba, odds, min_edge=min_edge
+        )
 
     # Calibration metrics
     from algobet.predictions.training.calibration import calculate_calibration_metrics

@@ -40,7 +40,7 @@ class ModelVersion(Base):
     metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     hyperparameters: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     feature_schema_version: Mapped[str | None] = mapped_column(
-        String(20), nullable=True
+        String(50), nullable=True
     )
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -124,7 +124,7 @@ class ModelFeature(Base):
 
     # Feature schema version for tracking
     feature_schema_version: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="v1.0"
+        String(50), nullable=False, default="v1.0"
     )
 
     # Features stored as JSONB for flexibility

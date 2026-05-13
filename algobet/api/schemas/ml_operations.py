@@ -169,10 +169,13 @@ class TrainModelRequest(BaseModel):
 
     # Calibration settings
     calibrate_probabilities: bool = True
-    calibration_method: str = Field(default="sigmoid", pattern="^(isotonic|sigmoid)$")
+    calibration_method: str = Field(
+        default="temperature", pattern="^(isotonic|sigmoid|temperature)$"
+    )
 
     # Outcome balancing control
     outcome_balance: bool | None = None
+    outcome_balance_strength: float = Field(default=0.5, ge=0.0, le=1.0)
 
     # Feature importance pruning
     feature_selection: bool = False
