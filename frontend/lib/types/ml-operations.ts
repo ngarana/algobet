@@ -37,6 +37,7 @@ export const TrainModelRequestSchema = z.object({
   calibration_method: z.enum(["isotonic", "sigmoid"]).default("sigmoid"),
   // Outcome balancing
   outcome_balance: z.boolean().optional(),
+  outcome_balance_strength: z.number().min(0).max(1).default(0.5),
   // Feature groups selection
   feature_groups: z.array(z.string()).optional(),
   // Feature importance pruning

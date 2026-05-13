@@ -53,6 +53,7 @@ export const defaultConfig = {
   calibrationMethod: "sigmoid" as const,
   // Outcome balancing
   outcomeBalance: false,
+  outcomeBalanceStrength: 0.5,
   // Feature groups (empty = all)
   featureGroups: [] as string[],
   // Feature selection

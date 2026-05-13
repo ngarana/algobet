@@ -14,6 +14,7 @@ import {
   Settings,
   Star,
   ClipboardCheck,
+  FlaskConical,
 } from "lucide-react";
 
 const navigation = [
@@ -24,6 +25,7 @@ const navigation = [
   { name: "Results", href: "/results", icon: ClipboardCheck },
   { name: "Watchlist", href: "/watchlist", icon: Star },
   { name: "Models", href: "/models", icon: Trophy },
+  { name: "Feature Ablation", href: "/ablation", icon: FlaskConical },
   { name: "Teams", href: "/teams", icon: Users },
   { name: "Scraping", href: "/scraping", icon: Settings },
 ];

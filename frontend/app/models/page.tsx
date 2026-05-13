@@ -112,6 +112,7 @@ export default function ModelsPage() {
             calibrate_probabilities: config.calibrateProbabilities,
             calibration_method: config.calibrationMethod,
             outcome_balance: config.outcomeBalance,
+            outcome_balance_strength: config.outcomeBalanceStrength,
             feature_groups:
               config.featureGroups.length > 0 ? config.featureGroups : undefined,
             feature_selection: config.featureSelection,

@@ -76,6 +76,7 @@ export function TrainModelCard() {
           calibration_method: config.calibrationMethod,
           // Outcome balancing
           outcome_balance: config.outcomeBalance,
+          outcome_balance_strength: config.outcomeBalanceStrength,
           // Feature groups
           feature_groups:
             config.featureGroups.length > 0 ? config.featureGroups : undefined,

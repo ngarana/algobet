@@ -31,6 +31,7 @@ export interface TrainingConfig {
   calibrationMethod: "isotonic" | "sigmoid";
   // Outcome balancing
   outcomeBalance: boolean;
+  outcomeBalanceStrength: number;
   // Feature groups
   featureGroups: string[];
   // Feature selection
