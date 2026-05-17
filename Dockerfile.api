@@ -38,7 +38,7 @@ COPY uv.lock ./
 RUN pip install uv
 
 # Install project dependencies
-RUN uv pip install -e ".[dev]" --system
+RUN uv pip install -e ".[dev,catboost]" --system
 
 # Install Playwright browsers
 RUN playwright install chromium

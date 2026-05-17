@@ -812,10 +812,10 @@ class CatBoostPredictor(MatchPredictor):
     def default_hyperparameters(self) -> dict[str, Any]:
         """Return the default CatBoost training settings."""
         return {
-            "iterations": 1000,
-            "learning_rate": 0.03,
-            "depth": 6,
-            "l2_leaf_reg": 3.0,
+            "iterations": 300,
+            "learning_rate": 0.02,
+            "depth": 3,
+            "l2_leaf_reg": 20.0,
             "loss_function": "MultiClass",
             "early_stopping_rounds": 50,
             "random_seed": 42,
@@ -848,6 +848,17 @@ class CatBoostPredictor(MatchPredictor):
         # CatBoost uses 'iterations' not 'n_estimators'
         if "n_estimators" in params:
             params["iterations"] = params.pop("n_estimators")
+
+        # Remove random_seed from params to avoid duplicate keyword argument
+        params.pop("random_seed", None)
+        params.pop("random_state", None)
+
+        # Add class weights if configured
+        if self.config.class_weights:
+            # CatBoost expects class_weights as a dict mapping class index to weight
+            params["class_weights"] = [
+                self.config.class_weights.get(i, 1.0) for i in range(3)
+            ]
 
         self._model = CatBoostClassifier(
             random_seed=self.config.random_seed,
