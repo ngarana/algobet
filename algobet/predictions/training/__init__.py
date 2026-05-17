@@ -7,6 +7,7 @@ from algobet.predictions.training.calibration import (
     calibration_curve,
 )
 from algobet.predictions.training.classifiers import (
+    CatBoostPredictor,
     DixonColesPredictor,
     EnsemblePredictor,
     HybridPoissonPredictor,
@@ -27,6 +28,7 @@ from algobet.predictions.training.pipeline import (
 )
 from algobet.predictions.training.split import (
     ExpandingWindowSplitter,
+    OOFTimeAwareSplitter,
     SeasonAwareSplitter,
     TemporalSplit,
     TemporalSplitter,
@@ -51,6 +53,7 @@ __all__ = [
     "XGBoostPredictor",
     "LightGBMPredictor",
     "RandomForestPredictor",
+    "CatBoostPredictor",
     "EnsemblePredictor",
     "DixonColesPredictor",
     "HybridPoissonPredictor",
@@ -62,6 +65,7 @@ __all__ = [
     "ExpandingWindowSplitter",
     "SeasonAwareSplitter",
     "WalkForwardSplitter",
+    "OOFTimeAwareSplitter",
     "encode_targets",
     "decode_targets",
     "get_class_weights",

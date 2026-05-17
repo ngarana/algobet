@@ -142,7 +142,7 @@ class TrainModelRequest(BaseModel):
 
     model_type: str = Field(
         default=DEFAULT_TRAIN_MODEL_TYPE,
-        pattern="^(xgboost|lightgbm|random_forest|dixon_coles|hybrid_poisson)$",
+        pattern="^(xgboost|lightgbm|random_forest|dixon_coles|hybrid_poisson|catboost)$",
     )
     tune_hyperparameters: bool = False
     description: str | None = None
@@ -194,6 +194,14 @@ class TrainModelRequest(BaseModel):
     use_ensemble: bool = False
     ensemble_types: list[str] | None = None  # e.g. ["xgboost", "lightgbm"]
 
+    # Stacking ensemble
+    use_stacking_ensemble: bool = False
+    stacking_base_models: list[str] = Field(
+        default_factory=lambda: ["xgboost", "dixon_coles"]
+    )
+    stacking_meta_learner: str = Field(default="logistic", pattern="^(logistic|mlp)$")
+    stacking_n_folds: int = Field(default=5, ge=3, le=10)
+
     # Split strategy
     split_strategy: str = Field(
         default="temporal",
@@ -236,3 +244,7 @@ class TrainModelResponse(BaseModel):
     ensemble_weights: dict[str, float] | None = None
     ensemble_validation_metrics: dict[str, float] | None = None
     ensemble_types: list[str] | None = None
+    # Stacking metadata
+    stacking_metadata: dict[str, Any] | None = None
+    # Calibration metadata
+    calibration_metadata: dict[str, Any] | None = None

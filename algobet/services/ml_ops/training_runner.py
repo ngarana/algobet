@@ -104,6 +104,11 @@ class TrainingRunner:
             # Ensemble training
             use_ensemble=request.use_ensemble,
             ensemble_types=request.ensemble_types or ["xgboost", "lightgbm"],
+            # Stacking ensemble
+            use_stacking_ensemble=request.use_stacking_ensemble,
+            stacking_base_models=request.stacking_base_models,
+            stacking_meta_learner=request.stacking_meta_learner,
+            stacking_n_folds=request.stacking_n_folds,
             # Split strategy
             split_strategy=request.split_strategy,
             gap_days=request.gap_days,
@@ -131,6 +136,10 @@ class TrainingRunner:
         except (ImportError, ValueError) as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
+            import traceback
+
+            tb = traceback.format_exc()
+            logger.error(f"Training failed with traceback:\n{tb}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Training failed: {e}",
@@ -176,6 +185,24 @@ class TrainingRunner:
             ensemble_weights=result.ensemble_weights,
             ensemble_validation_metrics=result.ensemble_validation_metrics,
             ensemble_types=config.ensemble_types if config.use_ensemble else None,
+            stacking_metadata=(
+                {
+                    "base_models": config.stacking_base_models,
+                    "meta_learner": config.stacking_meta_learner,
+                    "n_folds": config.stacking_n_folds,
+                }
+                if config.use_stacking_ensemble
+                else None
+            ),
+            calibration_metadata=(
+                {
+                    "method": config.calibration_method,
+                    "enabled": config.calibrate_probabilities,
+                    "cv_folds": config.calibration_cv_folds,
+                }
+                if config.calibrate_probabilities
+                else None
+            ),
         )
 
     def _passes_activation_gate(self, result: object) -> bool:

@@ -137,7 +137,14 @@ class TrainingPipeline(
         else:
             model_types = [self.config.model_type]
         return all(
-            model_type in {"xgboost", "lightgbm", "dixon_coles", "hybrid_poisson"}
+            model_type
+            in {
+                "xgboost",
+                "lightgbm",
+                "dixon_coles",
+                "hybrid_poisson",
+                "catboost",
+            }
             for model_type in model_types
         )
 

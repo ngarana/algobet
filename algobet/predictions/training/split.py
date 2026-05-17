@@ -211,6 +211,93 @@ class TemporalSplitter:
             )
 
 
+class OOFTimeAwareSplitter:
+    """Time-aware OOF splitter for stacking and calibration.
+
+    Generates K expanding-window folds where each fold's validation
+    portion is strictly after its training portion. This prevents
+    future-to-past leakage that shuffled StratifiedKFold introduces.
+
+    Unlike WalkForwardSplitter (which produces full train/val/test
+    triples), this splitter produces only train/val index pairs suitable
+    for OOF prediction collection.
+
+    Example (3 folds):
+        Fold 1: Season 1-3: Train | Season 4: OOF
+        Fold 2: Season 1-4: Train | Season 5: OOF
+        Fold 3: Season 1-5: Train | Season 6: OOF
+    """
+
+    def __init__(
+        self,
+        n_folds: int = 5,
+        season_column: str = "season_id",
+        date_column: str = "match_date",
+    ) -> None:
+        self.n_folds = n_folds
+        self.season_column = season_column
+        self.date_column = date_column
+
+    def split(
+        self,
+        df: pd.DataFrame,
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        """Generate time-aware OOF folds.
+
+        Args:
+            df: DataFrame with season_id and match_date columns, sorted by date.
+
+        Yields:
+            (train_indices, oof_indices) tuples.
+        """
+        null_mask = df[self.season_column].isna()
+        if null_mask.any():
+            logger.warning(
+                "OOFTimeAwareSplitter: dropping %d row(s) with null %s",
+                null_mask.sum(),
+                self.season_column,
+            )
+            df = df[~null_mask].copy()
+
+        df = df.sort_values(self.date_column)
+
+        def _season_sort_key(s: Any) -> int:
+            s_str = str(s)
+            try:
+                return int(s_str.split("/")[0]) if "/" in s_str else int(float(s_str))
+            except (ValueError, TypeError):
+                return 0
+
+        seasons = sorted(df[self.season_column].unique(), key=_season_sort_key)
+
+        if len(seasons) < self.n_folds + 1:
+            raise ValueError(
+                f"Not enough seasons ({len(seasons)}) for {self.n_folds} OOF folds "
+                f"(need at least {self.n_folds + 1})"
+            )
+
+        # Divide seasons into n_folds + 1 groups; use first groups cumulatively
+        # for training and last group of each fold for OOF.
+        # We take the last (n_folds + 1) seasons and split them.
+        usable_seasons = seasons[-(self.n_folds + 1) :]
+
+        for fold_idx in range(self.n_folds):
+            # Training: all data before the OOF season
+            oof_season = usable_seasons[fold_idx + 1]
+            train_seasons = usable_seasons[: fold_idx + 1]
+
+            train_mask = df[self.season_column].isin(train_seasons)
+            oof_mask = df[self.season_column].isin([oof_season])
+
+            train_indices = df.index[train_mask].to_numpy()
+            oof_indices = df.index[oof_mask].to_numpy()
+
+            if len(train_indices) == 0 or len(oof_indices) == 0:
+                continue
+
+            yield (train_indices, oof_indices)
+
+
 class WalkForwardSplitter:
     """Walk-forward validation that respects season boundaries.
 

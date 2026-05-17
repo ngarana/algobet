@@ -9,6 +9,7 @@ def create_predictor(
 ) -> MatchPredictor:
     """Create a predictor by model type."""
     from algobet.predictions.training.classifiers import (
+        CatBoostPredictor,
         DixonColesPredictor,
         HybridPoissonPredictor,
         LightGBMPredictor,
@@ -22,6 +23,7 @@ def create_predictor(
         "random_forest": RandomForestPredictor,
         "dixon_coles": DixonColesPredictor,
         "hybrid_poisson": HybridPoissonPredictor,
+        "catboost": CatBoostPredictor,
     }
 
     if model_type not in predictors:

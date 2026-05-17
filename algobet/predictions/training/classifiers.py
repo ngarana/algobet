@@ -672,17 +672,17 @@ class LightGBMPredictor(MatchPredictor):
         # Train model
         n_estimators = params.pop("n_estimators", 500)
 
+        callbacks = []
+        if X_val is not None:
+            callbacks.append(lgb.early_stopping(self.config.early_stopping_rounds))
+
         self._model = lgb.train(
             params,
             train_data,
             num_boost_round=n_estimators,
             valid_sets=valid_sets,
             valid_names=valid_names,
-            callbacks=[
-                lgb.early_stopping(self.config.early_stopping_rounds)
-                if X_val is not None
-                else None,
-            ],
+            callbacks=callbacks if callbacks else None,
         )
 
         self._is_fitted = True
@@ -769,6 +769,164 @@ class RandomForestPredictor(MatchPredictor):
 
         self._is_fitted = True
         return self
+
+
+# CatBoost is an optional dependency
+try:
+    from catboost import CatBoostClassifier
+
+    HAS_CATBOOST = True
+except ImportError:
+    HAS_CATBOOST = False
+    CatBoostClassifier = None  # type: ignore[misc,assignment]
+
+
+class CatBoostPredictor(MatchPredictor):
+    """CatBoost classifier for match prediction.
+
+    CatBoost uses ordered boosting which prevents target leakage differently
+    than standard gradient boosting (XGBoost, LightGBM). This produces
+    structurally different errors, making it valuable for ensemble diversity.
+
+    Advantages:
+    - Ordered boosting prevents target leakage
+    - Native categorical feature handling (if categorical columns are passed)
+    - Different regularization profile than XGBoost/LightGBM
+    - Robust to hyperparameter choices
+
+    Note: When only engineered numeric features are passed (no raw categorical
+    columns), CatBoost operates in numeric-only mode. The categorical advantage
+    requires preserving raw categorical columns in the feature pipeline.
+    """
+
+    def __init__(self, config: ModelConfig | None = None) -> None:
+        if config is None:
+            config = ModelConfig(model_type="catboost")
+        super().__init__(config)
+
+    @property
+    def model_type(self) -> str:
+        return "catboost"
+
+    @property
+    def default_hyperparameters(self) -> dict[str, Any]:
+        """Return the default CatBoost training settings."""
+        return {
+            "iterations": 1000,
+            "learning_rate": 0.03,
+            "depth": 6,
+            "l2_leaf_reg": 3.0,
+            "loss_function": "MultiClass",
+            "early_stopping_rounds": 50,
+            "random_seed": 42,
+        }
+
+    def fit(
+        self,
+        X: NDArray[np.float64],
+        y: NDArray[np.int64],
+        X_val: NDArray[np.float64] | None = None,
+        y_val: NDArray[np.int64] | None = None,
+    ) -> "CatBoostPredictor":
+        """Fit CatBoost model."""
+        if not HAS_CATBOOST:
+            raise ImportError(
+                "CatBoost is not installed. Install with: pip install catboost"
+            )
+
+        # Encode labels
+        y_encoded = self._label_encoder.fit_transform(y)
+
+        # Prepare eval set
+        eval_set = None
+        if X_val is not None and y_val is not None:
+            y_val_encoded = self._label_encoder.transform(y_val)
+            eval_set = [(X_val, y_val_encoded)]
+
+        # Create model
+        params = self._resolve_effective_hyperparameters()
+        # CatBoost uses 'iterations' not 'n_estimators'
+        if "n_estimators" in params:
+            params["iterations"] = params.pop("n_estimators")
+
+        self._model = CatBoostClassifier(
+            random_seed=self.config.random_seed,
+            verbose=False,
+            **params,
+        )
+
+        # Fit
+        self._model.fit(
+            X,
+            y_encoded,
+            eval_set=eval_set,
+            use_best_model=bool(eval_set),
+        )
+
+        self._is_fitted = True
+        return self
+
+    def predict_proba(self, X: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Predict match outcome probabilities."""
+        if not self._is_fitted:
+            raise ValueError("Model not fitted. Call fit() first.")
+
+        probas = self._model.predict_proba(X)
+
+        # Ensure 3-column output (CatBoost may return fewer if a class
+        # was never seen during training)
+        if probas.shape[1] < 3:
+            full_probas = np.zeros((len(X), 3), dtype=np.float64)
+            for i, cls_idx in enumerate(self._label_encoder.classes_):
+                if cls_idx < 3:
+                    full_probas[:, int(cls_idx)] = probas[:, i]
+            probas = full_probas
+
+        return probas
+
+    def predict(self, X: NDArray[np.float64]) -> list[str]:
+        """Predict match outcomes."""
+        probas = self.predict_proba(X)
+        encoded_preds = np.argmax(probas, axis=1)
+        return decode_targets(encoded_preds)
+
+    @property
+    def feature_importance(self) -> dict[str, float]:
+        """Return feature importances."""
+        if not self._is_fitted or self._feature_names is None:
+            return {}
+
+        importances = self._model.get_feature_importance()
+        return dict(zip(self._feature_names, importances.tolist(), strict=False))
+
+    def save(self, path: Path) -> None:
+        """Save model to disk."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        joblib.dump(
+            {
+                "config": self.config,
+                "model": self._model,
+                "label_encoder": self._label_encoder,
+                "feature_names": self._feature_names,
+                "is_fitted": self._is_fitted,
+                "model_type": "catboost",
+            },
+            path,
+        )
+
+    @classmethod
+    def load(cls, path: Path) -> "CatBoostPredictor":
+        """Load model from disk."""
+        data = joblib.load(path)
+        config = data["config"]
+        predictor = cls(config)
+        predictor._model = data["model"]
+        predictor._label_encoder = data["label_encoder"]
+        predictor._feature_names = data.get("feature_names")
+        predictor._is_fitted = data["is_fitted"]
+        return predictor
 
 
 class EnsemblePredictor(MatchPredictor):

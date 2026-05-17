@@ -65,6 +65,8 @@ class TrainingConfig:
     stacking_base_models: list[str] = field(
         default_factory=lambda: ["xgboost", "dixon_coles"]
     )
+    stacking_meta_learner: str = "logistic"  # "logistic" or "mlp"
+    stacking_n_folds: int = 5
 
     # Data range settings
     start_date: datetime | None = None

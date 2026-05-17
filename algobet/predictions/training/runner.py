@@ -526,6 +526,12 @@ class PipelineRunnerMixin:
             model_hyperparameters["stacking_base_models"] = (
                 self.config.stacking_base_models
             )
+            model_hyperparameters["stacking_meta_learner"] = (
+                self.config.stacking_meta_learner
+            )
+            model_hyperparameters["stacking_n_folds"] = self.config.stacking_n_folds
+            if isinstance(predictor, StackingEnsemble):
+                model_hyperparameters["stacking_oof_folds"] = predictor.oof_folds
         if ensemble_weights:
             model_hyperparameters["ensemble_weights"] = ensemble_weights
         if ensemble_val_metrics:
@@ -546,17 +552,25 @@ class PipelineRunnerMixin:
         else:
             model_to_save = predictor
 
+        # Persist the real artifact type, not the base model type
+        if isinstance(predictor, StackingEnsemble):
+            registry_model_type = "stacking_ensemble"
+        elif isinstance(predictor, EnsemblePredictor):
+            registry_model_type = "ensemble"
+        else:
+            registry_model_type = self.config.model_type
+
         model_version = self.model_registry.save_model(
             model=model_to_save,
             name=self.config.model_name,
             metrics=all_metrics,
-            model_type=self.config.model_type,
+            model_type=registry_model_type,
             feature_schema_version=self.config.feature_schema_version,
             hyperparameters=model_hyperparameters,
             description=self.config.description,
             tags=self.config.tags,
         )
-        model_dir = self.models_path / self.config.model_type / model_version
+        model_dir = self.models_path / registry_model_type / model_version
         self.feature_pipeline_path = model_dir / "feature_pipeline"
         self.feature_pipeline.save(self.feature_pipeline_path)
         model_hyperparameters["feature_pipeline_path"] = str(self.feature_pipeline_path)
@@ -584,7 +598,7 @@ class PipelineRunnerMixin:
 
         return TrainingResult(
             model_version=model_version,
-            model_type=self.config.model_type,
+            model_type=registry_model_type,
             train_metrics=train_metrics,
             val_metrics=val_metrics,
             test_metrics=test_metrics,
@@ -620,6 +634,7 @@ class PipelineRunnerMixin:
         )
         from algobet.predictions.training.classifiers import (
             DixonColesPredictor,
+            HybridPoissonPredictor,
             ModelConfig,
             create_predictor,
         )
@@ -638,6 +653,18 @@ class PipelineRunnerMixin:
                     X_train, y_train, home_goals, away_goals, X_val, y_val
                 )
                 base_predictors.append(dc)
+            elif model_type == "hybrid_poisson":
+                hp_config = ModelConfig(
+                    model_type="hybrid_poisson",
+                    random_seed=self.config.random_seed,
+                )
+                hp = HybridPoissonPredictor(hp_config)
+                home_goals = self._train_df["home_score"].values.astype(np.float64)
+                away_goals = self._train_df["away_score"].values.astype(np.float64)
+                hp.fit_with_scores(
+                    X_train, y_train, home_goals, away_goals, X_val, y_val
+                )
+                base_predictors.append(hp)
             else:
                 model_params = hyperparameters.get(model_type, {})
                 if not model_params:
@@ -662,7 +689,16 @@ class PipelineRunnerMixin:
                 predictor.fit(X_train, y_train, X_val, y_val)
                 base_predictors.append(predictor)
 
-        ensemble = StackingEnsemble(base_predictors=base_predictors)
+        # Use time-aware OOF if enough seasons are available
+        matches_df = getattr(self, "_prepared_matches_df", None)
+        oof_folds = self.config.stacking_n_folds if matches_df is not None else None
+
+        ensemble = StackingEnsemble(
+            base_predictors=base_predictors,
+            meta_learner_type=self.config.stacking_meta_learner,
+            oof_folds=oof_folds,
+            matches_df=matches_df,
+        )
         ensemble.fit(X_train, y_train, X_val, y_val)
         return ensemble
 
@@ -673,9 +709,13 @@ class PipelineRunnerMixin:
         class_weights: dict[int, float] | None,
         hyperparameters: dict[str, Any],
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Generate Out-Of-Fold predictions for calibration."""
-        from sklearn.model_selection import StratifiedKFold
+        """Generate time-aware Out-Of-Fold predictions for calibration.
 
+        Uses expanding-window OOF folds so that each fold's predictions
+        are produced by a model trained only on earlier seasons. This
+        prevents the future-to-past leakage that shuffled StratifiedKFold
+        introduces for football match data.
+        """
         from algobet.predictions.training.acceleration import (
             resolve_training_hyperparameters,
         )
@@ -683,10 +723,22 @@ class PipelineRunnerMixin:
             ModelConfig,
             create_predictor,
         )
+        from algobet.predictions.training.split import OOFTimeAwareSplitter
 
         n_folds = self.config.calibration_cv_folds
-        skf = StratifiedKFold(
-            n_splits=n_folds, shuffle=True, random_state=self.config.random_seed
+
+        # Reconstruct the matches DataFrame needed for the splitter.
+        matches_df = getattr(self, "_prepared_matches_df", None)
+        if matches_df is None:
+            raise ValueError(
+                "Time-aware OOF requires the prepared matches DataFrame. "
+                "Ensure data preparation has run before calibration."
+            )
+
+        splitter = OOFTimeAwareSplitter(
+            n_folds=n_folds,
+            season_column="season_id",
+            date_column="match_date",
         )
 
         # If X is a DataFrame, convert to values for indexing
@@ -694,10 +746,38 @@ class PipelineRunnerMixin:
         y_values = np.asarray(y)
 
         oof_probas = np.zeros((len(y_values), 3))
+        oof_y = np.zeros(len(y_values), dtype=np.int64)
+        oof_y[:] = -1  # sentinel for unassigned rows
 
-        for train_idx, val_idx in skf.split(X_values, y_values):
-            X_fold_train, X_fold_val = X_values[train_idx], X_values[val_idx]
-            y_fold_train, y_fold_val = y_values[train_idx], y_values[val_idx]
+        folds_used = 0
+        for train_idx, oof_idx in splitter.split(matches_df):
+            # Map split indices back to X/y positions.
+            # X and y may be a subset of matches_df (after feature selection),
+            # so we find the intersection.
+            if hasattr(X, "index"):
+                x_index_set = set(X.index)
+                train_pos = [
+                    i
+                    for i, idx in enumerate(X.index)
+                    if idx in set(train_idx) & x_index_set
+                ]
+                oof_pos = [
+                    i
+                    for i, idx in enumerate(X.index)
+                    if idx in set(oof_idx) & x_index_set
+                ]
+            else:
+                # Fallback: use all data (shouldn't happen with DataFrame X)
+                train_pos = list(range(len(X_values)))
+                oof_pos = list(range(len(X_values)))
+
+            if not train_pos or not oof_pos:
+                continue
+
+            X_fold_train = X_values[train_pos]
+            y_fold_train = y_values[train_pos]
+            X_fold_val = X_values[oof_pos]
+            y_fold_val = y_values[oof_pos]
 
             resolved = resolve_training_hyperparameters(
                 model_type=self.config.model_type,
@@ -713,9 +793,19 @@ class PipelineRunnerMixin:
             fold_predictor = create_predictor(self.config.model_type, config)
             fold_predictor.fit(X_fold_train, y_fold_train, X_fold_val, y_fold_val)
 
-            oof_probas[val_idx] = fold_predictor.predict_proba(X_fold_val)
+            oof_probas[oof_pos] = fold_predictor.predict_proba(X_fold_val)
+            oof_y[oof_pos] = y_fold_val
+            folds_used += 1
 
-        return oof_probas, y_values
+        if folds_used == 0:
+            raise ValueError(
+                "No valid OOF folds generated. Ensure enough seasons are "
+                f"available for {n_folds} folds."
+            )
+
+        # Filter out unassigned rows
+        valid_mask = oof_y >= 0
+        return oof_probas[valid_mask], oof_y[valid_mask]
 
     @staticmethod
     def _validation_log_loss(
