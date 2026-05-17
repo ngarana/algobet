@@ -3,6 +3,7 @@
 import contextlib
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from fastapi import HTTPException
@@ -28,6 +29,46 @@ from algobet.services.ml_ops.utils import convert_numpy_types
 
 class BacktestRunner:
     """Run this ML operation use case."""
+
+    @staticmethod
+    def _load_saved_feature_pipeline(
+        model_meta: Any | None,
+        db_model: ModelVersion | None,
+    ) -> FeaturePipeline:
+        """Load the fitted feature pipeline saved with a model."""
+        feature_pipeline = None
+        has_hyperparameters = (
+            model_meta
+            and hasattr(model_meta, "hyperparameters")
+            and model_meta.hyperparameters
+        )
+        pipeline_path = (
+            model_meta.hyperparameters.get("feature_pipeline_path")  # type: ignore[union-attr]
+            if has_hyperparameters
+            else None
+        )
+
+        if pipeline_path:
+            p_path = Path(pipeline_path)
+            if p_path.exists() and (p_path / "config.json").exists():
+                with contextlib.suppress(Exception):
+                    feature_pipeline = FeaturePipeline.load(p_path)
+
+        if feature_pipeline is None and db_model and db_model.file_path:
+            rel_path = Path(db_model.file_path).parent / "feature_pipeline"
+            if rel_path.exists() and (rel_path / "config.json").exists():
+                feature_pipeline = FeaturePipeline.load(rel_path)
+
+        if feature_pipeline is None or not feature_pipeline.is_fitted:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Could not load fitted feature pipeline. Backtest aborted "
+                    "to prevent scaling drift."
+                ),
+            )
+
+        return feature_pipeline
 
     def run_backtest(
         self, request: BacktestRequest, db: Session
@@ -120,32 +161,8 @@ class BacktestRunner:
             axis=1,
         )
 
-        # Load the saved feature pipeline (MANDATORY for backtest consistency)
-        feature_pipeline = None
-        pipeline_path = (
-            model_meta.hyperparameters.get("feature_pipeline_path")
-            if model_meta and model_meta.hyperparameters
-            else None
-        )
-
-        # 1. Try path from metadata
-        if pipeline_path:
-            p_path = Path(pipeline_path)
-            if p_path.exists() and (p_path / "config.json").exists():
-                with contextlib.suppress(Exception):
-                    feature_pipeline = FeaturePipeline.load(p_path)
-
-        # 2. Try path relative to model file (most robust for portability)
-        if feature_pipeline is None and db_model and db_model.file_path:
-            rel_path = Path(db_model.file_path).parent / "feature_pipeline"
-            if rel_path.exists() and (rel_path / "config.json").exists():
-                feature_pipeline = FeaturePipeline.load(rel_path)
-
-        if feature_pipeline is None or not feature_pipeline.is_fitted:
-            raise HTTPException(
-                status_code=500,
-                detail="Could not load fitted feature pipeline. Backtest aborted to prevent scaling drift.",  # noqa: E501
-            )
+        # Load the saved feature pipeline (MANDATORY for backtest consistency).
+        feature_pipeline = self._load_saved_feature_pipeline(model_meta, db_model)
 
         repo = MatchRepository(db)
 
@@ -188,6 +205,10 @@ class BacktestRunner:
             str(matches_df["match_date"].max().date()),
         )
 
+        # Only one odds snapshot per match is persisted (Match.odds_*).
+        # Treat it as the closing market price and route CLV through the
+        # model-CLV path so the metric reflects model-vs-closing edge
+        # rather than the structurally-zero dual-snapshot value.
         result = evaluate_predictions(
             y_true=y_true,
             y_pred=y_pred,
@@ -196,6 +217,7 @@ class BacktestRunner:
             model_version=model_meta.version if model_meta else "unknown",
             date_range=date_range,
             min_edge=request.min_edge,
+            use_model_clv=True,
         )
 
         # Save backtest results to database
@@ -280,6 +302,15 @@ class BacktestRunner:
                             "max_drawdown": result.betting.max_drawdown
                             if result.betting
                             else None,
+                            "mean_clv": result.betting.mean_clv
+                            if result.betting
+                            else None,
+                            "clv_hit_rate": result.betting.clv_hit_rate
+                            if result.betting
+                            else None,
+                            "clv_weighted_roi": result.betting.clv_weighted_roi
+                            if result.betting
+                            else None,
                         }
                         if result.betting
                         else None,
@@ -339,6 +370,9 @@ class BacktestRunner:
                     average_losing_odds=result.betting.average_losing_odds,
                     average_kelly_fraction=result.betting.average_kelly_fraction,
                     optimal_kelly_fraction=result.betting.optimal_kelly_fraction,
+                    mean_clv=result.betting.mean_clv,
+                    clv_hit_rate=result.betting.clv_hit_rate,
+                    clv_weighted_roi=result.betting.clv_weighted_roi,
                 )
                 if result.betting
                 else None

@@ -164,6 +164,26 @@ class CollapseRecoveryMixin:
 
         is_ensemble = getattr(self.config, "use_ensemble", False)
         supports_recovery = self.config.model_type in ("xgboost", "lightgbm")
+        is_score_model = self.config.model_type in ("dixon_coles", "hybrid_poisson")
+        if is_score_model:
+            # Score-based models (Dixon-Coles, Hybrid Poisson) naturally produce
+            # fewer argmax-draw predictions because draws emerge from the score
+            # distribution rather than being learned as a class.  A low argmax
+            # draw count is expected and does NOT indicate collapse — the model
+            # still assigns non-trivial probability to draws that will be
+            # reflected in calibration metrics (ECE, log-loss, ROI).  Skip
+            # collapse recovery and accept the model as-is.
+            self._collapse_recovery = {
+                "enabled": self.config.collapse_recovery,
+                "triggered": False,
+                "validation_predictions": initial_report,
+                "note": (
+                    "Score-based model: low argmax-draw count is expected; "
+                    "draw probability lives in the probability distribution, "
+                    "not argmax predictions."
+                ),
+            }
+            return predictor, X_train, X_val, X_test, class_weights, hyperparameters
         if not self.config.collapse_recovery or (
             not supports_recovery and not is_ensemble
         ):

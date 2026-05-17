@@ -78,6 +78,17 @@ def sample_model(test_session: Session) -> ModelVersion:
     return model
 
 
+def _fitted_feature_pipeline() -> MagicMock:
+    """Create a fitted feature pipeline mock for API runner tests."""
+    pipeline = MagicMock()
+    pipeline.is_fitted = True
+    pipeline.feature_names = ["f1", "f2", "f3"]
+    pipeline.transform.side_effect = lambda df, repo: np.ones(
+        (len(df), 3), dtype=np.float64
+    )
+    return pipeline
+
+
 class TestBacktestEndpoint:
     """Tests for POST /api/v1/ml/backtest endpoint."""
 
@@ -96,9 +107,16 @@ class TestBacktestEndpoint:
         self, test_client: TestClient, sample_model: ModelVersion
     ) -> None:
         """Backtest should fail with insufficient matches."""
-        with patch(
-            "algobet.api.routers.ml_operations.ModelRegistry"
-        ) as mock_registry_cls:
+        with (
+            patch(
+                "algobet.services.ml_ops.backtest_runner.ModelRegistry"
+            ) as mock_registry_cls,
+            patch(
+                "algobet.services.ml_ops.backtest_runner."
+                "BacktestRunner._load_saved_feature_pipeline",
+                return_value=_fitted_feature_pipeline(),
+            ),
+        ):
             mock_registry = MagicMock()
             mock_model = MagicMock()
             mock_model.predict_proba.return_value = np.random.dirichlet(
@@ -127,9 +145,16 @@ class TestBacktestEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Backtest should return metrics on success."""
-        with patch(
-            "algobet.api.routers.ml_operations.ModelRegistry"
-        ) as mock_registry_cls:
+        with (
+            patch(
+                "algobet.services.ml_ops.backtest_runner.ModelRegistry"
+            ) as mock_registry_cls,
+            patch(
+                "algobet.services.ml_ops.backtest_runner."
+                "BacktestRunner._load_saved_feature_pipeline",
+                return_value=_fitted_feature_pipeline(),
+            ),
+        ):
             mock_registry = MagicMock()
             mock_model = MagicMock()
             mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
@@ -167,9 +192,16 @@ class TestBacktestEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Backtest should respect date range parameters."""
-        with patch(
-            "algobet.api.routers.ml_operations.ModelRegistry"
-        ) as mock_registry_cls:
+        with (
+            patch(
+                "algobet.services.ml_ops.backtest_runner.ModelRegistry"
+            ) as mock_registry_cls,
+            patch(
+                "algobet.services.ml_ops.backtest_runner."
+                "BacktestRunner._load_saved_feature_pipeline",
+                return_value=_fitted_feature_pipeline(),
+            ),
+        ):
             mock_registry = MagicMock()
             mock_model = MagicMock()
             mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
@@ -201,9 +233,16 @@ class TestBacktestEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Backtest should return all classification metrics."""
-        with patch(
-            "algobet.api.routers.ml_operations.ModelRegistry"
-        ) as mock_registry_cls:
+        with (
+            patch(
+                "algobet.services.ml_ops.backtest_runner.ModelRegistry"
+            ) as mock_registry_cls,
+            patch(
+                "algobet.services.ml_ops.backtest_runner."
+                "BacktestRunner._load_saved_feature_pipeline",
+                return_value=_fitted_feature_pipeline(),
+            ),
+        ):
             mock_registry = MagicMock()
             mock_model = MagicMock()
             mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
@@ -249,9 +288,16 @@ class TestBacktestEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Backtest should return betting simulation metrics."""
-        with patch(
-            "algobet.api.routers.ml_operations.ModelRegistry"
-        ) as mock_registry_cls:
+        with (
+            patch(
+                "algobet.services.ml_ops.backtest_runner.ModelRegistry"
+            ) as mock_registry_cls,
+            patch(
+                "algobet.services.ml_ops.backtest_runner."
+                "BacktestRunner._load_saved_feature_pipeline",
+                return_value=_fitted_feature_pipeline(),
+            ),
+        ):
             mock_registry = MagicMock()
             mock_model = MagicMock()
             mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
@@ -309,10 +355,10 @@ class TestTrainEndpoint:
 
         with (
             patch(
-                "algobet.api.routers.ml_operations.TrainingPipeline"
+                "algobet.services.ml_ops.training_runner.TrainingPipeline"
             ) as mock_pipeline_cls,
             patch(
-                "algobet.api.routers.ml_operations.ModelRegistry"
+                "algobet.services.ml_ops.training_runner.ModelRegistry"
             ) as mock_registry_cls,
         ):
             mock_pipeline = MagicMock()
@@ -327,6 +373,8 @@ class TestTrainEndpoint:
                 val_metrics={"accuracy": 0.63},
                 test_metrics={"accuracy": 0.61},
                 feature_importance={"home_form": 0.21},
+                ensemble_weights=None,
+                ensemble_validation_metrics=None,
             )
             mock_pipeline_cls.return_value = mock_pipeline
             mock_registry_cls.return_value = MagicMock()
@@ -350,8 +398,8 @@ class TestTrainEndpoint:
         assert "test_metrics" in data
         train_config = mock_pipeline_cls.call_args.kwargs["config"]
         assert train_config.feature_schema_version == MODEL_FEATURE_SCHEMA_VERSION
-        assert train_config.calibration_method == "sigmoid"
-        assert train_config.outcome_balance is None
+        assert train_config.calibration_method == "temperature"
+        assert train_config.outcome_balance is False
         assert not hasattr(train_config, "require_odds")
         assert not hasattr(train_config, "odds_blend")
 
@@ -362,10 +410,10 @@ class TestTrainEndpoint:
         """The recommended odds-free EPL request should map into TrainingConfig."""
         with (
             patch(
-                "algobet.api.routers.ml_operations.TrainingPipeline"
+                "algobet.services.ml_ops.training_runner.TrainingPipeline"
             ) as mock_pipeline_cls,
             patch(
-                "algobet.api.routers.ml_operations.ModelRegistry"
+                "algobet.services.ml_ops.training_runner.ModelRegistry"
             ) as mock_registry_cls,
         ):
             mock_pipeline = MagicMock()
@@ -384,6 +432,8 @@ class TestTrainEndpoint:
                     "market_model_probability_mae": 0.12,
                 },
                 feature_importance={"home_points_last_5": 0.21},
+                ensemble_weights=None,
+                ensemble_validation_metrics=None,
             )
             mock_pipeline_cls.return_value = mock_pipeline
             mock_registry_cls.return_value = MagicMock()
@@ -443,15 +493,44 @@ class TestTrainEndpoint:
 
         assert response.status_code == 422
 
-    def test_train_rejects_odds_feature_group(self, test_client: TestClient) -> None:
-        """Training should reject the removed odds feature group."""
-        response = test_client.post(
-            "/api/v1/ml/train",
-            json={"model_type": "xgboost", "feature_groups": ["odds"]},
-        )
+    def test_train_accepts_explicit_odds_feature_group(
+        self, test_client: TestClient
+    ) -> None:
+        """Training should pass explicit odds groups through to TrainingConfig."""
+        with (
+            patch(
+                "algobet.services.ml_ops.training_runner.TrainingPipeline"
+            ) as mock_pipeline_cls,
+            patch(
+                "algobet.services.ml_ops.training_runner.ModelRegistry"
+            ) as mock_registry_cls,
+        ):
+            mock_pipeline = MagicMock()
+            mock_pipeline.run.return_value = MagicMock(
+                model_version="xgboost_20260513_010203",
+                model_type="xgboost",
+                feature_schema_version=MODEL_FEATURE_SCHEMA_VERSION,
+                num_features=12,
+                trained_at=datetime(2026, 5, 13, 1, 2, 3),
+                training_duration_seconds=5.0,
+                train_metrics={"accuracy": 0.7},
+                val_metrics={"accuracy": 0.63},
+                test_metrics={"accuracy": 0.61},
+                feature_importance={"implied_prob_home": 0.3},
+                ensemble_weights=None,
+                ensemble_validation_metrics=None,
+            )
+            mock_pipeline_cls.return_value = mock_pipeline
+            mock_registry_cls.return_value = MagicMock()
 
-        assert response.status_code == 400
-        assert "Unsupported feature groups" in response.json()["detail"]
+            response = test_client.post(
+                "/api/v1/ml/train",
+                json={"model_type": "xgboost", "feature_groups": ["odds"]},
+            )
+
+        assert response.status_code == 200
+        train_config = mock_pipeline_cls.call_args.kwargs["config"]
+        assert train_config.feature_groups == ["odds"]
 
 
 class TestCalibrateEndpoint:
@@ -470,9 +549,16 @@ class TestCalibrateEndpoint:
         self, test_client: TestClient, sample_model: ModelVersion
     ) -> None:
         """Calibrate should fail with insufficient historical matches."""
-        with patch(
-            "algobet.api.routers.ml_operations.ModelRegistry"
-        ) as mock_registry_cls:
+        with (
+            patch(
+                "algobet.services.ml_ops.calibration_runner.ModelRegistry"
+            ) as mock_registry_cls,
+            patch(
+                "algobet.services.ml_ops.calibration_runner."
+                "CalibrationRunner._load_saved_feature_pipeline",
+                return_value=_fitted_feature_pipeline(),
+            ),
+        ):
             mock_registry = MagicMock()
             mock_model = MagicMock()
             mock_model.predict_proba.return_value = np.random.dirichlet(
@@ -501,9 +587,16 @@ class TestCalibrateEndpoint:
         sample_model: ModelVersion,
     ) -> None:
         """Calibrate should return before/after metrics on success."""
-        with patch(
-            "algobet.api.routers.ml_operations.ModelRegistry"
-        ) as mock_registry_cls:
+        with (
+            patch(
+                "algobet.services.ml_ops.calibration_runner.ModelRegistry"
+            ) as mock_registry_cls,
+            patch(
+                "algobet.services.ml_ops.calibration_runner."
+                "CalibrationRunner._load_saved_feature_pipeline",
+                return_value=_fitted_feature_pipeline(),
+            ),
+        ):
             mock_registry = MagicMock()
             mock_model = MagicMock()
             mock_model.predict_proba.side_effect = lambda X: np.random.dirichlet(
@@ -555,9 +648,16 @@ class TestBacktestHistoryEndpoint:
         """History should support pagination."""
         n_test_samples = 105
 
-        with patch(
-            "algobet.api.routers.ml_operations.ModelRegistry"
-        ) as mock_registry_cls:
+        with (
+            patch(
+                "algobet.services.ml_ops.backtest_runner.ModelRegistry"
+            ) as mock_registry_cls,
+            patch(
+                "algobet.services.ml_ops.backtest_runner."
+                "BacktestRunner._load_saved_feature_pipeline",
+                return_value=_fitted_feature_pipeline(),
+            ),
+        ):
             mock_registry = MagicMock()
             mock_model = MagicMock()
             mock_model.predict_proba.return_value = np.random.dirichlet(
@@ -628,7 +728,7 @@ class TestCalibrateValidation:
     """Tests for calibrate request validation."""
 
     def test_method_validation(self, test_client: TestClient) -> None:
-        """Method should be isotonic or sigmoid."""
+        """Method should validate against supported calibration methods."""
         response = test_client.post(
             "/api/v1/ml/calibrate",
             json={"method": "invalid"},

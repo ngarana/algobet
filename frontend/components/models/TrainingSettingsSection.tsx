@@ -73,15 +73,20 @@ export function TrainingSettingsSection({
         <Select
           value={config.calibrationMethod}
           onValueChange={(value) =>
-            onConfigChange("calibrationMethod", value as "isotonic" | "sigmoid")
+            onConfigChange(
+              "calibrationMethod",
+              value as typeof config.calibrationMethod
+            )
           }
         >
           <SelectTrigger id="calibration-method">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="temperature">Temperature</SelectItem>
             <SelectItem value="isotonic">Isotonic</SelectItem>
             <SelectItem value="sigmoid">Sigmoid (Platt)</SelectItem>
+            <SelectItem value="venn_abers">Venn-Abers</SelectItem>
           </SelectContent>
         </Select>
       </div>

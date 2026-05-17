@@ -4,12 +4,19 @@
 
 import { z } from "zod";
 
+const numberWithDefault = (
+  defaultValue: number
+): z.ZodEffects<z.ZodNumber, number, unknown> =>
+  z.preprocess((value) => value ?? defaultValue, z.number());
+
 // =============================================================================
 // Train Model Types
 // =============================================================================
 
 export const TrainModelRequestSchema = z.object({
-  model_type: z.enum(["xgboost", "lightgbm", "random_forest"]).default("xgboost"),
+  model_type: z
+    .enum(["xgboost", "lightgbm", "random_forest", "dixon_coles", "hybrid_poisson"])
+    .default("xgboost"),
   tune_hyperparameters: z.boolean().default(false),
   description: z.string().trim().min(1).max(500).optional(),
   activate: z.boolean().default(true),
@@ -34,7 +41,9 @@ export const TrainModelRequestSchema = z.object({
   tuning_trials: z.number().min(10).max(500).default(50),
   // Calibration settings
   calibrate_probabilities: z.boolean().default(true),
-  calibration_method: z.enum(["isotonic", "sigmoid"]).default("sigmoid"),
+  calibration_method: z
+    .enum(["isotonic", "sigmoid", "temperature", "venn_abers"])
+    .default("temperature"),
   // Outcome balancing
   outcome_balance: z.boolean().optional(),
   outcome_balance_strength: z.number().min(0).max(1).default(0.5),
@@ -49,7 +58,7 @@ export const TrainModelRequestSchema = z.object({
   ensemble_types: z.array(z.string()).optional(),
   // Split strategy
   split_strategy: z
-    .enum(["temporal", "expanding_window", "season_aware"])
+    .enum(["temporal", "expanding_window", "season_aware", "walk_forward"])
     .default("temporal"),
   gap_days: z.number().min(0).max(30).default(0),
   // Expanding window params
@@ -92,6 +101,7 @@ export const TrainModelResultSchema = z.object({
 
 export const BacktestRequestSchema = z.object({
   model_version: z.string().optional(),
+  tournament_id: z.number().optional(),
   start_date: z.string().optional(),
   end_date: z.string().optional(),
   min_matches: z.number().min(10).max(10000).default(100),
@@ -132,6 +142,9 @@ export const BettingMetricsSchema = z.object({
   average_losing_odds: z.number(),
   average_kelly_fraction: z.number(),
   optimal_kelly_fraction: z.number(),
+  mean_clv: numberWithDefault(0),
+  clv_hit_rate: numberWithDefault(0),
+  clv_weighted_roi: numberWithDefault(0),
 });
 
 export const BacktestResultSchema = z.object({
@@ -152,7 +165,9 @@ export const BacktestResultSchema = z.object({
 
 export const CalibrateRequestSchema = z.object({
   model_version: z.string().optional(),
-  method: z.enum(["isotonic", "sigmoid"]).default("isotonic"),
+  method: z
+    .enum(["isotonic", "sigmoid", "temperature", "venn_abers"])
+    .default("isotonic"),
   validation_split: z.number().min(0.1).max(0.5).default(0.2),
   activate: z.boolean().default(true),
 });

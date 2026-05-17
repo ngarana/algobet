@@ -24,8 +24,10 @@ from algobet.predictions.features.composite import (
     create_generators_by_names,
 )
 from algobet.predictions.features.transformers import (
+    PreserveMissingValues,
     TransformerPipeline,
     create_default_transformer_pipeline,
+    create_tree_model_transformer_pipeline,
 )
 
 
@@ -316,6 +318,17 @@ class FeaturePipeline:
             return [gen.name for gen in self.generators.generators]
         return [self.generators.name]
 
+    def _transformer_type(self) -> str:
+        """Return transformer type identifier for serialization.
+
+        Returns 'tree_model' if using PreserveMissingValues (native NaN),
+        or 'default' if using imputer+scaler.
+        """
+        for _name, step in self.transformers.steps:
+            if isinstance(step, PreserveMissingValues):
+                return "tree_model"
+        return "default"
+
     def get_feature_importance(
         self,
         model: BaseEstimator | None = None,
@@ -369,6 +382,7 @@ class FeaturePipeline:
             "selected_feature_names": self._selected_feature_names,
             "generator_names": self._generator_names(),
             "fitted": self._fitted,
+            "transformer_type": self._transformer_type(),
         }
 
         with open(path / "config.json", "w") as f:
@@ -414,7 +428,13 @@ class FeaturePipeline:
         else:
             generators = create_default_generators()
 
-        # Create pipeline
+        # Create pipeline with correct transformer type
+        transformer_type = config_data.get("transformer_type", "default")
+        if transformer_type == "tree_model":
+            transformers = create_tree_model_transformer_pipeline()
+        else:
+            transformers = create_default_transformer_pipeline()
+
         config = PipelineConfig(
             schema_version=config_data["schema_version"],
             created_at=datetime.fromisoformat(config_data["created_at"]),
@@ -424,7 +444,7 @@ class FeaturePipeline:
 
         pipeline = cls(
             generators=generators,
-            transformers=create_default_transformer_pipeline(),
+            transformers=transformers,
             config=config,
         )
 

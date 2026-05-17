@@ -87,6 +87,9 @@ class BettingMetricsResponse(BaseModel):
     average_losing_odds: float
     average_kelly_fraction: float
     optimal_kelly_fraction: float
+    mean_clv: float = 0.0
+    clv_hit_rate: float = 0.0
+    clv_weighted_roi: float = 0.0
 
 
 class BacktestResultResponse(BaseModel):
@@ -107,7 +110,9 @@ class CalibrateRequest(BaseModel):
     """Request schema for calibrate operation."""
 
     model_version: str | None = None
-    method: str = Field(default="isotonic", pattern="^(isotonic|sigmoid)$")
+    method: str = Field(
+        default="isotonic", pattern="^(isotonic|sigmoid|temperature|venn_abers)$"
+    )
     validation_split: float = Field(default=0.2, ge=0.1, le=0.5)
     activate: bool = True
 
@@ -137,7 +142,7 @@ class TrainModelRequest(BaseModel):
 
     model_type: str = Field(
         default=DEFAULT_TRAIN_MODEL_TYPE,
-        pattern="^(xgboost|lightgbm|random_forest)$",
+        pattern="^(xgboost|lightgbm|random_forest|dixon_coles|hybrid_poisson)$",
     )
     tune_hyperparameters: bool = False
     description: str | None = None
@@ -170,7 +175,7 @@ class TrainModelRequest(BaseModel):
     # Calibration settings
     calibrate_probabilities: bool = True
     calibration_method: str = Field(
-        default="temperature", pattern="^(isotonic|sigmoid|temperature)$"
+        default="temperature", pattern="^(isotonic|sigmoid|temperature|venn_abers)$"
     )
 
     # Outcome balancing control
@@ -192,7 +197,7 @@ class TrainModelRequest(BaseModel):
     # Split strategy
     split_strategy: str = Field(
         default="temporal",
-        pattern="^(temporal|expanding_window|season_aware)$",
+        pattern="^(temporal|expanding_window|season_aware|walk_forward)$",
     )
     gap_days: int = Field(default=0, ge=0, le=30)
     # Expanding window params (used when split_strategy = expanding_window)

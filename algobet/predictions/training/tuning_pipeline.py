@@ -32,6 +32,20 @@ class TuningPipelineMixin:
         from algobet.predictions.training.tuner import DEFAULT_SEARCH_SPACES
 
         model_type = self.config.model_type
+
+        # Score-based models (Dixon-Coles, HybridPoisson) require goal data
+        # via fit_with_scores(); the tuner only has (X, y) and calls generic
+        # fit(), which will crash. Skip tuning and use default params.
+        _SCORE_BASED_MODELS = {"dixon_coles", "hybrid_poisson"}
+        if model_type in _SCORE_BASED_MODELS:
+            import logging
+
+            logging.getLogger(__name__).info(
+                "Skipping hyperparameter tuning for score-based model '%s'. "
+                "The tuner cannot provide goal data required by fit_with_scores().",
+                model_type,
+            )
+            return None
         n_trials = self.config.tuning_trials
 
         # Choose search space

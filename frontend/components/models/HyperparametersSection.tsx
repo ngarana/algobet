@@ -134,6 +134,67 @@ const HYPERPARAMS_BY_MODEL: Record<string, HyperparamDef[]> = {
       defaultValue: 1,
     },
   ],
+  dixon_coles: [
+    {
+      key: "max_iter",
+      label: "Max Iter",
+      min: 100,
+      max: 2000,
+      step: 50,
+      defaultValue: 600,
+    },
+    {
+      key: "learning_rate",
+      label: "Learning Rate",
+      min: 0.005,
+      max: 0.2,
+      step: 0.005,
+      defaultValue: 0.03,
+    },
+    {
+      key: "l2_regularization",
+      label: "L2 Regularization",
+      min: 0,
+      max: 1,
+      step: 0.01,
+      defaultValue: 0.05,
+    },
+    {
+      key: "max_leaf_nodes",
+      label: "Max Leaf Nodes",
+      min: 5,
+      max: 127,
+      step: 1,
+      defaultValue: 31,
+    },
+  ],
+  hybrid_poisson: [
+    { key: "max_depth", label: "Max Depth", min: 2, max: 10, step: 1, defaultValue: 4 },
+    {
+      key: "learning_rate",
+      label: "Learning Rate",
+      min: 0.005,
+      max: 0.2,
+      step: 0.005,
+      defaultValue: 0.03,
+    },
+    {
+      key: "n_estimators",
+      label: "N Estimators",
+      min: 100,
+      max: 2000,
+      step: 50,
+      defaultValue: 600,
+    },
+    {
+      key: "reg_lambda",
+      label: "L2 Regularization",
+      min: 0,
+      max: 20,
+      step: 0.5,
+      defaultValue: 1,
+    },
+  ],
 };
 
 export function HyperparametersSection({

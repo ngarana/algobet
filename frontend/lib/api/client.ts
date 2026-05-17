@@ -26,7 +26,7 @@ export class ApiError extends Error {
 
 async function handleResponse<T>(
   response: Response,
-  schema?: z.ZodType<T>
+  schema?: z.ZodType<T, z.ZodTypeDef, unknown>
 ): Promise<T> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => null);
@@ -81,7 +81,10 @@ async function handleResponse<T>(
   return data as T;
 }
 
-export async function apiGet<T>(endpoint: string, schema?: z.ZodType<T>): Promise<T> {
+export async function apiGet<T>(
+  endpoint: string,
+  schema?: z.ZodType<T, z.ZodTypeDef, unknown>
+): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     headers: {
       Accept: "application/json",
@@ -93,7 +96,7 @@ export async function apiGet<T>(endpoint: string, schema?: z.ZodType<T>): Promis
 export async function apiPost<T>(
   endpoint: string,
   body: unknown,
-  schema?: z.ZodType<T>,
+  schema?: z.ZodType<T, z.ZodTypeDef, unknown>,
   baseUrlOverride?: string
 ): Promise<T> {
   const base = baseUrlOverride ?? API_BASE_URL;
@@ -111,7 +114,7 @@ export async function apiPost<T>(
 export async function apiPut<T>(
   endpoint: string,
   body: unknown,
-  schema?: z.ZodType<T>
+  schema?: z.ZodType<T, z.ZodTypeDef, unknown>
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     method: "PUT",
@@ -127,7 +130,7 @@ export async function apiPut<T>(
 export async function apiPatch<T>(
   endpoint: string,
   body: unknown,
-  schema?: z.ZodType<T>
+  schema?: z.ZodType<T, z.ZodTypeDef, unknown>
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     method: "PATCH",
@@ -142,7 +145,7 @@ export async function apiPatch<T>(
 
 export async function apiDelete<T>(
   endpoint: string,
-  schema?: z.ZodType<T>
+  schema?: z.ZodType<T, z.ZodTypeDef, unknown>
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     method: "DELETE",

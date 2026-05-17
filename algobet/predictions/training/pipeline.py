@@ -80,19 +80,10 @@ class TrainingPipeline(
         self.models_path = Path(models_path)
         self.feature_pipeline_path: Path | None = None
 
-        # Initialize feature pipeline with optional feature group selection
         if feature_pipeline:
             self.feature_pipeline = feature_pipeline
-        elif config.feature_groups:
-            self.feature_pipeline = self._create_feature_pipeline_with_groups(
-                config.feature_groups
-            )
         else:
-            self.feature_pipeline = FeaturePipeline.create_default()
-        if feature_pipeline is None and self._uses_native_missing_value_model():
-            self.feature_pipeline.transformers = (
-                create_tree_model_transformer_pipeline()
-            )
+            self.feature_pipeline = self._new_feature_pipeline()
         self.feature_pipeline.config.schema_version = config.feature_schema_version
         self.feature_store = FeatureStore(
             session=session,
@@ -122,6 +113,22 @@ class TrainingPipeline(
         self._selected_feature_names: list[str] | None = None
         self._feature_selection_report: FeatureSelectionReport | None = None
         self._collapse_recovery: dict[str, Any] | None = None
+        self._prepared_matches_df: pd.DataFrame | None = None
+        self._prepared_splits: list[Any] = []
+
+    def _new_feature_pipeline(self) -> FeaturePipeline:
+        """Create a fresh feature pipeline matching the training config."""
+        if self.config.feature_groups:
+            pipeline = self._create_feature_pipeline_with_groups(
+                self.config.feature_groups
+            )
+        else:
+            pipeline = FeaturePipeline.create_default()
+
+        if self._uses_native_missing_value_model():
+            pipeline.transformers = create_tree_model_transformer_pipeline()
+        pipeline.config.schema_version = self.config.feature_schema_version
+        return pipeline
 
     def _uses_native_missing_value_model(self) -> bool:
         """Return True when every trained model can consume NaN values directly."""
@@ -129,7 +136,10 @@ class TrainingPipeline(
             model_types = self.config.ensemble_types
         else:
             model_types = [self.config.model_type]
-        return all(model_type in {"xgboost", "lightgbm"} for model_type in model_types)
+        return all(
+            model_type in {"xgboost", "lightgbm", "dixon_coles", "hybrid_poisson"}
+            for model_type in model_types
+        )
 
     def save_training_config(self, path: Path) -> None:
         """Save training configuration to file.

@@ -1,7 +1,7 @@
 """Weighted ensemble optimizer for combining XGBoost and LightGBM predictions.
 
 Uses deterministic grid search over xgboost weights [0.05, 0.95] and
-selects weights that maximize validation log loss while rejecting
+selects weights that minimize validation log loss while rejecting
 class-collapsed candidates.
 """
 

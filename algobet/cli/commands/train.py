@@ -19,7 +19,9 @@ def train_cli() -> None:
 @click.option(
     "--model-type",
     "-t",
-    type=click.Choice(["xgboost", "lightgbm", "random_forest"]),
+    type=click.Choice(
+        ["xgboost", "lightgbm", "random_forest", "dixon_coles", "hybrid_poisson"]
+    ),
     default="xgboost",
     help="Type of model to train",
 )

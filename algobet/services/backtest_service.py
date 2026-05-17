@@ -154,8 +154,11 @@ class BacktestService(BaseService[Session]):
                 with contextlib.suppress(Exception):
                     feature_pipeline = FeaturePipeline.load(pipeline_path)
 
-        if feature_pipeline is None:
-            feature_pipeline = FeaturePipeline.create_default()
+        if feature_pipeline is None or not feature_pipeline.is_fitted:
+            raise PredictionError(
+                "Could not load fitted feature pipeline. Backtest aborted to "
+                "prevent preprocessing drift."
+            )
 
         val_split = 0.2
         train_size = int(len(matches) * (1 - val_split))
@@ -170,9 +173,6 @@ class BacktestService(BaseService[Session]):
                 "validation_matches": len(test_matches),
             },
         )
-
-        if not feature_pipeline.is_fitted:
-            feature_pipeline.fit(train_matches, repo)
 
         return feature_pipeline, repo, train_matches, test_matches
 
@@ -237,6 +237,8 @@ class BacktestService(BaseService[Session]):
 
             from algobet.predictions.evaluation import evaluate_predictions
 
+            # Single odds snapshot per match → treat as closing and use
+            # model-CLV (see metrics.calculate_betting_metrics docstring).
             result = evaluate_predictions(
                 y_true=y_true,
                 y_pred=y_pred,
@@ -244,6 +246,7 @@ class BacktestService(BaseService[Session]):
                 odds=odds,
                 model_version=version,
                 date_range=date_range,
+                use_model_clv=True,
             )
 
             execution_time = time.time() - start_time

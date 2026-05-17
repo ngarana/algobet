@@ -50,7 +50,7 @@ export const defaultConfig = {
   tuningTrials: 50,
   // Calibration settings
   calibrateProbabilities: true,
-  calibrationMethod: "sigmoid" as const,
+  calibrationMethod: "temperature" as const,
   // Outcome balancing
   outcomeBalance: false,
   outcomeBalanceStrength: 0.5,

@@ -17,10 +17,29 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
     _UNDERSTAT_FIELDS: tuple[tuple[str, str], ...] = (
         ("xg_for", "xg"),
         ("xg_against", "xg"),
+        ("npxg_for", "npxg"),
+        ("npxg_against", "npxg"),
         ("ppda_for", "ppda"),
         ("ppda_against", "ppda"),
         ("deep_completions_for", "deep_completions"),
         ("deep_completions_against", "deep_completions"),
+    )
+    # Fields that get extra trend (slope) + volatility (std) statistics computed
+    # on top of the rolling mean. Targets the variance-compression diagnosis:
+    # the regressors need more spread-encoding signal than a single mean provides.
+    _TREND_VOL_FIELDS: tuple[str, ...] = (
+        "xg_for",
+        "xg_against",
+        "npxg_for",
+        "npxg_against",
+    )
+    # Derived per-match samples computed from raw stats (extracted in
+    # _extract_team_match_stats and rolled up the same way as raw fields).
+    _DERIVED_PER_MATCH_FIELDS: tuple[str, ...] = (
+        "finishing_rate_for",  # goals_for / max(xg_for, 0.1)
+        "finishing_rate_against",  # goals_against / max(xg_against, 0.1)
+        "xg_for_adj",  # xg_for - opponent rolling xg_against
+        "xg_against_adj",  # xg_against - opponent rolling xg_for
     )
     # Only available from OddsPortal scrape
     _BASIC_STAT_FIELDS: tuple[tuple[str, str], ...] = (("shots_for", "shots"),)
@@ -67,10 +86,21 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
     @property
     def feature_names(self) -> list[str]:
         names = []
+        active_match_field_names = {name for name, _ in self._active_match_stat_fields}
         for prefix in ("home", "away"):
             for w in self.window_sizes:
                 for feature_name, _ in self._active_match_stat_fields:
                     names.append(f"{prefix}_{feature_name}_avg_{w}")
+                # Trend (slope) + volatility (std) for fields where dispersion
+                # carries predictive signal (xG/npxG for and against).
+                for feature_name in self._TREND_VOL_FIELDS:
+                    if feature_name not in active_match_field_names:
+                        continue
+                    names.append(f"{prefix}_{feature_name}_slope_{w}")
+                    names.append(f"{prefix}_{feature_name}_std_{w}")
+                # Derived per-match samples (finishing rate, opponent-adjusted xG).
+                for derived in self._DERIVED_PER_MATCH_FIELDS:
+                    names.append(f"{prefix}_{derived}_avg_{w}")
                 if self.include_player_stats:
                     for feature_name, _ in self._PLAYER_STAT_FIELDS:
                         names.append(f"{prefix}_{feature_name}_avg_{w}")
@@ -196,6 +226,7 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
                     matches=recent_matches,
                     prefix=prefix,
                     window_size=window_size,
+                    repository=repository,
                 )
             )
         return team_features
@@ -206,13 +237,19 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
         matches: list[Any],
         prefix: str,
         window_size: int,
+        repository: MatchRepository,
     ) -> dict[str, float]:
-        match_rows = []
+        match_rows: list[dict[str, Any]] = []
         player_rows = []
 
         for match in matches:
             match_stats = self._extract_team_match_stats(team_id=team_id, match=match)
             if match_stats is not None:
+                # Derived per-sample features that need extra lookups.
+                self._attach_derived_sample_fields(
+                    sample=match_stats,
+                    repository=repository,
+                )
                 match_rows.append(match_stats)
 
             player_stats = self._extract_team_player_rollup(
@@ -227,10 +264,29 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
         player_coverage = len(player_rows) / denominator if denominator else 0.0
 
         features: dict[str, float] = {}
+        active_match_field_names = {name for name, _ in self._active_match_stat_fields}
         for feature_name, _ in self._active_match_stat_fields:
             features[f"{prefix}_{feature_name}_avg_{window_size}"] = self._mean(
                 rows=match_rows,
                 key=feature_name,
+            )
+        # Trend (slope) + volatility (std) for high-signal dispersion fields.
+        for feature_name in self._TREND_VOL_FIELDS:
+            if feature_name not in active_match_field_names:
+                continue
+            features[f"{prefix}_{feature_name}_slope_{window_size}"] = self._slope(
+                rows=match_rows,
+                key=feature_name,
+            )
+            features[f"{prefix}_{feature_name}_std_{window_size}"] = self._std(
+                rows=match_rows,
+                key=feature_name,
+            )
+        # Derived per-match aggregates (finishing rate, opponent-adjusted xG).
+        for derived in self._DERIVED_PER_MATCH_FIELDS:
+            features[f"{prefix}_{derived}_avg_{window_size}"] = self._mean(
+                rows=match_rows,
+                key=derived,
             )
         if self.include_player_stats:
             for feature_name, _ in self._PLAYER_STAT_FIELDS:
@@ -244,11 +300,99 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
 
         return features
 
+    # Tunables for derived-sample features.
+    _XG_FLOOR = 0.1  # Prevents division blow-up in finishing rate.
+    _OPP_BASELINE_WINDOW = 5  # Window size for opponent's xg_against / xg_for baseline.
+
+    def _attach_derived_sample_fields(
+        self,
+        sample: dict[str, Any],
+        repository: MatchRepository,
+    ) -> None:
+        """Compute per-sample derived features (finishing rate, opp-adjusted xG).
+
+        Mutates `sample` in place to add keys named in `_DERIVED_PER_MATCH_FIELDS`.
+        Uses NaN for any sample where the required raw inputs are missing —
+        downstream mean aggregation already ignores NaN.
+        """
+        xg_for = sample.get("xg_for", float("nan"))
+        xg_against = sample.get("xg_against", float("nan"))
+        goals_for = sample.get("_goals_for", float("nan"))
+        goals_against = sample.get("_goals_against", float("nan"))
+
+        # Finishing rate: how clinical was the team relative to chance quality?
+        sample["finishing_rate_for"] = (
+            goals_for / max(xg_for, self._XG_FLOOR)
+            if not (np.isnan(xg_for) or np.isnan(goals_for))
+            else float("nan")
+        )
+        sample["finishing_rate_against"] = (
+            goals_against / max(xg_against, self._XG_FLOOR)
+            if not (np.isnan(xg_against) or np.isnan(goals_against))
+            else float("nan")
+        )
+
+        # Opponent-adjusted xG: remove strength-of-schedule confound.
+        opponent_id = sample.get("_opponent_id")
+        match_date = sample.get("_match_date")
+        if opponent_id is not None and match_date is not None:
+            opp_xg_against_avg, opp_xg_for_avg = self._opponent_baseline(
+                repository=repository,
+                opponent_id=opponent_id,
+                before_date=match_date,
+            )
+            sample["xg_for_adj"] = (
+                xg_for - opp_xg_against_avg
+                if not (np.isnan(xg_for) or np.isnan(opp_xg_against_avg))
+                else float("nan")
+            )
+            sample["xg_against_adj"] = (
+                xg_against - opp_xg_for_avg
+                if not (np.isnan(xg_against) or np.isnan(opp_xg_for_avg))
+                else float("nan")
+            )
+        else:
+            sample["xg_for_adj"] = float("nan")
+            sample["xg_against_adj"] = float("nan")
+
+    def _opponent_baseline(
+        self,
+        repository: MatchRepository,
+        opponent_id: int,
+        before_date: datetime,
+    ) -> tuple[float, float]:
+        """Return opponent's rolling (xg_against_avg, xg_for_avg) before a date."""
+        opp_history = repository.get_team_matches(
+            team_id=opponent_id,
+            before_date=before_date,
+            limit=self._OPP_BASELINE_WINDOW,
+        )
+        xg_against_vals: list[float] = []
+        xg_for_vals: list[float] = []
+        for opp_match in opp_history:
+            opp_stats = self._extract_team_match_stats(
+                team_id=opponent_id,
+                match=opp_match,
+            )
+            if opp_stats is None:
+                continue
+            xg_against = opp_stats.get("xg_against", float("nan"))
+            xg_for = opp_stats.get("xg_for", float("nan"))
+            if not np.isnan(xg_against):
+                xg_against_vals.append(xg_against)
+            if not np.isnan(xg_for):
+                xg_for_vals.append(xg_for)
+        xg_against_avg = (
+            float(np.mean(xg_against_vals)) if xg_against_vals else float("nan")
+        )
+        xg_for_avg = float(np.mean(xg_for_vals)) if xg_for_vals else float("nan")
+        return xg_against_avg, xg_for_avg
+
     def _extract_team_match_stats(
         self,
         team_id: int,
         match: Any,
-    ) -> dict[str, float] | None:
+    ) -> dict[str, Any] | None:
         statistics = getattr(match, "statistics", None)
         if statistics is None:
             return None
@@ -256,6 +400,13 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
         is_home = getattr(match, "home_team_id", None) == team_id
         team_prefix = "home" if is_home else "away"
         opp_prefix = "away" if is_home else "home"
+        opponent_id = (
+            getattr(match, "away_team_id", None)
+            if is_home
+            else getattr(match, "home_team_id", None)
+        )
+        team_score = getattr(match, f"{team_prefix}_score", None)
+        opp_score = getattr(match, f"{opp_prefix}_score", None)
 
         raw_stats = {
             "xg_for": getattr(statistics, f"{team_prefix}_xg", None),
@@ -284,10 +435,20 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
         if all(value is None for value in raw_stats.values()):
             return None
 
-        return {
+        sample: dict[str, Any] = {
             feature_name: float(value) if value is not None else float("nan")
             for feature_name, value in raw_stats.items()
         }
+        # Metadata needed for derived features computed in the rollup step.
+        sample["_opponent_id"] = int(opponent_id) if opponent_id is not None else None
+        sample["_match_date"] = getattr(match, "match_date", None)
+        sample["_goals_for"] = (
+            float(team_score) if team_score is not None else float("nan")
+        )
+        sample["_goals_against"] = (
+            float(opp_score) if opp_score is not None else float("nan")
+        )
+        return sample
 
     def _extract_team_player_rollup(
         self,
@@ -356,8 +517,35 @@ class EnrichedStatsFeatureGenerator(FeatureGenerator):
         )
 
     @staticmethod
-    def _mean(rows: list[dict[str, float]], key: str) -> float:
+    def _mean(rows: list[dict[str, Any]], key: str) -> float:
         if not rows:
             return float("nan")
-        vals = [row[key] for row in rows if not np.isnan(row[key])]
+        vals = [row[key] for row in rows if key in row and not np.isnan(row[key])]
         return float(np.mean(vals)) if vals else float("nan")
+
+    @staticmethod
+    def _std(rows: list[dict[str, Any]], key: str) -> float:
+        """Population std of a series; NaN if fewer than 2 valid samples."""
+        if not rows:
+            return float("nan")
+        vals = [row[key] for row in rows if key in row and not np.isnan(row[key])]
+        if len(vals) < 2:
+            return float("nan")
+        return float(np.std(vals, ddof=0))
+
+    @staticmethod
+    def _slope(rows: list[dict[str, Any]], key: str) -> float:
+        """Linear-fit slope across rows. Rows are ordered most-recent first;
+        we reverse so positive slope = improving (more recent values larger).
+        NaN if fewer than 2 valid samples."""
+        if not rows:
+            return float("nan")
+        vals = [row[key] for row in rows if key in row and not np.isnan(row[key])]
+        if len(vals) < 2:
+            return float("nan")
+        ordered = list(reversed(vals))  # chronological: oldest → newest
+        x = np.arange(len(ordered), dtype=np.float64)
+        y = np.asarray(ordered, dtype=np.float64)
+        # np.polyfit(x, y, 1) returns [slope, intercept].
+        slope, _ = np.polyfit(x, y, 1)
+        return float(slope)

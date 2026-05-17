@@ -535,8 +535,8 @@ class TestCompositeIntegration:
         from algobet.predictions.features.composite import create_generators_by_names
 
         gen = create_generators_by_names(["team_form", "elo_rating", "expected_points"])
-        # 99 team_form + 8 elo + 15 xpts = 122
-        assert len(gen.feature_names) == 122
+        # 27 team_form + 8 elo + 15 xpts = 50
+        assert len(gen.feature_names) == 50
 
 
 class TestFeatureClassification:

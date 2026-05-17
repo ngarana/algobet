@@ -90,6 +90,11 @@ class BettingMetrics:
     average_kelly_fraction: float
     optimal_kelly_fraction: float
 
+    # Closing Line Value (CLV) metrics
+    mean_clv: float = 0.0
+    clv_hit_rate: float = 0.0
+    clv_weighted_roi: float = 0.0
+
 
 @dataclass
 class EvaluationResult:
@@ -243,6 +248,8 @@ def calculate_betting_metrics(
     stake: float = 1.0,
     min_edge: float = 0.0,
     kelly_fraction: float = 0.25,
+    closing_odds: NDArray[np.float64] | None = None,
+    use_model_clv: bool = False,
 ) -> BettingMetrics:
     """Calculate betting-specific metrics.
 
@@ -256,9 +263,20 @@ def calculate_betting_metrics(
         stake: Fixed stake per bet
         min_edge: Minimum edge threshold to place bet
         kelly_fraction: Fraction of Kelly criterion to use
+        closing_odds: Optional closing odds matrix (n_samples, 3) for CLV.
+            When provided (and use_model_clv is False), classical
+            dual-snapshot CLV = taken/closing - 1 is computed.
+        use_model_clv: When True, compute model-CLV instead of classical
+            CLV. In this mode `odds` is treated as the closing market
+            price, the model's own probabilities (re-scaled to match
+            the closing overround) act as the synthetic "taken" odds,
+            and CLV becomes closing_odds * model_prob * overround - 1.
+            Positive across many bets indicates the closing market
+            under-priced the outcomes the model picked. Use this when
+            only one odds snapshot per match exists.
 
     Returns:
-        BettingMetrics with simulated betting results
+        BettingMetrics with simulated betting results including CLV
     """
     n_samples = len(y_true)
 
@@ -349,6 +367,76 @@ def calculate_betting_metrics(
     avg_kelly = np.mean(kelly_fractions) if kelly_fractions else 0.0
     optimal_kelly = avg_kelly * 4 if avg_kelly > 0 else 0.25  # Rough estimate
 
+    # Closing Line Value (CLV) metrics
+    # Classical CLV needs two snapshots (taken vs closing). With only one
+    # snapshot, callers can opt into model-CLV: treat `odds` as closing and
+    # use the model's overround-adjusted implied price as synthetic "taken".
+    closing = closing_odds if closing_odds is not None else odds
+    clv_values = []
+    clv_weighted_returns = []
+    clv_total_stake = 0.0
+
+    for i in range(n_samples):
+        probas = y_proba[i]
+        match_odds = odds[i]
+        close = closing[i]
+
+        # Determine the best-edge bet (same logic as above)
+        edges = []
+        for cls in range(3):
+            implied_prob = 1.0 / match_odds[cls]
+            edge = probas[cls] - implied_prob
+            edges.append((edge, cls))
+
+        best_edge, best_cls = max(edges, key=lambda x: x[0])
+
+        if best_edge > min_edge:
+            closing_price = close[best_cls]
+
+            if use_model_clv:
+                # Re-scale model probs onto the closing overround so the
+                # synthetic taken price lives in the same vig-loaded scale
+                # as the closing market; then CLV = closing * adj_prob - 1.
+                # Positive => closing market under-priced the model's pick.
+                closing_implieds = 1.0 / close
+                closing_overround = float(closing_implieds.sum())
+                model_prob_adj = probas[best_cls] * closing_overround
+                if closing_price > 0 and model_prob_adj > 0:
+                    clv = closing_price * model_prob_adj - 1.0
+                else:
+                    clv = 0.0
+            else:
+                # Classical CLV: compare the price taken (opening `odds`)
+                # against the closing price. Positive means the taken
+                # odds were longer than where the market settled.
+                taken_odds = match_odds[best_cls]
+                if taken_odds > 0 and closing_price > 0:
+                    clv = taken_odds / closing_price - 1.0
+                else:
+                    clv = 0.0
+            clv_values.append(clv)
+
+            # Weight CLV by actual bet result
+            b = match_odds[best_cls] - 1
+            p = probas[best_cls]
+            q = 1 - p
+            kelly = (b * p - q) / b if b > 0 else 0
+            kelly = max(0, kelly) * kelly_fraction
+            bet_stake_clv = stake * kelly if kelly > 0 else stake
+            clv_total_stake += bet_stake_clv
+
+            clv_weighted_returns.append(clv * bet_stake_clv)
+
+    mean_clv = float(np.mean(clv_values)) if clv_values else 0.0
+    clv_hit_rate = (
+        float(np.mean([1 if v > 0 else 0 for v in clv_values])) if clv_values else 0.0
+    )
+    clv_weighted_roi = (
+        (sum(clv_weighted_returns) / clv_total_stake * 100)
+        if clv_total_stake > 0
+        else 0.0
+    )
+
     return BettingMetrics(
         total_bets=total_bets,
         winning_bets=winning_bets,
@@ -365,6 +453,9 @@ def calculate_betting_metrics(
         average_losing_odds=avg_losing_odds,
         average_kelly_fraction=avg_kelly,
         optimal_kelly_fraction=optimal_kelly,
+        mean_clv=mean_clv,
+        clv_hit_rate=clv_hit_rate,
+        clv_weighted_roi=clv_weighted_roi,
     )
 
 
@@ -403,6 +494,8 @@ def evaluate_predictions(
     model_version: str = "unknown",
     date_range: tuple[str, str] | None = None,
     min_edge: float = 0.0,
+    closing_odds: NDArray[np.float64] | None = None,
+    use_model_clv: bool = False,
 ) -> EvaluationResult:
     """Complete evaluation of predictions.
 
@@ -426,7 +519,12 @@ def evaluate_predictions(
     betting_metrics = None
     if odds is not None:
         betting_metrics = calculate_betting_metrics(
-            y_true, y_proba, odds, min_edge=min_edge
+            y_true,
+            y_proba,
+            odds,
+            min_edge=min_edge,
+            closing_odds=closing_odds,
+            use_model_clv=use_model_clv,
         )
 
     # Calibration metrics

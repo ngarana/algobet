@@ -66,6 +66,7 @@ FEATURE_FAMILIES: dict[str, list[str]] = {
         "shots_on_target_rate",
         "has_enriched",
         "has_player",
+        "finishing_rate",
     ],
     "coverage": [
         "enriched_match_coverage",
@@ -114,6 +115,19 @@ FEATURE_FAMILIES: dict[str, list[str]] = {
         "season_progress",
     ],
     "h2h": ["h2h_"],
+    "odds": [
+        "implied_prob",
+        "bookmaker_margin",
+        "odds_home_away_ratio",
+        "favorite_outcome",
+        "favorite_implied_prob",
+        "odds_quality_score",
+    ],
+    "odds_residual": [
+        "form_surprise",
+        "venue_surprise",
+        "home_advantage_net",
+    ],
 }
 
 

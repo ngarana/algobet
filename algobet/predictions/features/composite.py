@@ -18,6 +18,10 @@ from algobet.predictions.features.head_to_head_generator import HeadToHeadGenera
 from algobet.predictions.features.matchup_interaction_generator import (
     MatchupInteractionGenerator,
 )
+from algobet.predictions.features.odds_generator import OddsFeatureGenerator
+from algobet.predictions.features.odds_residual_generator import (
+    OddsResidualFeatureGenerator,
+)
 from algobet.predictions.features.player_quality_generator import (
     PlayerQualityGenerator,
 )
@@ -158,6 +162,8 @@ def create_generators_by_names(generator_names: list[str]) -> CompositeFeatureGe
         "player_quality": lambda: PlayerQualityGenerator(
             window_sizes=[3, 5],
         ),
+        "odds": lambda: OddsFeatureGenerator(),
+        "odds_residual": lambda: OddsResidualFeatureGenerator(),
     }
 
     unsupported = sorted(set(generator_names) - set(generator_factories))

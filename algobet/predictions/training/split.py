@@ -211,6 +211,119 @@ class TemporalSplitter:
             )
 
 
+class WalkForwardSplitter:
+    """Walk-forward validation that respects season boundaries.
+
+    Generates multiple train/val/test splits where each window
+    shifts forward by one season. This provides honest out-of-sample
+    performance estimates that are resistant to survivorship bias.
+
+    Example (4 folds with train_seasons=6, val_seasons=1, test_seasons=1):
+        Fold 1: Seasons 1-6: Train | Season 7: Val | Season 8: Test
+        Fold 2: Seasons 2-7: Train | Season 8: Val | Season 9: Test
+        ...
+    """
+
+    def __init__(
+        self,
+        train_seasons: int = 6,
+        val_seasons: int = 1,
+        test_seasons: int = 1,
+        min_folds: int = 3,
+        season_column: str = "season_id",
+        date_column: str = "match_date",
+    ) -> None:
+        self.train_seasons = train_seasons
+        self.val_seasons = val_seasons
+        self.test_seasons = test_seasons
+        self.min_folds = min_folds
+        self.season_column = season_column
+        self.date_column = date_column
+
+    def split(
+        self,
+        df: pd.DataFrame,
+    ) -> Iterator[TemporalSplit]:
+        """Generate walk-forward splits across seasons.
+
+        Args:
+            df: DataFrame with season_id and match_date columns
+
+        Yields:
+            TemporalSplit objects for each fold
+        """
+        null_mask = df[self.season_column].isna()
+        if null_mask.any():
+            logger.warning(
+                "WalkForwardSplitter: dropping %d row(s) with null %s before splitting",
+                null_mask.sum(),
+                self.season_column,
+            )
+            df = df[~null_mask].copy()
+
+        df = df.sort_values(self.date_column)
+        dates = pd.to_datetime(df[self.date_column])
+
+        def _season_sort_key(s: Any) -> int:
+            s_str = str(s)
+            try:
+                return int(s_str.split("/")[0]) if "/" in s_str else int(float(s_str))
+            except (ValueError, TypeError):
+                return 0
+
+        seasons = sorted(df[self.season_column].unique(), key=_season_sort_key)
+        total_seasons_needed = self.train_seasons + self.val_seasons + self.test_seasons
+
+        if len(seasons) < total_seasons_needed:
+            raise ValueError(
+                f"Not enough seasons ({len(seasons)}) for walk-forward split "
+                f"(need {total_seasons_needed}: {self.train_seasons} train + "
+                f"{self.val_seasons} val + {self.test_seasons} test)"
+            )
+
+        max_start = len(seasons) - total_seasons_needed + 1
+        for start in range(max_start):
+            train_sl = seasons[start : start + self.train_seasons]
+            val_sl = seasons[
+                start + self.train_seasons : start
+                + self.train_seasons
+                + self.val_seasons
+            ]
+            test_sl = seasons[
+                start + self.train_seasons + self.val_seasons : start
+                + self.train_seasons
+                + self.val_seasons
+                + self.test_seasons
+            ]
+
+            train_mask = df[self.season_column].isin(train_sl)
+            val_mask = df[self.season_column].isin(val_sl)
+            test_mask = df[self.season_column].isin(test_sl)
+
+            train_indices = df.index[train_mask].to_numpy()
+            val_indices = df.index[val_mask].to_numpy()
+            test_indices = df.index[test_mask].to_numpy()
+
+            if (
+                len(train_indices) == 0
+                or len(val_indices) == 0
+                or len(test_indices) == 0
+            ):
+                continue
+
+            yield TemporalSplit(
+                train_indices=train_indices,
+                val_indices=val_indices,
+                test_indices=test_indices,
+                train_start=dates.loc[train_indices[0]],
+                train_end=dates.loc[train_indices[-1]],
+                val_start=dates.loc[val_indices[0]],
+                val_end=dates.loc[val_indices[-1]],
+                test_start=dates.loc[test_indices[0]],
+                test_end=dates.loc[test_indices[-1]],
+            )
+
+
 class ExpandingWindowSplitter:
     """Expanding window splitter for time-series cross-validation.
 

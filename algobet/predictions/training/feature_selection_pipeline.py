@@ -140,16 +140,28 @@ class FeatureSelectionPipelineMixin:
         self._feature_selection_report = feature_report
 
         # Verify no odds-derived features leaked into the selected subset
-        forbidden_terms = ("odds", "implied_prob", "bookmaker", "favorite", "market")
-        leaked = [
-            name
-            for name in selected_feature_names
-            if any(term in name for term in forbidden_terms)
-        ]
-        if leaked:
-            raise ValueError(
-                f"Odds-derived features detected in selected subset: {leaked}"
+        # unless odds features were explicitly requested via feature_groups.
+        odds_groups = {"odds", "odds_residual"}
+        requested_groups = set(self.config.feature_groups or [])
+        allow_odds = bool(requested_groups & odds_groups)
+
+        if not allow_odds:
+            forbidden_terms = (
+                "odds",
+                "implied_prob",
+                "bookmaker",
+                "favorite",
+                "market",
             )
+            leaked = [
+                name
+                for name in selected_feature_names
+                if any(term in name for term in forbidden_terms)
+            ]
+            if leaked:
+                raise ValueError(
+                    f"Odds-derived features detected in selected subset: {leaked}"
+                )
 
         if hasattr(self.feature_pipeline, "set_selected_features"):
             self.feature_pipeline.set_selected_features(selected_feature_names)

@@ -27,6 +27,36 @@ from algobet.predictions.training.calibration import (
 class CalibrationRunner:
     """Run this ML operation use case."""
 
+    @staticmethod
+    def _load_saved_feature_pipeline(model_meta: object | None) -> FeaturePipeline:
+        """Load the fitted feature pipeline saved with a model."""
+        pipeline_path = None
+        hyperparameters = getattr(model_meta, "hyperparameters", None) or {}
+        if hyperparameters:
+            pipeline_path = hyperparameters.get("feature_pipeline_path")
+
+        candidate_paths = []
+        if pipeline_path:
+            candidate_paths.append(Path(pipeline_path))
+
+        artifact_path = getattr(model_meta, "artifact_path", None)
+        if artifact_path:
+            candidate_paths.append(Path(artifact_path).parent / "feature_pipeline")
+
+        for candidate in candidate_paths:
+            if candidate.exists() and (candidate / "config.json").exists():
+                feature_pipeline = FeaturePipeline.load(candidate)
+                if feature_pipeline.is_fitted:
+                    return feature_pipeline
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Could not load fitted feature pipeline. Calibration aborted to "
+                "prevent preprocessing drift."
+            ),
+        )
+
     def run_calibrate(
         self, request: CalibrateRequest, db: Session
     ) -> CalibrateResultResponse:
@@ -91,9 +121,15 @@ class CalibrationRunner:
                 detail="Insufficient historical matches for calibration (< 100)",
             )
 
-        # Prepare data
+        # Prepare data with the saved fitted pipeline. Do not refit a default
+        # pipeline here: that changes selected features and transformer state.
         repo = MatchRepository(db)
-        feature_pipeline = FeaturePipeline.create_default()
+        feature_pipeline = self._load_saved_feature_pipeline(model_meta)
+        model_hyperparameters = getattr(model_meta, "hyperparameters", None) or {}
+        artifact_path = getattr(model_meta, "artifact_path", None)
+        saved_pipeline_path = model_hyperparameters.get("feature_pipeline_path")
+        if not saved_pipeline_path and artifact_path:
+            saved_pipeline_path = str(Path(artifact_path).parent / "feature_pipeline")
 
         matches_df = prepare_match_dataframe(matches)
         matches_df["result"] = matches_df.apply(
@@ -108,11 +144,38 @@ class CalibrationRunner:
 
         # Split into train/val for calibration
         val_size = int(len(matches_df) * request.validation_split)
-        train_df = matches_df.iloc[:-val_size]
         val_df = matches_df.iloc[-val_size:]
 
-        # Fit pipeline on training data
-        feature_pipeline.fit(train_df, repo)
+        team_ids = list(
+            set(
+                matches_df["home_team_id"].tolist()
+                + matches_df["away_team_id"].tolist()
+            )
+        )
+        max_match_date = matches_df["match_date"].max()
+        repo.preload_team_matches(team_ids, before_date=max_match_date)
+        repo.preload_h2h_matches(
+            list(
+                zip(
+                    matches_df["home_team_id"].tolist(),
+                    matches_df["away_team_id"].tolist(),
+                    strict=False,
+                )
+            ),
+            before_date=max_match_date,
+        )
+        repo.preload_season_standings(
+            list(
+                set(
+                    zip(
+                        matches_df["tournament_id"].tolist(),
+                        matches_df["season_id"].tolist(),
+                        strict=False,
+                    )
+                )
+            ),
+            before_date=max_match_date,
+        )
 
         # Generate features
         X_val = feature_pipeline.transform(val_df, repo)
@@ -162,6 +225,7 @@ class CalibrationRunner:
                 "base_model_version": base_version,
                 "calibration_method": request.method,
                 "feature_names": feature_pipeline.feature_names,
+                "feature_pipeline_path": str(saved_pipeline_path),
             },
             description=f"Calibrated version of {base_version} using {request.method}",
         )

@@ -25,17 +25,20 @@ import {
   TrendingDown,
   TrendingUp,
   CheckCircle,
+  Loader2,
 } from "lucide-react";
 import { useCalibrate } from "@/lib/queries/use-ml-operations";
 import { useActiveModel } from "@/lib/queries/use-models";
 import type { CalibrateResult, CalibrationMetrics } from "@/lib/types/ml-operations";
+
+type CalibrationMethod = "temperature" | "isotonic" | "sigmoid" | "venn_abers";
 
 function CalibrateForm({
   onSubmit,
   isLoading,
 }: {
   onSubmit: (data: {
-    method: "isotonic" | "sigmoid";
+    method: CalibrationMethod;
     validationSplit: number;
     activate: boolean;
   }) => void;
@@ -43,7 +46,7 @@ function CalibrateForm({
 }) {
   const { data: activeModel } = useActiveModel();
 
-  const [method, setMethod] = useState<"isotonic" | "sigmoid">("isotonic");
+  const [method, setMethod] = useState<CalibrationMethod>("temperature");
   const [validationSplit, setValidationSplit] = useState(0.2);
   const [activate, setActivate] = useState(true);
 
@@ -83,20 +86,26 @@ function CalibrateForm({
             <Label htmlFor="method">Calibration Method</Label>
             <Select
               value={method}
-              onValueChange={(v) => setMethod(v as "isotonic" | "sigmoid")}
+              onValueChange={(v) => setMethod(v as CalibrationMethod)}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="temperature">Temperature Scaling</SelectItem>
                 <SelectItem value="isotonic">Isotonic Regression</SelectItem>
                 <SelectItem value="sigmoid">Sigmoid (Platt Scaling)</SelectItem>
+                <SelectItem value="venn_abers">Venn-Abers</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {method === "isotonic"
-                ? "More flexible, works better with more data"
-                : "Simpler, less prone to overfitting"}
+              {method === "temperature"
+                ? "Conservative default for multiclass probability scaling"
+                : method === "isotonic"
+                  ? "More flexible, works better with more data"
+                  : method === "venn_abers"
+                    ? "Interval-style isotonic calibration with normalized outputs"
+                    : "Simpler, less prone to overfitting"}
             </p>
           </div>
 
@@ -133,7 +142,7 @@ function CalibrateForm({
           <Button type="submit" className="w-full" disabled={isLoading || !activeModel}>
             {isLoading ? (
               <>
-                <span className="mr-2 animate-spin">⏳</span>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Calibrating...
               </>
             ) : (
@@ -288,7 +297,7 @@ export default function CalibratePage() {
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (data: {
-    method: "isotonic" | "sigmoid";
+    method: CalibrationMethod;
     validationSplit: number;
     activate: boolean;
   }) => {

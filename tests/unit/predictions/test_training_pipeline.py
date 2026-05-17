@@ -29,7 +29,7 @@ class TestTrainingConfig:
         assert config.test_ratio == 0.15
         assert config.tune_hyperparameters is False
         assert config.calibrate_probabilities is True
-        assert config.calibration_method == "sigmoid"
+        assert config.calibration_method == "temperature"
         assert config.outcome_balance is False
         assert config.outcome_balance_strength == pytest.approx(0.5)
         assert config.feature_schema_version == MODEL_FEATURE_SCHEMA_VERSION
@@ -65,6 +65,23 @@ class TestTrainingConfig:
         assert defaults["learning_rate"] == pytest.approx(0.03)
         assert defaults["n_estimators"] == 1200
         assert defaults["reg_lambda"] == pytest.approx(10.0)
+
+    def test_score_model_defaults_are_production_tuned(self) -> None:
+        """Poisson-family defaults should match the implemented training path."""
+        from algobet.predictions.training.classifiers import (
+            DixonColesPredictor,
+            HybridPoissonPredictor,
+            ModelConfig,
+        )
+
+        dc_defaults = DixonColesPredictor(
+            ModelConfig(model_type="dixon_coles")
+        ).default_hyperparameters
+        hybrid_defaults = HybridPoissonPredictor().default_hyperparameters
+
+        assert dc_defaults["max_iter"] == 600
+        assert dc_defaults["l2_regularization"] == pytest.approx(0.05)
+        assert hybrid_defaults["reg_lambda"] == pytest.approx(1.0)
 
     def test_ratios_sum_to_one(self) -> None:
         """Default split ratios should sum to 1.0."""
@@ -494,20 +511,21 @@ class TestTrainingPipelineOddsFree:
     @patch("algobet.predictions.training.pipeline.FeatureStore")
     @patch("algobet.predictions.training.pipeline.ModelRegistry")
     @patch("algobet.predictions.training.pipeline.MatchRepository")
-    def test_init_rejects_unsupported_feature_groups(
+    def test_init_accepts_explicit_odds_feature_group(
         self,
         mock_repo_cls: MagicMock,
         mock_registry_cls: MagicMock,
         mock_store_cls: MagicMock,
     ) -> None:
-        """Odds-derived feature groups should not be accepted."""
+        """Odds-derived features are available only through explicit groups."""
         from algobet.predictions.training.pipeline import TrainingPipeline
 
-        with pytest.raises(ValueError, match="Unsupported feature groups: odds"):
-            TrainingPipeline(
-                config=TrainingConfig(feature_groups=["odds"]),
-                session=MagicMock(),
-            )
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(feature_groups=["odds"]),
+            session=MagicMock(),
+        )
+
+        assert "implied_prob_home" in pipeline.feature_pipeline.feature_names
 
     @patch("algobet.predictions.training.pipeline.FeatureStore")
     @patch("algobet.predictions.training.pipeline.ModelRegistry")
@@ -758,13 +776,13 @@ class TestTrainingPipelineOddsFree:
     @patch("algobet.predictions.training.pipeline.FeatureStore")
     @patch("algobet.predictions.training.pipeline.ModelRegistry")
     @patch("algobet.predictions.training.pipeline.MatchRepository")
-    def test_apply_feature_selection_rejects_odds_features(
+    def test_apply_feature_selection_rejects_unrequested_odds_features(
         self,
         mock_repo_cls: MagicMock,
         mock_registry_cls: MagicMock,
         mock_store_cls: MagicMock,
     ) -> None:
-        """Odds-derived features must never survive feature selection."""
+        """Odds-derived features must not survive selection unless requested."""
         from algobet.predictions.training.pipeline import TrainingPipeline
 
         feature_pipeline = MagicMock()

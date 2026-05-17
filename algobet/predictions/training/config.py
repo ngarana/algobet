@@ -20,6 +20,8 @@ ALLOWED_FEATURE_GROUPS = (
     "draw_signals",
     "matchup_interaction",
     "player_quality",
+    "odds",
+    "odds_residual",
 )
 
 # Search spaces for per-model tuning (~1900 training rows, ~200 features)
@@ -90,7 +92,7 @@ class TrainingConfig:
     val_ratio: float = 0.15
     test_ratio: float = 0.15
     split_strategy: str = (
-        "season_aware"  # "temporal", "expanding_window", "season_aware"
+        "season_aware"  # "temporal", "expanding_window", "season_aware", "walk_forward"
     )
     gap_days: int = 14
     # Expanding window params

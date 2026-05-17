@@ -27,6 +27,7 @@ export function TrainingSummary({ config, isTraining }: TrainingSummaryProps) {
     temporal: "Temporal",
     expanding_window: "Expanding Window",
     season_aware: "Season-Aware",
+    walk_forward: "Walk-Forward",
   };
 
   return (

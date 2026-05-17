@@ -7,34 +7,16 @@ from algobet.predictions.training.split import (
     ExpandingWindowSplitter,
     SeasonAwareSplitter,
     TemporalSplitter,
+    WalkForwardSplitter,
     encode_targets,
 )
 
 
 class DataPreparationMixin:
-    def _prepare_data(
-        self,
-    ) -> tuple[
-        NDArray[np.float64],
-        NDArray[np.float64],
-        NDArray[np.float64],
-        NDArray[np.int64],
-        NDArray[np.int64],
-        NDArray[np.int64],
-    ]:
-        """Prepare training data from database.
-
-        Steps:
-        1. Load historical matches
-        2. Generate raw features once for all matches
-        3. Split by temporal indices
-        4. Fit transformers on training subset only
-        5. Transform all three subsets
-        6. Cache raw features for reproducibility
-        """
+    def _load_training_matches_dataframe(self):
+        """Load, preload, and normalize historical matches for training."""
         from algobet.predictions.features.pipeline import prepare_match_dataframe
 
-        # Get historical matches with optional date and filter constraints
         matches = self.repo.get_historical_matches(
             min_date=self.config.start_date,
             max_date=self.config.end_date,
@@ -49,7 +31,6 @@ class DataPreparationMixin:
         if not matches:
             raise ValueError("No historical matches found for training")
 
-        # Check minimum matches requirement if specified
         min_matches = getattr(self.config, "min_matches", None)
         if min_matches and len(matches) < min_matches:
             raise ValueError(
@@ -57,11 +38,8 @@ class DataPreparationMixin:
                 "Adjust date range or reduce minimum matches requirement."
             )
 
-        # Convert to DataFrame
         matches_df = prepare_match_dataframe(matches)
 
-        # Preload all team match history and H2H data into memory to avoid
-        # per-match DB queries during feature generation (N+1 → 2 bulk queries)
         all_team_ids = list(
             set(
                 matches_df["home_team_id"].tolist()
@@ -79,7 +57,6 @@ class DataPreparationMixin:
         )
         self.repo.preload_h2h_matches(team_pairs, before_date=max_match_date)
 
-        # Preload standings for tournament-season pairs
         tournament_season_pairs = list(
             set(
                 zip(
@@ -93,46 +70,62 @@ class DataPreparationMixin:
             tournament_season_pairs, before_date=max_match_date
         )
 
-        # Add result column
         matches_df["result"] = matches_df.apply(
             lambda m: "H"
             if m["home_score"] > m["away_score"]
             else ("A" if m["home_score"] < m["away_score"] else "D"),
             axis=1,
         )
+        return matches_df
 
-        # Split data using configured strategy
+    def _build_splitter(self):
+        """Create the configured temporal splitter."""
         if self.config.split_strategy == "expanding_window":
-            splitter = ExpandingWindowSplitter(
+            return ExpandingWindowSplitter(
                 min_train_size=self.config.min_train_size,
                 val_size=self.config.ew_val_size,
                 test_size=self.config.ew_test_size,
                 step_size=self.config.step_size,
             )
-        elif self.config.split_strategy == "season_aware":
-            splitter = SeasonAwareSplitter(
+        if self.config.split_strategy == "season_aware":
+            return SeasonAwareSplitter(
                 train_seasons=self.config.train_seasons,
                 val_seasons=self.config.val_seasons,
                 test_seasons=self.config.test_seasons,
             )
-        else:
-            splitter = TemporalSplitter(
-                train_ratio=self.config.train_ratio,
-                val_ratio=self.config.val_ratio,
-                test_ratio=self.config.test_ratio,
-                gap_days=self.config.gap_days,
+        if self.config.split_strategy == "walk_forward":
+            return WalkForwardSplitter(
+                train_seasons=self.config.train_seasons,
+                val_seasons=self.config.val_seasons,
+                test_seasons=self.config.test_seasons,
             )
+        return TemporalSplitter(
+            train_ratio=self.config.train_ratio,
+            val_ratio=self.config.val_ratio,
+            test_ratio=self.config.test_ratio,
+            gap_days=self.config.gap_days,
+        )
 
-        splits = list(splitter.split(matches_df))
-        split = splits[0]  # Use the first (or only) split
-
-        # Encode targets
+    def _prepare_data_for_split(
+        self,
+        matches_df,
+        split,
+        *,
+        cache_features: bool,
+    ) -> tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.int64],
+        NDArray[np.int64],
+        NDArray[np.int64],
+    ]:
+        """Prepare matrices for one split and store split state on the pipeline."""
         y = encode_targets(matches_df["result"].values)
         y_train = y[split.train_indices]
         y_val = y[split.val_indices]
         y_test = y[split.test_indices]
 
-        # Fit pipeline on training data only, then transform all subsets
         train_df = matches_df.iloc[split.train_indices]
         val_df = matches_df.iloc[split.val_indices]
         test_df = matches_df.iloc[split.test_indices]
@@ -147,9 +140,7 @@ class DataPreparationMixin:
         X_test = self.feature_pipeline.transform(test_df, self.repo)
         self._test_raw_features = self.feature_pipeline.last_raw_features
 
-        # Cache raw features if enabled, reusing frames already produced while
-        # fitting and transforming the split data.
-        if self.config.use_feature_cache:
+        if cache_features and self.config.use_feature_cache:
             try:
                 import pandas as pd
 
@@ -179,3 +170,40 @@ class DataPreparationMixin:
                     self.session.rollback()
 
         return X_train, X_val, X_test, y_train, y_val, y_test
+
+    def _prepare_data(
+        self,
+    ) -> tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.int64],
+        NDArray[np.int64],
+        NDArray[np.int64],
+    ]:
+        """Prepare training data from database.
+
+        Steps:
+        1. Load historical matches
+        2. Generate raw features once for all matches
+        3. Split by temporal indices
+        4. Fit transformers on training subset only
+        5. Transform all three subsets
+        6. Cache raw features for reproducibility
+        """
+        matches_df = self._load_training_matches_dataframe()
+        splitter = self._build_splitter()
+        splits = list(splitter.split(matches_df))
+        if not splits:
+            raise ValueError("No valid temporal splits could be generated")
+
+        self._prepared_matches_df = matches_df
+        self._prepared_splits = splits
+
+        # For walk-forward, train the saved artifact on the most recent fold.
+        # Cross-fold averages are computed separately in the runner.
+        split = (
+            splits[-1] if self.config.split_strategy == "walk_forward" else splits[0]
+        )
+
+        return self._prepare_data_for_split(matches_df, split, cache_features=True)

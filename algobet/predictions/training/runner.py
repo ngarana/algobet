@@ -1,5 +1,6 @@
 """Top-level training workflow runner."""
 
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,150 @@ from algobet.predictions.training.tuner import HAS_OPTUNA, TuningResult
 
 
 class PipelineRunnerMixin:
+    @staticmethod
+    def _average_metric_dicts(
+        metric_dicts: list[dict[str, float]],
+    ) -> dict[str, float]:
+        """Average numeric metric values across folds."""
+        averaged: dict[str, float] = {}
+        keys = set().union(*(metrics.keys() for metrics in metric_dicts))
+        for key in sorted(keys):
+            values = [
+                float(metrics[key])
+                for metrics in metric_dicts
+                if key in metrics and isinstance(metrics[key], int | float)
+            ]
+            if values:
+                averaged[key] = float(np.mean(values))
+        return averaged
+
+    def _snapshot_runtime_state(self) -> dict[str, Any]:
+        """Capture mutable training state before temporary fold evaluation."""
+        return {
+            "feature_pipeline": self.feature_pipeline,
+            "_train_df": self._train_df,
+            "_val_df": self._val_df,
+            "_test_df": self._test_df,
+            "_train_raw_features": self._train_raw_features,
+            "_val_raw_features": self._val_raw_features,
+            "_test_raw_features": self._test_raw_features,
+            "_selected_feature_names": self._selected_feature_names,
+            "_feature_selection_report": self._feature_selection_report,
+            "_collapse_recovery": self._collapse_recovery,
+        }
+
+    def _restore_runtime_state(self, state: dict[str, Any]) -> None:
+        """Restore mutable training state after temporary fold evaluation."""
+        for key, value in state.items():
+            setattr(self, key, value)
+
+    def _evaluate_walk_forward_folds(
+        self,
+        hyperparameters: dict[str, Any],
+    ) -> tuple[dict[str, float], dict[str, float], dict[str, float], int] | None:
+        """Train/evaluate every walk-forward fold and return averaged metrics."""
+        matches_df = getattr(self, "_prepared_matches_df", None)
+        splits = list(getattr(self, "_prepared_splits", []) or [])
+        if self.config.split_strategy != "walk_forward" or matches_df is None:
+            return None
+        if len(splits) <= 1:
+            return None
+
+        state = self._snapshot_runtime_state()
+        train_metrics_by_fold: list[dict[str, float]] = []
+        val_metrics_by_fold: list[dict[str, float]] = []
+        test_metrics_by_fold: list[dict[str, float]] = []
+
+        try:
+            for split in splits:
+                self.feature_pipeline = self._new_feature_pipeline()
+                (
+                    X_train,
+                    X_val,
+                    X_test,
+                    y_train,
+                    y_val,
+                    _y_test,
+                ) = self._prepare_data_for_split(
+                    matches_df,
+                    split,
+                    cache_features=False,
+                )
+
+                if self.config.outcome_balance:
+                    fold_class_weights = get_class_weights(
+                        y_train,
+                        strength=self.config.outcome_balance_strength,
+                    )
+                else:
+                    fold_class_weights = None
+
+                fold_params = dict(hyperparameters)
+                if self.config.feature_selection:
+                    X_train, X_val, X_test = self._apply_feature_selection(
+                        X_train=X_train,
+                        X_val=X_val,
+                        X_test=X_test,
+                        y_train=y_train,
+                        y_val=y_val,
+                        class_weights=fold_class_weights,
+                        hyperparameters=fold_params,
+                    )
+
+                (
+                    fold_predictor,
+                    X_train,
+                    X_val,
+                    X_test,
+                    _fold_class_weights,
+                    _fold_params,
+                ) = self._train_with_collapse_recovery(
+                    X_train=X_train,
+                    y_train=y_train,
+                    X_val=X_val,
+                    y_val=y_val,
+                    X_test=X_test,
+                    hyperparameters=fold_params,
+                    class_weights=fold_class_weights,
+                )
+
+                train_metrics_by_fold.append(
+                    self._evaluate(
+                        fold_predictor,
+                        X_train,
+                        y_train,
+                        self._train_df,
+                        apply_calibration=False,
+                    )
+                )
+                val_metrics_by_fold.append(
+                    self._evaluate(
+                        fold_predictor,
+                        X_val,
+                        y_val,
+                        self._val_df,
+                        apply_calibration=False,
+                    )
+                )
+                test_metrics_by_fold.append(
+                    self._evaluate(
+                        fold_predictor,
+                        X_test,
+                        _y_test,
+                        self._test_df,
+                        apply_calibration=False,
+                    )
+                )
+        finally:
+            self._restore_runtime_state(state)
+
+        return (
+            self._average_metric_dicts(train_metrics_by_fold),
+            self._average_metric_dicts(val_metrics_by_fold),
+            self._average_metric_dicts(test_metrics_by_fold),
+            len(test_metrics_by_fold),
+        )
+
     def run(self) -> TrainingResult:
         """Execute the complete training pipeline.
 
@@ -106,7 +251,14 @@ class PipelineRunnerMixin:
             )
 
         # Step 6: Calibrate probabilities (optional)
-        if self.config.calibrate_probabilities:
+        # Score-based models (Dixon-Coles, Hybrid Poisson) produce naturally
+        # calibrated probabilities from the bivariate goal distribution, and
+        # the CV calibration path cannot refit them anyway (no goal data per
+        # fold). Skip the calibrator for these model types.
+        is_score_model = self.config.model_type in ("dixon_coles", "hybrid_poisson")
+        X_weight = X_val
+        y_weight = y_val
+        if self.config.calibrate_probabilities and not is_score_model:
             self._calibrator = ProbabilityCalibrator(
                 method=self.config.calibration_method,
             )
@@ -191,7 +343,7 @@ class PipelineRunnerMixin:
         # Step 6b: Ensemble weight optimization (for ensembles, post-calibration)
         ensemble_weights = None
         ensemble_val_metrics = None
-        if self.config.use_ensemble and self._calibrator is not None:
+        if self.config.use_ensemble and isinstance(predictor, EnsemblePredictor):
             try:
                 xgb_proba = self._get_ensemble_probas(predictor, "xgboost", X_weight)
                 lgbm_proba = self._get_ensemble_probas(predictor, "lightgbm", X_weight)
@@ -295,8 +447,10 @@ class PipelineRunnerMixin:
         )
 
         # Step 7b: Check test set for collapse (reject if collapsed)
+        # Score-based models naturally produce fewer argmax-draw predictions;
+        # skip this check for them since it does not indicate real collapse.
         test_report = self._prediction_class_report(predictor, X_test)
-        if self._is_prediction_collapsed(test_report):
+        if self._is_prediction_collapsed(test_report) and not is_score_model:
             raise ValueError(
                 f"Model passed validation but collapsed on test set: "
                 f"{test_report['num_classes']} classes predicted with counts "
@@ -305,6 +459,25 @@ class PipelineRunnerMixin:
                 f"(2) increase outcome_balance_strength, "
                 f"or (3) add more draw-signal features."
             )
+
+        walk_forward_metrics = self._evaluate_walk_forward_folds(best_params)
+        if walk_forward_metrics is not None:
+            final_train_metrics = train_metrics
+            final_val_metrics = val_metrics
+            final_test_metrics = test_metrics
+            train_metrics, val_metrics, test_metrics, fold_count = walk_forward_metrics
+            train_metrics["walk_forward_folds"] = float(fold_count)
+            val_metrics["walk_forward_folds"] = float(fold_count)
+            test_metrics["walk_forward_folds"] = float(fold_count)
+            for key, value in final_train_metrics.items():
+                if isinstance(value, int | float):
+                    train_metrics[f"final_split_{key}"] = float(value)
+            for key, value in final_val_metrics.items():
+                if isinstance(value, int | float):
+                    val_metrics[f"final_split_{key}"] = float(value)
+            for key, value in final_test_metrics.items():
+                if isinstance(value, int | float):
+                    test_metrics[f"final_split_{key}"] = float(value)
 
         # Step 8: Register model
         all_metrics = {
@@ -342,6 +515,10 @@ class PipelineRunnerMixin:
                 "min_samples_per_feature": self.config.min_samples_per_feature,
                 "num_selected": len(self._selected_feature_names),
             }
+        if self._feature_selection_report is not None:
+            model_hyperparameters["feature_selection_report"] = asdict(
+                self._feature_selection_report
+            )
         if self.config.use_ensemble:
             model_hyperparameters["ensemble_types"] = self.config.ensemble_types
         if self.config.use_stacking_ensemble:

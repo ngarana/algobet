@@ -1,8 +1,7 @@
 # AlgoBet ML Debug & Feature Engineering Session
 
 **Date:** 2026-05-12
-**Scope:** Backtest class-collapse debugging → model discrimination improvement → player quality features → calibration experiments → betting simulation fix
-
+**Scope:** Backtest
 ---
 
 ## Problem Statement

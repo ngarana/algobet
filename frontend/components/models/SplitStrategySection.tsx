@@ -22,6 +22,11 @@ const SPLIT_STRATEGIES = [
     name: "Season-Aware",
     description: "Split by complete football seasons",
   },
+  {
+    id: "walk_forward" as const,
+    name: "Walk-Forward",
+    description: "Average metrics across rolling season folds",
+  },
 ];
 
 export function SplitStrategySection({
@@ -136,8 +141,9 @@ export function SplitStrategySection({
         </div>
       )}
 
-      {/* Season-Aware params */}
-      {config.splitStrategy === "season_aware" && (
+      {/* Season-based params */}
+      {(config.splitStrategy === "season_aware" ||
+        config.splitStrategy === "walk_forward") && (
         <div className="grid grid-cols-3 gap-3">
           <div className="space-y-1">
             <Label htmlFor="train-seasons" className="text-xs">
@@ -179,8 +185,10 @@ export function SplitStrategySection({
             />
           </div>
           <p className="col-span-3 text-xs text-muted-foreground">
-            Splits data by complete football seasons. Ensures no partial seasons in any
-            set. Requires data spanning at least{" "}
+            {config.splitStrategy === "walk_forward"
+              ? "Walk-forward trains on rolling season windows and reports averaged fold metrics. "
+              : "Splits data by complete football seasons. Ensures no partial seasons in any set. "}
+            Requires data spanning at least{" "}
             {config.trainSeasons + config.valSeasons + config.testSeasons} seasons.
           </p>
         </div>

@@ -111,8 +111,15 @@ export function GuidedTrainingWorkspace({
                   <div className="border-t" />
                   <div className="space-y-2">
                     <span className="text-sm font-semibold">Calibration Method</span>
-                    <div className="flex gap-2">
-                      {(["isotonic", "sigmoid"] as const).map((method) => (
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          ["temperature", "Temperature"],
+                          ["isotonic", "Isotonic"],
+                          ["sigmoid", "Sigmoid"],
+                          ["venn_abers", "Venn-Abers"],
+                        ] as const
+                      ).map(([method, label]) => (
                         <Badge
                           key={method}
                           variant={
@@ -121,7 +128,7 @@ export function GuidedTrainingWorkspace({
                           className="cursor-pointer"
                           onClick={() => onConfigChange("calibrationMethod", method)}
                         >
-                          {method === "isotonic" ? "Isotonic" : "Sigmoid"}
+                          {label}
                         </Badge>
                       ))}
                     </div>
@@ -253,6 +260,7 @@ function ValidationSummary({ config }: { config: TrainingConfigType }) {
     temporal: "Temporal",
     expanding_window: "Expanding",
     season_aware: "Season",
+    walk_forward: "Walk-forward",
   };
   items.push(strategyNames[config.splitStrategy] || config.splitStrategy);
 

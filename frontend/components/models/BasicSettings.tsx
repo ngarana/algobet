@@ -31,6 +31,8 @@ export function BasicSettings({ config, onConfigChange }: BasicSettingsProps) {
             <SelectItem value="xgboost">XGBoost</SelectItem>
             <SelectItem value="lightgbm">LightGBM</SelectItem>
             <SelectItem value="random_forest">Random Forest</SelectItem>
+            <SelectItem value="dixon_coles">Dixon-Coles</SelectItem>
+            <SelectItem value="hybrid_poisson">Hybrid Poisson</SelectItem>
           </SelectContent>
         </Select>
       </div>

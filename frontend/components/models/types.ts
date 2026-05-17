@@ -2,7 +2,12 @@ import type { TrainModelResult } from "@/lib/types/ml-operations";
 import type { ModelVersion } from "@/lib/types/api";
 
 export interface TrainingConfig {
-  modelType: "xgboost" | "lightgbm" | "random_forest";
+  modelType:
+    | "xgboost"
+    | "lightgbm"
+    | "random_forest"
+    | "dixon_coles"
+    | "hybrid_poisson";
   description: string;
   tune: boolean;
   activate: boolean;
@@ -28,7 +33,7 @@ export interface TrainingConfig {
   tuningTrials: number;
   // Calibration settings
   calibrateProbabilities: boolean;
-  calibrationMethod: "isotonic" | "sigmoid";
+  calibrationMethod: "isotonic" | "sigmoid" | "temperature" | "venn_abers";
   // Outcome balancing
   outcomeBalance: boolean;
   outcomeBalanceStrength: number;
@@ -42,7 +47,7 @@ export interface TrainingConfig {
   useEnsemble: boolean;
   ensembleTypes: string[];
   // Split strategy
-  splitStrategy: "temporal" | "expanding_window" | "season_aware";
+  splitStrategy: "temporal" | "expanding_window" | "season_aware" | "walk_forward";
   gapDays: number;
   // Expanding window params
   minTrainSize: number;
