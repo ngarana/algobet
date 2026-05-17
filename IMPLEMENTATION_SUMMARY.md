@@ -4,6 +4,35 @@
 
 Systematic implementation of the [AlgoBet-Modeling-Framework-Improvement-Plan.md](../AlgoBet-Modeling-Framework-Improvement-Plan.md), addressing 7 root-cause problems across 3 phases. All changes are backwards-compatible — existing model types (`xgboost`, `lightgbm`, `random_forest`) work identically to before.
 
+## 2026-05-17 Follow-up: Pure-ML / Top-5 League Data Fixes
+
+After importing top-5 league data with:
+
+```bash
+algobet import-data fd-top5-range 2012 2025
+```
+
+an additional training-pipeline review found that several fixes were still
+needed for multi-league training integrity:
+
+| Area | Fix |
+|---|---|
+| Multi-league season splitting | `OOFTimeAwareSplitter`, `SeasonAwareSplitter`, and `WalkForwardSplitter` now derive a calendar football-season split key from `match_date` whenever a frame contains multiple `tournament_id` values. This prevents `season_id` values from creating one pseudo-season per league-season. |
+| Tournament collisions | FD and soccerdata importers now resolve tournaments by `(name, country)` and create a country-qualified slug when the legacy globally unique `url_slug` is already owned by another country. This prevents German Bundesliga imports from attaching to Austrian Bundesliga rows. |
+| Existing Bundesliga contamination | Added `algobet db repair-bundesliga-country`, with dry-run by default. The live container DB was repaired: tournament id 28 changed from `country=Austria` to `country=Germany` after detecting 5,807 German-marker matches out of 6,759. |
+| Stacking OOF consistency | Stacking OOF fold predictors now clone the original base predictor configuration, including hyperparameters, class weights, random seed, early-stopping rounds, and eval metric. |
+| Detailed odds exposure | `detailed_odds` is available as an explicit feature group in the frontend alongside all registered backend groups. Empty frontend selection now correctly means the backend default feature set, not all feature groups. |
+
+Verification:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/unit/predictions/test_training_pipeline.py tests/unit/predictions/test_modeling_improvements.py tests/importers/test_fd_importer.py tests/importers/test_soccerdata_importer.py algobet/predictions/tests/test_detailed_odds_generator.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check algobet/predictions/training/split.py algobet/predictions/training/stacking.py algobet/importers/tournaments.py algobet/importers/fd_importer.py algobet/importers/soccerdata_importer.py algobet/cli/commands/db.py tests/unit/predictions/test_training_pipeline.py tests/unit/predictions/test_modeling_improvements.py tests/importers/test_fd_importer.py tests/importers/test_soccerdata_importer.py
+python -m py_compile algobet/predictions/training/split.py algobet/predictions/training/stacking.py algobet/importers/tournaments.py algobet/importers/fd_importer.py algobet/importers/soccerdata_importer.py algobet/cli/commands/db.py
+pnpm typecheck
+pnpm lint
+```
+
 ---
 
 ## Phase 1: Foundation Fixes (Low-risk, High-impact)

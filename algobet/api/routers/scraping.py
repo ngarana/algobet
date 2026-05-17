@@ -991,3 +991,145 @@ def run_enrich_stats(job_id: str, league: str, season: str) -> None:
                 completed_at=datetime.now(timezone.utc),
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Football-Data.co.uk detailed odds enrichment
+# ---------------------------------------------------------------------------
+
+
+@router.post("/import/enrich-detailed-odds")
+async def enrich_detailed_odds(
+    background_tasks: BackgroundTasks,
+    league: str = "ENG-Premier League",
+    season: str = "2024",
+) -> dict[str, Any]:
+    """Enrich existing matches with detailed odds from Football-Data.co.uk.
+
+    Includes Asian handicap, over/under, and multi-bookmaker consensus odds.
+    """
+    if league not in FBREF_LEAGUE_MAPPING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid league: {league}",
+        )
+
+    job_id = str(uuid.uuid4())
+
+    job = ScrapingJobResponse(
+        id=job_id,
+        status=ScrapingJobStatus.PENDING,
+        progress=0.0,
+        message=(
+            f"Detailed odds enrichment queued for "
+            f"{FBREF_LEAGUE_MAPPING[league]['name']} {season}"
+        ),
+        created_at=datetime.now(timezone.utc),
+        scraping_type=ScrapingType.IMPORT,
+        tournament_name=FBREF_LEAGUE_MAPPING[league]["name"],
+        season=season,
+        matches_scraped=0,
+        matches_saved=0,
+        errors=[],
+        tournament_url=None,
+        tournament_id=None,
+        team_id=None,
+        start_date=None,
+        end_date=None,
+        scope=ScrapeScope.ALL,
+        country=None,
+        league_name=None,
+        period=None,
+        period_start=None,
+        period_end=None,
+        started_at=None,
+        completed_at=None,
+    )
+
+    scraping_jobs[job_id] = job
+    background_tasks.add_task(run_enrich_detailed_odds, job_id, league, season)
+
+    return {
+        "job_id": job_id,
+        "message": (
+            f"Detailed odds enrichment started for "
+            f"{FBREF_LEAGUE_MAPPING[league]['name']} {season}"
+        ),
+    }
+
+
+def run_enrich_detailed_odds(job_id: str, league: str, season: str) -> None:
+    """Execute detailed odds enrichment as a background task."""
+    import logging
+
+    logger = logging.getLogger("algobet.api.enrich_detailed_odds")
+
+    try:
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.RUNNING,
+                progress=10.0,
+                message=(
+                    f"Enriching {FBREF_LEAGUE_MAPPING[league]['name']} "
+                    f"{season} with detailed odds..."
+                ),
+                started_at=datetime.now(timezone.utc),
+                matches_scraped=None,
+                matches_saved=None,
+                errors=None,
+                completed_at=None,
+            ),
+        )
+
+        from algobet.infrastructure.database import session_scope
+
+        with session_scope() as session:
+            importer = SoccerDataImporter(session)
+            enriched = importer.enrich_detailed_odds(league=league, season=season)
+
+            logger.info(
+                "[BG TASK] Detailed odds enrichment: %d matches enriched",
+                enriched,
+            )
+
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.COMPLETED,
+                progress=100.0,
+                message=f"Enriched {enriched} matches with detailed odds",
+                matches_scraped=enriched,
+                matches_saved=enriched,
+                errors=[],
+                started_at=(
+                    scraping_jobs[job_id].started_at
+                    if job_id in scraping_jobs
+                    else datetime.now(timezone.utc)
+                ),
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )
+
+    except Exception as e:
+        import traceback
+
+        logger.error("[BG TASK] Detailed odds enrichment %s failed: %s", job_id, e)
+        logger.error(traceback.format_exc())
+
+        current_job = scraping_jobs.get(job_id)
+        start_ts = current_job.started_at if current_job else datetime.now(timezone.utc)
+
+        update_job_status(
+            job_id,
+            ScrapingJobUpdate(
+                status=ScrapingJobStatus.FAILED,
+                progress=0.0,
+                message=f"Detailed odds enrichment failed: {str(e)}",
+                matches_scraped=0,
+                matches_saved=0,
+                errors=[str(e)],
+                started_at=start_ts,
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )

@@ -183,7 +183,7 @@ class TrainModelRequest(BaseModel):
     outcome_balance_strength: float = Field(default=0.5, ge=0.0, le=1.0)
 
     # Feature importance pruning
-    feature_selection: bool = False
+    feature_selection: bool = True
     feature_selection_threshold: float = Field(default=0.01, ge=0.0, le=1.0)
     min_samples_per_feature: int | None = Field(default=None, ge=1)
 
@@ -204,7 +204,7 @@ class TrainModelRequest(BaseModel):
 
     # Split strategy
     split_strategy: str = Field(
-        default="temporal",
+        default="walk_forward",
         pattern="^(temporal|expanding_window|season_aware|walk_forward)$",
     )
     gap_days: int = Field(default=0, ge=0, le=30)
@@ -214,7 +214,7 @@ class TrainModelRequest(BaseModel):
     ew_test_size: int = Field(default=50, ge=10, le=1000)
     step_size: int = Field(default=50, ge=10, le=500)
     # Season-aware params (used when split_strategy = season_aware)
-    train_seasons: int = Field(default=3, ge=1, le=10)
+    train_seasons: int = Field(default=8, ge=1, le=10)
     val_seasons: int = Field(default=1, ge=1, le=5)
     test_seasons: int = Field(default=1, ge=1, le=5)
 

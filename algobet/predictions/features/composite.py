@@ -4,6 +4,9 @@ import pandas as pd
 
 from algobet.predictions.data.queries import MatchRepository
 from algobet.predictions.features.base import FeatureGenerator, FeatureSchema
+from algobet.predictions.features.detailed_odds_generator import (
+    DetailedOddsFeatureGenerator,
+)
 from algobet.predictions.features.draw_signal_generator import (
     DrawSignalFeatureGenerator,
 )
@@ -164,6 +167,7 @@ def create_generators_by_names(generator_names: list[str]) -> CompositeFeatureGe
         ),
         "odds": lambda: OddsFeatureGenerator(),
         "odds_residual": lambda: OddsResidualFeatureGenerator(),
+        "detailed_odds": lambda: DetailedOddsFeatureGenerator(),
     }
 
     unsupported = sorted(set(generator_names) - set(generator_factories))

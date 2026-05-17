@@ -32,6 +32,12 @@ class SoccerDataImplementation(Protocol):
         skip_existing: bool = True,
     ) -> dict[str, int]: ...
 
+    def _enrich_detailed_odds_impl(
+        self,
+        league: str,
+        season: str,
+    ) -> int: ...
+
 
 class ScheduleImporter:
     """Import fixture schedules through the facade implementation."""
@@ -74,3 +80,6 @@ class StatsEnricher:
             season,
             skip_existing=skip_existing,
         )
+
+    def enrich_detailed_odds(self, league: str, season: str) -> int:
+        return self.implementation._enrich_detailed_odds_impl(league, season)

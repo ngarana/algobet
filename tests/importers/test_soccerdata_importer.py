@@ -24,7 +24,7 @@ from algobet.importers.soccerdata_importer import (
     SoccerDataImporter,
 )
 from algobet.infrastructure.models import Base
-from algobet.models import Team, TeamAlias
+from algobet.models import Team, TeamAlias, Tournament
 from algobet.utils.team_resolver import TeamResolver
 
 
@@ -126,6 +126,27 @@ class TestTournamentLookup:
         assert first is not None
         assert second is not None
         assert first.id == second.id
+
+    def test_same_slug_different_country_gets_country_slug(
+        self, importer: SoccerDataImporter, db_session: Session
+    ) -> None:
+        austrian = Tournament(
+            name="Bundesliga",
+            country="Austria",
+            url_slug="bundesliga",
+        )
+        db_session.add(austrian)
+        db_session.flush()
+
+        german = importer.get_or_create_tournament("GER-Bundesliga")
+        again = importer.get_or_create_tournament("GER-Bundesliga")
+
+        assert german is not None
+        assert again is not None
+        assert german.id != austrian.id
+        assert german.id == again.id
+        assert german.country == "Germany"
+        assert german.url_slug == "germany-bundesliga"
 
     def test_unknown_league(self, importer: SoccerDataImporter) -> None:
         result = importer.get_or_create_tournament("ZZZ-Unknown")

@@ -1,6 +1,10 @@
 """CLI commands for importing football data and enriching with stats.
 
 Usage:
+    # Import from Football-Data.co.uk (25+ years of historical data)
+    algobet import-data fd-import "ENG-Premier League" --season 2024
+    algobet import-data fd-top5-2025
+
     # Enrich existing matches with Understat/ESPN stats
     algobet import-data enrich "ENG-Premier League" --season 2024
     algobet import-data enrich-understat "ENG-Premier League" --season 2024
@@ -17,23 +21,122 @@ import click
 
 from algobet.cli.error_handler import handle_errors
 from algobet.cli.logger import info, success
+from algobet.importers.fd_importer import FDImporter
 from algobet.importers.soccerdata_importer import SoccerDataImporter
 from algobet.infrastructure.database import session_scope
 
 
 @click.group(name="import-data")
 def import_cli() -> None:
-    """Import football data and enrich with soccerdata stats.
+    """Import football data and enrich with stats.
 
-    Commands for enriching existing matches with xG and player stats.
+    Commands for importing historical data and enriching matches.
 
-    \\b
+    \b
     Examples:
-        algobet import-data enrich "ENG-Premier League" --season 2024
-        algobet import-data enrich-understat "ENG-Premier League" --season 2024
-        algobet import-data enrich-players "ENG-Premier League" --season 2024
+        algobet import-data fd-import "ENG-Premier League" --season 2024
+        algobet import-data fd-top5-2025
     """
     pass
+
+
+# ---------------------------------------------------------------------------
+# Football-Data.co.uk import commands
+# ---------------------------------------------------------------------------
+
+
+@import_cli.command(name="fd-import")
+@click.argument("league")
+@click.option("--season", required=True, help="Season (e.g., '2024' for 2024/25)")
+@click.option("--no-stats", is_flag=True, help="Skip match statistics")
+@click.option("--no-odds", is_flag=True, help="Skip betting odds")
+@handle_errors
+def fd_import(league: str, season: str, no_stats: bool, no_odds: bool) -> None:
+    """Import historical data from Football-Data.co.uk.
+
+    LEAGUE is the soccerdata league ID (e.g., 'ENG-Premier League').
+    Provides 25+ years of results, stats, and odds without CAPTCHA issues.
+
+    \b
+    Example:
+        algobet import-data fd-import "ENG-Premier League" --season 2024
+    """
+    info(f"Importing {league} season {season} from Football-Data.co.uk...")
+
+    with session_scope() as session:
+        importer = FDImporter(session)
+        result = importer.import_season(
+            league,
+            season,
+            include_stats=not no_stats,
+            include_odds=not no_odds,
+        )
+
+    success(result.message)
+
+
+@import_cli.command(name="fd-top5-2025")
+@click.option("--no-stats", is_flag=True, help="Skip match statistics")
+@click.option("--no-odds", is_flag=True, help="Skip betting odds")
+@handle_errors
+def fd_top5_2025(no_stats: bool, no_odds: bool) -> None:
+    """Import 2024/25 season for top 5 European leagues.
+
+    Imports Premier League, La Liga, Ligue 1, Bundesliga, and Serie A.
+
+    \b
+    Example:
+        algobet import-data fd-top5-2025
+    """
+    info("Importing 2024/25 season for top 5 European leagues...")
+
+    with session_scope() as session:
+        importer = FDImporter(session)
+        results = importer.import_top_5_leagues_2024_25()
+
+    total_matches = sum(r.progress.matches_created for r in results if r.success)
+    success(f"Imported {total_matches} matches across {len(results)} leagues")
+
+
+@import_cli.command(name="fd-top5-range")
+@click.argument("start_season")
+@click.argument("end_season")
+@click.option("--no-stats", is_flag=True, help="Skip match statistics")
+@click.option("--no-odds", is_flag=True, help="Skip betting odds")
+@handle_errors
+def fd_top5_range(
+    start_season: str, end_season: str, no_stats: bool, no_odds: bool
+) -> None:
+    """Import top 5 leagues for a season range.
+
+    START_SEASON and END_SEASON are the starting years (e.g., 2012 2023
+    imports 2012/13 through 2023/24).
+
+    \b
+    Example:
+        algobet import-data fd-top5-range 2012 2023
+        algobet import-data fd-top5-range 2015 2020 --no-stats
+    """
+    info(
+        f"Importing top 5 leagues from {start_season}/{int(start_season) + 1} "
+        f"to {end_season}/{int(end_season) + 1}..."
+    )
+
+    with session_scope() as session:
+        importer = FDImporter(session)
+        results = importer.import_top_5_leagues_range(
+            start_season,
+            end_season,
+            include_stats=not no_stats,
+            include_odds=not no_odds,
+        )
+
+    total_matches = sum(r.progress.matches_created for r in results if r.success)
+    total_updated = sum(r.progress.matches_updated for r in results if r.success)
+    success(
+        f"Imported {total_matches} matches, updated {total_updated} "
+        f"across {len(results)} league-seasons"
+    )
 
 
 # ---------------------------------------------------------------------------

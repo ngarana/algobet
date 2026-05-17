@@ -101,16 +101,23 @@ class StackingEnsemble(MatchPredictor):
             if not predictor._is_fitted:
                 predictor.fit(X_train, y_train, X_val, y_val)
 
-        # Step 2: Collect base predictions on validation set
-        val_probas = self._collect_base_probas(X_val)
-        val_labels = y_val
+        # Step 2: Collect base predictions for meta-learner training
+        if self.oof_folds is not None and self._matches_df is not None:
+            meta_train_probas, meta_train_labels = self._collect_oof_base_probas(
+                X_train, y_train, X_val, y_val
+            )
+        else:
+            meta_train_probas = self._collect_base_probas(X_val)
+            meta_train_labels = y_val
 
         # Step 3: Train meta-learner on base predictions
         self._meta_learner = self._create_meta_learner()
-        self._meta_learner.fit(val_probas, val_labels)
+        self._meta_learner.fit(meta_train_probas, meta_train_labels)
 
         # Step 4: Calibration on meta-learner output
-        meta_val_probas = self._meta_learner.predict_proba(val_probas)
+        val_probas_for_calib = self._collect_base_probas(X_val)
+        meta_val_probas = self._meta_learner.predict_proba(val_probas_for_calib)
+        val_labels = y_val
 
         # Sample gate: isotonic needs ~1000+ samples; fall back to temperature
         n_samples = len(val_labels)
@@ -198,11 +205,8 @@ class StackingEnsemble(MatchPredictor):
         )
 
         # Build index mapping from matches_df to X_train positions
-        if hasattr(X_train, "index"):
-            x_index = list(X_train.index)
-            index_to_pos = {idx: i for i, idx in enumerate(x_index)}
-        else:
-            index_to_pos = {i: i for i in range(len(X_train))}
+        # self._matches_df corresponds row-by-row to X_train.
+        index_to_pos = {idx: i for i, idx in enumerate(self._matches_df.index)}
 
         n_train = len(X_train)
         n_classes = 3
@@ -252,10 +256,7 @@ class StackingEnsemble(MatchPredictor):
 
                 if isinstance(predictor, DixonColesPredictor):
                     fold_pred = DixonColesPredictor(
-                        ModelConfig(
-                            model_type="dixon_coles",
-                            random_seed=self.config.random_seed,
-                        )
+                        self._clone_base_config(predictor, "dixon_coles")
                     )
                     # Need goal data for score-based models
                     home_goals = self._matches_df.loc[
@@ -272,10 +273,7 @@ class StackingEnsemble(MatchPredictor):
                     )
                 elif isinstance(predictor, HybridPoissonPredictor):
                     fold_pred = HybridPoissonPredictor(
-                        ModelConfig(
-                            model_type="hybrid_poisson",
-                            random_seed=self.config.random_seed,
-                        )
+                        self._clone_base_config(predictor, "hybrid_poisson")
                     )
                     home_goals = self._matches_df.loc[
                         fold_train_idx, "home_score"
@@ -297,10 +295,7 @@ class StackingEnsemble(MatchPredictor):
 
                     fold_pred = create_predictor(
                         predictor.model_type,
-                        ModelConfig(
-                            model_type=predictor.model_type,
-                            random_seed=self.config.random_seed,
-                        ),
+                        self._clone_base_config(predictor),
                     )
                     fold_pred.fit(X_fold_train, y_fold_train)
 
@@ -372,6 +367,26 @@ class StackingEnsemble(MatchPredictor):
         """Concatenate base model probabilities."""
         probas = [predictor.predict_proba(X) for predictor in self.base_predictors]
         return np.hstack(probas)
+
+    def _clone_base_config(
+        self,
+        predictor: MatchPredictor,
+        model_type: str | None = None,
+    ) -> ModelConfig:
+        """Copy the fitted pipeline's base-model configuration for OOF folds."""
+        class_weights = (
+            dict(predictor.config.class_weights)
+            if predictor.config.class_weights is not None
+            else None
+        )
+        return ModelConfig(
+            model_type=model_type or predictor.model_type,
+            hyperparameters=dict(predictor.config.hyperparameters),
+            random_seed=predictor.config.random_seed,
+            class_weights=class_weights,
+            early_stopping_rounds=predictor.config.early_stopping_rounds,
+            eval_metric=predictor.config.eval_metric,
+        )
 
     def save(self, path: Path) -> None:
         """Save stacking ensemble to disk."""

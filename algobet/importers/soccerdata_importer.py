@@ -30,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from algobet.importers.soccerdata import ScheduleImporter, StatsEnricher
+from algobet.importers.tournaments import get_or_create_tournament_by_country
 from algobet.matches.models import Match, MatchStatistics, PlayerMatchStats
 from algobet.models import Season, Team, TeamAlias, Tournament
 from algobet.utils.team_resolver import TeamResolver
@@ -296,20 +297,12 @@ class SoccerDataImporter:
             return None
 
         info = LEAGUE_MAPPING[league_code]
-        tournament = self.session.execute(
-            select(Tournament).where(Tournament.url_slug == info["url_slug"])
-        ).scalar_one_or_none()
-
-        if not tournament:
-            tournament = Tournament(
-                name=info["name"],
-                country=info["country"],
-                url_slug=info["url_slug"],
-            )
-            self.session.add(tournament)
-            self.session.flush()
-
-        return tournament
+        return get_or_create_tournament_by_country(
+            self.session,
+            name=info["name"],
+            country=info["country"],
+            url_slug=info["url_slug"],
+        )
 
     def get_or_create_season(self, tournament: Tournament, season_str: str) -> Season:
         """Get or create a season from soccerdata season string.
@@ -930,3 +923,181 @@ class SoccerDataImporter:
             "players_added": player_result["players_added"],
             "matches_processed": player_result["matches_processed"],
         }
+
+    def enrich_detailed_odds(
+        self, league: str = "ENG-Premier League", season: str = "2024"
+    ) -> int:
+        """Enrich matches with detailed odds from Football-Data.co.uk.
+
+        Downloads historical odds including Asian handicap, over/under,
+        and multi-bookmaker averages from football-data.co.uk via soccerdata.
+
+        Args:
+            league: soccerdata league ID
+            season: Season string (e.g., '2024' for 2024/25, '2425' for 2024/25)
+
+        Returns:
+            Number of matches enriched
+        """
+        return self._stats_enricher.enrich_detailed_odds(league, season)
+
+    def _enrich_detailed_odds_impl(
+        self, league: str = "ENG-Premier League", season: str = "2024"
+    ) -> int:
+        """Enrich matches with detailed odds from Football-Data.co.uk.
+
+        Downloads historical odds including Asian handicap, over/under,
+        and multi-bookmaker averages from football-data.co.uk via soccerdata.
+
+        Column mapping (football-data.co.uk notation):
+            - B365*/BWH*/IW*/etc: Individual bookmaker 1X2 odds
+            - AH*: Asian handicap odds and line
+            - OU*: Over/Under 2.5 goals odds
+            - PS*/BS*/etc: Multi-bookmaker averages and max
+
+        Args:
+            league: soccerdata league ID
+            season: Season string
+
+        Returns:
+            Number of matches enriched
+        """
+        import soccerdata as sd
+
+        logger.info(
+            "Fetching detailed odds for %s season %s from Football-Data.co.uk",
+            league,
+            season,
+        )
+
+        try:
+            mh = sd.MatchHistory(leagues=[league], seasons=[season])
+            games: pd.DataFrame = mh.read_games()
+        except Exception as e:
+            logger.error("Failed to fetch detailed odds: %s", e)
+            return 0
+
+        if games.empty:
+            logger.warning("No detailed odds data for %s %s", league, season)
+            return 0
+
+        tournament = self.get_or_create_tournament(league)
+        if not tournament:
+            logger.error("Unknown league: %s", league)
+            return 0
+        season_obj = self.get_or_create_season(tournament, season)
+
+        db_matches = (
+            self.session.execute(
+                select(Match).where(
+                    Match.tournament_id == tournament.id,
+                    Match.season_id == season_obj.id,
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        match_by_key: dict[tuple[Any, ...], Match] = {}
+        for m in db_matches:
+            match_by_key[(m.match_date.date(), m.home_team.name, m.away_team.name)] = m
+
+        enriched = 0
+        for _idx, row in games.iterrows():
+            try:
+                key = (
+                    pd.to_datetime(row["date"]).date(),
+                    self._resolver.resolve(str(row["home_team"])),
+                    self._resolver.resolve(str(row["away_team"])),
+                )
+            except (KeyError, ValueError) as e:
+                logger.debug("Skipping odds row %s: %s", _idx, e)
+                continue
+
+            db_match = match_by_key.get(key)
+            if not db_match:
+                continue
+
+            # Multi-bookmaker average odds (PS = Pinnacle Sports average, BS = BetSapi)
+            # Football-Data.co.uk uses these columns for consensus:
+            #   B365A/H/D = Bet365, BWA/H/D = Bet&Win, IWA/H/D = Interwetten, etc.
+            #   PSW/PSD/PSA = Pinnacle Sports (often used as consensus proxy)
+            #   BWA/BWD/BWA = Bet&Win average
+            # We use available consensus columns
+
+            def _safe_float(val: Any) -> float | None:
+                if val is None or pd.isna(val):
+                    return None
+                try:
+                    v = float(val)
+                    return v if v > 0 else None
+                except (ValueError, TypeError):
+                    return None
+
+            # Average odds across bookmakers (if available)
+            # Column names vary by league/season; try common patterns
+            avg_home = _safe_float(row.get("PSW")) or _safe_float(row.get("BWA"))
+            avg_draw = _safe_float(row.get("PSD")) or _safe_float(row.get("BWD"))
+            avg_away = _safe_float(row.get("PSA")) or _safe_float(row.get("BAA"))
+
+            # Max odds across bookmakers
+            max_home = _safe_float(row.get("BWH")) or _safe_float(row.get("MaxH"))
+            max_draw = _safe_float(row.get("BWD")) or _safe_float(row.get("MaxD"))
+            max_away = _safe_float(row.get("BWA")) or _safe_float(row.get("MaxA"))
+
+            # Asian handicap (AHh = handicap line, AHH/AHA = home/away odds)
+            ah_line = _safe_float(row.get("AHh"))
+            ah_home_odds = _safe_float(row.get("AHH"))
+
+            # Over/Under 2.5 (OUH = over odds, OUA = under odds)
+            ou_over = _safe_float(row.get("OUH"))
+            ou_line = _safe_float(row.get("OU")) or 2.5
+
+            # Update match with detailed odds
+            updated = False
+            if avg_home is not None:
+                db_match.avg_home_odds = avg_home
+                updated = True
+            if avg_draw is not None:
+                db_match.avg_draw_odds = avg_draw
+                updated = True
+            if avg_away is not None:
+                db_match.avg_away_odds = avg_away
+                updated = True
+            if max_home is not None:
+                db_match.max_home_odds = max_home
+                updated = True
+            if max_draw is not None:
+                db_match.max_draw_odds = max_draw
+                updated = True
+            if max_away is not None:
+                db_match.max_away_odds = max_away
+                updated = True
+
+            # Store Asian handicap as combined field (line + home odds)
+            if ah_line is not None:
+                db_match.odds_asian_handicap_line = ah_line
+                updated = True
+            if ah_home_odds is not None:
+                # Store home AH odds; away can be derived
+                db_match.odds_asian_handicap = ah_home_odds
+                updated = True
+
+            # Store Over/Under odds
+            if ou_over is not None:
+                db_match.odds_over_under_25 = ou_over
+                updated = True
+            if ou_line is not None:
+                db_match.odds_over_under_line = ou_line
+                updated = True
+
+            if updated:
+                self.session.add(db_match)
+                enriched += 1
+
+            if enriched % 50 == 0:
+                self.session.flush()
+
+        self.session.flush()
+        logger.info("Enriched %d matches with detailed odds", enriched)
+        return enriched

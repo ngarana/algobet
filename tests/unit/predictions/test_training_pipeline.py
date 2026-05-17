@@ -14,7 +14,26 @@ from algobet.predictions.training.pipeline import (
     TrainingConfig,
     TrainingPipeline,
 )
-from algobet.predictions.training.split import SeasonAwareSplitter, get_class_weights
+from algobet.predictions.training.split import (
+    OOFTimeAwareSplitter,
+    SeasonAwareSplitter,
+    WalkForwardSplitter,
+    get_class_weights,
+)
+
+
+def _make_multi_league_season_frame() -> pd.DataFrame:
+    rows = []
+    for calendar_year in range(2020, 2025):
+        for tournament_id in range(1, 6):
+            rows.append(
+                {
+                    "match_date": pd.Timestamp(calendar_year, 8, tournament_id),
+                    "season_id": (calendar_year - 2000) * 10 + tournament_id,
+                    "tournament_id": tournament_id,
+                }
+            )
+    return pd.DataFrame(rows)
 
 
 class TestTrainingConfig:
@@ -202,6 +221,65 @@ class TestTrainingSplitters:
         assert df.iloc[split.train_indices]["season_id"].tolist() == [2022, 2023]
         assert df.iloc[split.val_indices]["season_id"].tolist() == [2024]
         assert df.iloc[split.test_indices]["season_id"].tolist() == [2025]
+
+    def test_season_aware_uses_calendar_seasons_for_multi_league_frames(
+        self,
+    ) -> None:
+        """Multi-league season_id values must not split leagues within a year."""
+        df = _make_multi_league_season_frame()
+
+        split = next(
+            SeasonAwareSplitter(
+                train_seasons=2,
+                val_seasons=1,
+                test_seasons=1,
+            ).split(df)
+        )
+
+        assert set(df.loc[split.train_indices, "match_date"].dt.year) == {2021, 2022}
+        assert set(df.loc[split.val_indices, "match_date"].dt.year) == {2023}
+        assert set(df.loc[split.test_indices, "match_date"].dt.year) == {2024}
+        assert len(split.val_indices) == 5
+        assert len(split.test_indices) == 5
+
+    def test_walk_forward_uses_calendar_seasons_for_multi_league_frames(
+        self,
+    ) -> None:
+        """Walk-forward folds should contain every league in each football season."""
+        df = _make_multi_league_season_frame()
+
+        split = next(
+            WalkForwardSplitter(
+                train_seasons=2,
+                val_seasons=1,
+                test_seasons=1,
+            ).split(df)
+        )
+
+        assert set(df.loc[split.train_indices, "match_date"].dt.year) == {2020, 2021}
+        assert set(df.loc[split.val_indices, "match_date"].dt.year) == {2022}
+        assert set(df.loc[split.test_indices, "match_date"].dt.year) == {2023}
+        assert len(split.train_indices) == 10
+        assert len(split.val_indices) == 5
+        assert len(split.test_indices) == 5
+
+    def test_oof_splitter_uses_calendar_seasons_for_multi_league_frames(
+        self,
+    ) -> None:
+        """OOF folds must be season-level across leagues, not one league at a time."""
+        df = _make_multi_league_season_frame()
+
+        folds = list(OOFTimeAwareSplitter(n_folds=2).split(df))
+
+        assert len(folds) == 2
+        first_train_idx, first_oof_idx = folds[0]
+        second_train_idx, second_oof_idx = folds[1]
+        assert set(df.loc[first_train_idx, "match_date"].dt.year) == {2022}
+        assert set(df.loc[first_oof_idx, "match_date"].dt.year) == {2023}
+        assert set(df.loc[second_train_idx, "match_date"].dt.year) == {2022, 2023}
+        assert set(df.loc[second_oof_idx, "match_date"].dt.year) == {2024}
+        assert len(first_oof_idx) == 5
+        assert len(second_oof_idx) == 5
 
     def test_get_class_weights_supports_tempered_strength(self) -> None:
         """Outcome balancing can be softened to protect probability quality."""

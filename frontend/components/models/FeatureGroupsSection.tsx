@@ -30,6 +30,56 @@ const AVAILABLE_FEATURE_GROUPS = [
     name: "Enriched Stats",
     description: "Rolling xG, shot, corners, PPDA, and player stats",
   },
+  {
+    id: "draw_signals",
+    name: "Draw Signals",
+    description: "Low-scoring, parity, and xG draw indicators",
+  },
+  {
+    id: "matchup_interaction",
+    name: "Matchup Interaction",
+    description: "Home-away style and strength interaction terms",
+  },
+  {
+    id: "elo_rating",
+    name: "Elo Ratings",
+    description: "Rolling team strength ratings and rating gaps",
+  },
+  {
+    id: "expected_points",
+    name: "Expected Points",
+    description: "Recent points expectation and performance trend",
+  },
+  {
+    id: "player_quality",
+    name: "Player Quality",
+    description: "Player availability and rolling contribution signals",
+  },
+  {
+    id: "odds",
+    name: "1X2 Odds",
+    description: "Stored home, draw, and away market probabilities",
+  },
+  {
+    id: "odds_residual",
+    name: "Odds Residuals",
+    description: "Market residuals against football-only model signals",
+  },
+  {
+    id: "detailed_odds",
+    name: "Detailed Odds",
+    description: "Bookmaker consensus, AH, and over-under market signals",
+  },
+];
+
+const DEFAULT_FEATURE_GROUP_IDS = [
+  "team_form",
+  "head_to_head",
+  "temporal",
+  "standings",
+  "enriched_stats",
+  "draw_signals",
+  "matchup_interaction",
 ];
 
 export function FeatureGroupsSection({
@@ -37,7 +87,10 @@ export function FeatureGroupsSection({
   onConfigChange,
 }: DataRangeSectionProps) {
   const toggleFeatureGroup = (groupId: string) => {
-    const current = config.featureGroups;
+    const current =
+      config.featureGroups.length > 0
+        ? config.featureGroups
+        : DEFAULT_FEATURE_GROUP_IDS;
     const updated = current.includes(groupId)
       ? current.filter((id) => id !== groupId)
       : [...current, groupId];
@@ -54,8 +107,9 @@ export function FeatureGroupsSection({
       <div className="flex flex-wrap gap-2">
         {AVAILABLE_FEATURE_GROUPS.map((group) => {
           const isSelected =
-            config.featureGroups.length === 0 ||
-            config.featureGroups.includes(group.id);
+            config.featureGroups.length === 0
+              ? DEFAULT_FEATURE_GROUP_IDS.includes(group.id)
+              : config.featureGroups.includes(group.id);
           return (
             <Badge
               key={group.id}
@@ -73,7 +127,7 @@ export function FeatureGroupsSection({
       </div>
       <p className="text-xs text-muted-foreground">
         {config.featureGroups.length === 0
-          ? "All feature groups enabled (default). Click to toggle specific groups."
+          ? "Backend default feature set enabled. Select groups to override it."
           : `Selected ${config.featureGroups.length} feature group(s). Unselected groups will be excluded.`}
       </p>
     </div>

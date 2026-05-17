@@ -21,6 +21,7 @@ ALLOWED_FEATURE_GROUPS = (
     "matchup_interaction",
     "player_quality",
     "odds",
+    "detailed_odds",
     "odds_residual",
 )
 

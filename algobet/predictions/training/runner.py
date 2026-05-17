@@ -695,14 +695,14 @@ class PipelineRunnerMixin:
                 base_predictors.append(predictor)
 
         # Use time-aware OOF if enough seasons are available
-        matches_df = getattr(self, "_prepared_matches_df", None)
-        oof_folds = self.config.stacking_n_folds if matches_df is not None else None
+        train_df = getattr(self, "_train_df", None)
+        oof_folds = self.config.stacking_n_folds if train_df is not None else None
 
         ensemble = StackingEnsemble(
             base_predictors=base_predictors,
             meta_learner_type=self.config.stacking_meta_learner,
             oof_folds=oof_folds,
-            matches_df=matches_df,
+            matches_df=train_df,
         )
         ensemble.fit(X_train, y_train, X_val, y_val)
         return ensemble
@@ -732,11 +732,11 @@ class PipelineRunnerMixin:
 
         n_folds = self.config.calibration_cv_folds
 
-        # Reconstruct the matches DataFrame needed for the splitter.
-        matches_df = getattr(self, "_prepared_matches_df", None)
-        if matches_df is None:
+        # Use _train_df which exactly corresponds to X_train and y_train
+        train_df = getattr(self, "_train_df", None)
+        if train_df is None:
             raise ValueError(
-                "Time-aware OOF requires the prepared matches DataFrame. "
+                "Time-aware OOF requires the training DataFrame (_train_df). "
                 "Ensure data preparation has run before calibration."
             )
 
@@ -746,7 +746,6 @@ class PipelineRunnerMixin:
             date_column="match_date",
         )
 
-        # If X is a DataFrame, convert to values for indexing
         X_values = X.values if hasattr(X, "values") else X
         y_values = np.asarray(y)
 
@@ -754,27 +753,13 @@ class PipelineRunnerMixin:
         oof_y = np.zeros(len(y_values), dtype=np.int64)
         oof_y[:] = -1  # sentinel for unassigned rows
 
+        # Map DataFrame index to positional indices in X_values/y_values
+        index_to_pos = {idx: i for i, idx in enumerate(train_df.index)}
+
         folds_used = 0
-        for train_idx, oof_idx in splitter.split(matches_df):
-            # Map split indices back to X/y positions.
-            # X and y may be a subset of matches_df (after feature selection),
-            # so we find the intersection.
-            if hasattr(X, "index"):
-                x_index_set = set(X.index)
-                train_pos = [
-                    i
-                    for i, idx in enumerate(X.index)
-                    if idx in set(train_idx) & x_index_set
-                ]
-                oof_pos = [
-                    i
-                    for i, idx in enumerate(X.index)
-                    if idx in set(oof_idx) & x_index_set
-                ]
-            else:
-                # Fallback: use all data (shouldn't happen with DataFrame X)
-                train_pos = list(range(len(X_values)))
-                oof_pos = list(range(len(X_values)))
+        for train_idx, oof_idx in splitter.split(train_df):
+            train_pos = [index_to_pos[idx] for idx in train_idx if idx in index_to_pos]
+            oof_pos = [index_to_pos[idx] for idx in oof_idx if idx in index_to_pos]
 
             if not train_pos or not oof_pos:
                 continue

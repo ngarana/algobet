@@ -628,6 +628,17 @@ def prepare_match_dataframe(matches: list[Any]) -> pd.DataFrame:
             "odds_draw": match.odds_draw,
             "odds_away": match.odds_away,
             "num_bookmakers": match.num_bookmakers,
+            # Detailed odds from Football-Data.co.uk
+            "avg_home_odds": match.avg_home_odds,
+            "avg_draw_odds": match.avg_draw_odds,
+            "avg_away_odds": match.avg_away_odds,
+            "max_home_odds": match.max_home_odds,
+            "max_draw_odds": match.max_draw_odds,
+            "max_away_odds": match.max_away_odds,
+            "odds_asian_handicap": match.odds_asian_handicap,
+            "odds_asian_handicap_line": match.odds_asian_handicap_line,
+            "odds_over_under_25": match.odds_over_under_25,
+            "odds_over_under_line": match.odds_over_under_line,
         }
         records.append(record)
 

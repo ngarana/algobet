@@ -54,17 +54,17 @@ export const defaultConfig = {
   // Outcome balancing
   outcomeBalance: false,
   outcomeBalanceStrength: 0.5,
-  // Feature groups (empty = all)
+  // Feature groups (empty = backend default)
   featureGroups: [] as string[],
   // Feature selection
-  featureSelection: false,
+  featureSelection: true,
   featureSelectionThreshold: 0.005,
   minSamplesPerFeature: 40 as number | null,
   // Ensemble training
   useEnsemble: false,
   ensembleTypes: ["xgboost", "lightgbm"] as string[],
   // Split strategy
-  splitStrategy: "temporal" as const,
+  splitStrategy: "walk_forward" as const,
   gapDays: 0,
   // Expanding window params
   minTrainSize: 100,
@@ -72,7 +72,7 @@ export const defaultConfig = {
   ewTestSize: 50,
   stepSize: 50,
   // Season-aware params
-  trainSeasons: 3,
+  trainSeasons: 8,
   valSeasons: 1,
   testSeasons: 1,
   // Custom hyperparameters

@@ -26,9 +26,11 @@ from algobet.predictions.training.classifiers import (
     DixonColesPredictor,
     HybridPoissonPredictor,
     ModelConfig,
+    RandomForestPredictor,
 )
 from algobet.predictions.training.config import ALLOWED_FEATURE_GROUPS
 from algobet.predictions.training.split import WalkForwardSplitter
+from algobet.predictions.training.stacking import StackingEnsemble
 
 
 class TestWalkForwardSplitter:
@@ -197,6 +199,7 @@ class TestOddsFeatureRegistration:
     def test_odds_in_allowed_feature_groups(self) -> None:
         assert "odds" in ALLOWED_FEATURE_GROUPS
         assert "odds_residual" in ALLOWED_FEATURE_GROUPS
+        assert "detailed_odds" in ALLOWED_FEATURE_GROUPS
 
     def test_create_odds_generator(self) -> None:
         from algobet.predictions.features.odds_generator import OddsFeatureGenerator
@@ -211,6 +214,43 @@ class TestOddsFeatureRegistration:
 
         gen = create_generators_by_names(["odds_residual"])
         assert any(isinstance(g, OddsResidualFeatureGenerator) for g in gen.generators)
+
+    def test_create_detailed_odds_generator(self) -> None:
+        from algobet.predictions.features.detailed_odds_generator import (
+            DetailedOddsFeatureGenerator,
+        )
+
+        gen = create_generators_by_names(["detailed_odds"])
+        assert any(isinstance(g, DetailedOddsFeatureGenerator) for g in gen.generators)
+
+
+class TestStackingOOF:
+    """Tests for time-aware stacking internals."""
+
+    def test_oof_base_clone_preserves_predictor_config(self) -> None:
+        base = RandomForestPredictor(
+            ModelConfig(
+                model_type="random_forest",
+                hyperparameters={"n_estimators": 25, "max_depth": 3},
+                random_seed=99,
+                class_weights={0: 1.2, 1: 1.5, 2: 0.8},
+                early_stopping_rounds=17,
+                eval_metric="mlogloss",
+            )
+        )
+        ensemble = StackingEnsemble(
+            base_predictors=[base],
+            config=ModelConfig(model_type="stacking_ensemble"),
+        )
+
+        cloned = ensemble._clone_base_config(base)
+
+        assert cloned.model_type == "random_forest"
+        assert cloned.hyperparameters == {"n_estimators": 25, "max_depth": 3}
+        assert cloned.random_seed == 99
+        assert cloned.class_weights == {0: 1.2, 1: 1.5, 2: 0.8}
+        assert cloned.early_stopping_rounds == 17
+        assert cloned.eval_metric == "mlogloss"
 
 
 class TestNativeNaNTransformers:

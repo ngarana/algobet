@@ -17,6 +17,69 @@ from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
+_SPLIT_SEASON_COLUMN = "_algobet_split_season"
+
+
+def _season_sort_key(season: Any) -> int:
+    season_str = str(season)
+    try:
+        return (
+            int(season_str.split("/")[0])
+            if "/" in season_str
+            else int(float(season_str))
+        )
+    except (ValueError, TypeError):
+        return 0
+
+
+def _football_season_from_dates(dates: pd.Series) -> pd.Series:
+    parsed = pd.to_datetime(dates)
+    return parsed.dt.year - (parsed.dt.month < 7).astype(int)
+
+
+def _should_use_calendar_season(df: pd.DataFrame, season_column: str) -> bool:
+    if season_column not in df.columns:
+        return True
+
+    # In multi-league training, season_id is tournament-specific. Grouping by
+    # it creates one pseudo-season per league-season instead of one football
+    # season across the whole training frame.
+    return "tournament_id" in df.columns and df["tournament_id"].dropna().nunique() > 1
+
+
+def _with_split_season_column(
+    df: pd.DataFrame,
+    season_column: str,
+    date_column: str,
+    splitter_name: str,
+) -> tuple[pd.DataFrame, str]:
+    df = df.copy()
+
+    if _should_use_calendar_season(df, season_column):
+        df[_SPLIT_SEASON_COLUMN] = _football_season_from_dates(df[date_column])
+        split_column = _SPLIT_SEASON_COLUMN
+        if season_column in df.columns:
+            logger.debug(
+                "%s: using calendar football seasons from %s instead of %s",
+                splitter_name,
+                date_column,
+                season_column,
+            )
+    else:
+        split_column = season_column
+
+    null_mask = df[split_column].isna()
+    if null_mask.any():
+        logger.warning(
+            "%s: dropping %d row(s) with null %s before splitting",
+            splitter_name,
+            null_mask.sum(),
+            split_column,
+        )
+        df = df[~null_mask].copy()
+
+    return df, split_column
+
 
 @dataclass
 class TemporalSplit:
@@ -250,25 +313,16 @@ class OOFTimeAwareSplitter:
         Yields:
             (train_indices, oof_indices) tuples.
         """
-        null_mask = df[self.season_column].isna()
-        if null_mask.any():
-            logger.warning(
-                "OOFTimeAwareSplitter: dropping %d row(s) with null %s",
-                null_mask.sum(),
-                self.season_column,
-            )
-            df = df[~null_mask].copy()
+        df, split_column = _with_split_season_column(
+            df,
+            self.season_column,
+            self.date_column,
+            "OOFTimeAwareSplitter",
+        )
 
         df = df.sort_values(self.date_column)
 
-        def _season_sort_key(s: Any) -> int:
-            s_str = str(s)
-            try:
-                return int(s_str.split("/")[0]) if "/" in s_str else int(float(s_str))
-            except (ValueError, TypeError):
-                return 0
-
-        seasons = sorted(df[self.season_column].unique(), key=_season_sort_key)
+        seasons = sorted(df[split_column].unique(), key=_season_sort_key)
 
         if len(seasons) < self.n_folds + 1:
             raise ValueError(
@@ -286,8 +340,8 @@ class OOFTimeAwareSplitter:
             oof_season = usable_seasons[fold_idx + 1]
             train_seasons = usable_seasons[: fold_idx + 1]
 
-            train_mask = df[self.season_column].isin(train_seasons)
-            oof_mask = df[self.season_column].isin([oof_season])
+            train_mask = df[split_column].isin(train_seasons)
+            oof_mask = df[split_column].isin([oof_season])
 
             train_indices = df.index[train_mask].to_numpy()
             oof_indices = df.index[oof_mask].to_numpy()
@@ -339,26 +393,17 @@ class WalkForwardSplitter:
         Yields:
             TemporalSplit objects for each fold
         """
-        null_mask = df[self.season_column].isna()
-        if null_mask.any():
-            logger.warning(
-                "WalkForwardSplitter: dropping %d row(s) with null %s before splitting",
-                null_mask.sum(),
-                self.season_column,
-            )
-            df = df[~null_mask].copy()
+        df, split_column = _with_split_season_column(
+            df,
+            self.season_column,
+            self.date_column,
+            "WalkForwardSplitter",
+        )
 
         df = df.sort_values(self.date_column)
         dates = pd.to_datetime(df[self.date_column])
 
-        def _season_sort_key(s: Any) -> int:
-            s_str = str(s)
-            try:
-                return int(s_str.split("/")[0]) if "/" in s_str else int(float(s_str))
-            except (ValueError, TypeError):
-                return 0
-
-        seasons = sorted(df[self.season_column].unique(), key=_season_sort_key)
+        seasons = sorted(df[split_column].unique(), key=_season_sort_key)
         total_seasons_needed = self.train_seasons + self.val_seasons + self.test_seasons
 
         if len(seasons) < total_seasons_needed:
@@ -383,9 +428,9 @@ class WalkForwardSplitter:
                 + self.test_seasons
             ]
 
-            train_mask = df[self.season_column].isin(train_sl)
-            val_mask = df[self.season_column].isin(val_sl)
-            test_mask = df[self.season_column].isin(test_sl)
+            train_mask = df[split_column].isin(train_sl)
+            val_mask = df[split_column].isin(val_sl)
+            test_mask = df[split_column].isin(test_sl)
 
             train_indices = df.index[train_mask].to_numpy()
             val_indices = df.index[val_mask].to_numpy()
@@ -542,28 +587,18 @@ class SeasonAwareSplitter:
         Yields:
             TemporalSplit objects
         """
-        # Rows with null season_id cannot be assigned to a season split.
-        null_mask = df[self.season_column].isna()
-        if null_mask.any():
-            logger.warning(
-                "SeasonAwareSplitter: dropping %d row(s) with null %s before splitting",
-                null_mask.sum(),
-                self.season_column,
-            )
-            df = df[~null_mask].copy()
+        df, split_column = _with_split_season_column(
+            df,
+            self.season_column,
+            self.date_column,
+            "SeasonAwareSplitter",
+        )
 
         df = df.sort_values(self.date_column)
         dates = pd.to_datetime(df[self.date_column])
 
-        def _season_sort_key(s: Any) -> int:
-            s_str = str(s)
-            try:
-                return int(s_str.split("/")[0]) if "/" in s_str else int(float(s_str))
-            except (ValueError, TypeError):
-                return 0
-
         # Get unique seasons in chronological order
-        seasons = df[self.season_column].unique()
+        seasons = df[split_column].unique()
         seasons = sorted(seasons, key=_season_sort_key)
 
         if len(seasons) < self.train_seasons + self.val_seasons + self.test_seasons:
@@ -582,9 +617,9 @@ class SeasonAwareSplitter:
         test_seasons_list = seasons[test_season_start:]
 
         # Get indices
-        train_mask = df[self.season_column].isin(train_seasons_list)
-        val_mask = df[self.season_column].isin(val_seasons_list)
-        test_mask = df[self.season_column].isin(test_seasons_list)
+        train_mask = df[split_column].isin(train_seasons_list)
+        val_mask = df[split_column].isin(val_seasons_list)
+        test_mask = df[split_column].isin(test_seasons_list)
 
         train_indices = df.index[train_mask].to_numpy()
         val_indices = df.index[val_mask].to_numpy()

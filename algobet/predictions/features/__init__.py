@@ -6,6 +6,12 @@ from algobet.predictions.features.composite import (
     create_default_generators,
     create_generators_by_names,
 )
+from algobet.predictions.features.detailed_odds_generator import (
+    DetailedOddsFeatureGenerator,
+)
+from algobet.predictions.features.draw_signal_generator import (
+    DrawSignalFeatureGenerator,
+)
 from algobet.predictions.features.elo_rating_generator import EloRatingGenerator
 from algobet.predictions.features.enriched_stats_generator import (
     EnrichedStatsFeatureGenerator,
@@ -53,11 +59,13 @@ __all__ = [
     "HeadToHeadGenerator",
     "OddsFeatureGenerator",
     "OddsResidualFeatureGenerator",
+    "DetailedOddsFeatureGenerator",
     "EnrichedStatsFeatureGenerator",
     "StandingsFeatureGenerator",
     "TemporalFeatureGenerator",
     "EloRatingGenerator",
     "ExpectedPointsGenerator",
+    "DrawSignalFeatureGenerator",
     "CompositeFeatureGenerator",
     "create_default_generators",
     "create_generators_by_names",

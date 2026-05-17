@@ -52,6 +52,18 @@ class Match(Base):
     odds_away: Mapped[float | None] = mapped_column(Float, nullable=True)
     num_bookmakers: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Detailed odds from Football-Data.co.uk
+    odds_asian_handicap: Mapped[float | None] = mapped_column(Float, nullable=True)
+    odds_asian_handicap_line: Mapped[float | None] = mapped_column(Float, nullable=True)
+    odds_over_under_25: Mapped[float | None] = mapped_column(Float, nullable=True)
+    odds_over_under_line: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_home_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_draw_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_away_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_home_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_draw_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_away_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
