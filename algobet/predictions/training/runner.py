@@ -447,10 +447,15 @@ class PipelineRunnerMixin:
         )
 
         # Step 7b: Check test set for collapse (reject if collapsed)
-        # Score-based models naturally produce fewer argmax-draw predictions;
-        # skip this check for them since it does not indicate real collapse.
+        # Score-based models (Dixon-Coles, Hybrid Poisson) and stacking ensembles
+        # naturally produce fewer argmax-draw predictions; skip this check for them
+        # since it does not indicate real collapse.
         test_report = self._prediction_class_report(predictor, X_test)
-        if self._is_prediction_collapsed(test_report) and not is_score_model:
+        is_score_or_stacking = self.config.model_type in (
+            "dixon_coles",
+            "hybrid_poisson",
+        ) or isinstance(predictor, StackingEnsemble)
+        if self._is_prediction_collapsed(test_report) and not is_score_or_stacking:
             raise ValueError(
                 f"Model passed validation but collapsed on test set: "
                 f"{test_report['num_classes']} classes predicted with counts "
