@@ -33,6 +33,7 @@ export function BasicSettings({ config, onConfigChange }: BasicSettingsProps) {
             <SelectItem value="random_forest">Random Forest</SelectItem>
             <SelectItem value="dixon_coles">Dixon-Coles</SelectItem>
             <SelectItem value="hybrid_poisson">Hybrid Poisson</SelectItem>
+            <SelectItem value="market_mediation">Market Mediation</SelectItem>
           </SelectContent>
         </Select>
       </div>

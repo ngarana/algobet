@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -297,6 +298,20 @@ class TestTrainingSplitters:
 class TestTrainingPipelineEvaluate:
     """Tests for TrainingPipeline._evaluate method."""
 
+    def test_average_metric_dicts_keeps_numpy_scalar_metrics(self) -> None:
+        """Walk-forward averages must not drop numpy scalar log-loss values."""
+        from algobet.predictions.training.runner import PipelineRunnerMixin
+
+        averaged = PipelineRunnerMixin._average_metric_dicts(
+            [
+                {"log_loss": np.float64(1.2), "accuracy": 0.4},
+                {"log_loss": np.float64(1.0), "accuracy": 0.6},
+            ]
+        )
+
+        assert averaged["log_loss"] == pytest.approx(1.1)
+        assert averaged["accuracy"] == pytest.approx(0.5)
+
     @patch("algobet.predictions.training.pipeline.FeaturePipeline")
     @patch("algobet.predictions.training.pipeline.FeatureStore")
     @patch("algobet.predictions.training.pipeline.ModelRegistry")
@@ -581,6 +596,67 @@ class TestTrainingPipelineFeatureSelection:
         assert selected_train.shape == (4, 1)
         assert selected_val.shape == (2, 1)
         assert selected_test.shape == (2, 1)
+
+
+class TestTrainingPipelineFeatureCache:
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_prepare_split_reuses_precomputed_raw_features(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        feature_pipeline = MagicMock()
+        feature_pipeline.fit_transform_raw_features.return_value = np.array(
+            [[1.0], [2.0]],
+            dtype=np.float64,
+        )
+        feature_pipeline.transform_raw_features.side_effect = [
+            np.array([[3.0]], dtype=np.float64),
+            np.array([[4.0]], dtype=np.float64),
+        ]
+
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(use_feature_cache=False),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+        pipeline._prepared_raw_features = pd.DataFrame(
+            {"f1": [10.0, 20.0, 30.0, 40.0]},
+            index=[101, 102, 103, 104],
+        )
+        matches = pd.DataFrame(
+            {
+                "id": [101, 102, 103, 104],
+                "result": ["H", "D", "A", "H"],
+            }
+        )
+        split = SimpleNamespace(
+            train_indices=np.array([0, 1], dtype=np.int64),
+            val_indices=np.array([2], dtype=np.int64),
+            test_indices=np.array([3], dtype=np.int64),
+        )
+
+        X_train, X_val, X_test, y_train, y_val, y_test = (
+            pipeline._prepare_data_for_split(
+                matches,
+                split,
+                cache_features=False,
+            )
+        )
+
+        feature_pipeline.fit_transform.assert_not_called()
+        feature_pipeline.transform.assert_not_called()
+        feature_pipeline.fit_transform_raw_features.assert_called_once()
+        assert feature_pipeline.transform_raw_features.call_count == 2
+        assert X_train.shape == (2, 1)
+        assert X_val.shape == (1, 1)
+        assert X_test.shape == (1, 1)
+        assert y_train.tolist() == [0, 1]
+        assert y_val.tolist() == [2]
+        assert y_test.tolist() == [0]
 
 
 class TestTrainingPipelineOddsFree:
@@ -890,6 +966,54 @@ class TestTrainingPipelineOddsFree:
                 hyperparameters={},
             )
 
+    @patch("algobet.predictions.training.pipeline.FeatureStore")
+    @patch("algobet.predictions.training.pipeline.ModelRegistry")
+    @patch("algobet.predictions.training.pipeline.MatchRepository")
+    def test_apply_feature_selection_allows_requested_detailed_odds_features(
+        self,
+        mock_repo_cls: MagicMock,
+        mock_registry_cls: MagicMock,
+        mock_store_cls: MagicMock,
+    ) -> None:
+        """Detailed odds features are allowed when that group is requested."""
+        from algobet.predictions.training.pipeline import TrainingPipeline
+
+        feature_pipeline = MagicMock()
+        feature_pipeline.feature_names = ["f1", "avg_implied_prob_draw", "f3"]
+        feature_pipeline.set_selected_features = MagicMock()
+        pipeline = TrainingPipeline(
+            config=TrainingConfig(
+                feature_groups=["detailed_odds"],
+                feature_selection=True,
+                feature_selection_threshold=0.0,
+                min_draw_features=0,
+                min_away_features=0,
+                min_enriched_or_coverage=0,
+                min_low_scoring_features=0,
+            ),
+            session=MagicMock(),
+            feature_pipeline=feature_pipeline,
+        )
+
+        probe = MagicMock()
+        probe.feature_importance = {"f1": 1.0, "avg_implied_prob_draw": 9.0, "f3": 1.0}
+        pipeline._train_model = MagicMock(return_value=probe)
+
+        X_train, X_val, X_test = pipeline._apply_feature_selection(
+            X_train=np.ones((4, 3), dtype=np.float64),
+            X_val=np.ones((2, 3), dtype=np.float64),
+            X_test=np.ones((2, 3), dtype=np.float64),
+            y_train=np.array([0, 1, 2, 0], dtype=np.int64),
+            y_val=np.array([1, 2], dtype=np.int64),
+            class_weights=None,
+            hyperparameters={},
+        )
+
+        feature_pipeline.set_selected_features.assert_called_once()
+        assert X_train.shape == (4, 3)
+        assert X_val.shape == (2, 3)
+        assert X_test.shape == (2, 3)
+
 
 class TestMatchRepositoryStandings:
     """Tests for time-aware standings lookup."""
@@ -960,6 +1084,122 @@ class TestMatchRepositoryStandings:
 
         history = repo._standings_cache[(10, 20)]
         assert history[1][0].total_teams == 2  # Only 2 teams appeared in matches
+
+
+class TestMatchRepositoryCachedLookups:
+    def test_get_team_matches_uses_date_index_and_preserves_recent_order(self) -> None:
+        repo = MatchRepository(MagicMock())
+        matches = [
+            SimpleNamespace(
+                id=1,
+                match_date=datetime(2020, 8, 1),
+                home_team_id=1,
+                away_team_id=2,
+            ),
+            SimpleNamespace(
+                id=2,
+                match_date=datetime(2020, 9, 1),
+                home_team_id=3,
+                away_team_id=1,
+            ),
+            SimpleNamespace(
+                id=3,
+                match_date=datetime(2020, 10, 1),
+                home_team_id=1,
+                away_team_id=4,
+            ),
+        ]
+        repo._team_matches_asc_cache[1] = matches
+        repo._team_match_dates_asc_cache[1] = [match.match_date for match in matches]
+        repo._team_matches_cache[1] = list(reversed(matches))
+
+        result = repo.get_team_matches(
+            1,
+            before_date=datetime(2020, 9, 15),
+            limit=2,
+        )
+        home_only = repo.get_team_matches(
+            1,
+            before_date=datetime(2020, 11, 1),
+            limit=2,
+            home_only=True,
+        )
+
+        assert [match.id for match in result] == [2, 1]
+        assert [match.id for match in home_only] == [3, 1]
+
+
+class TestMarketMediationWalkForwardSummary:
+    def test_pools_selected_bets_and_checks_fold_coverage(self) -> None:
+        summary = TrainingPipeline._market_mediation_walk_forward_summary(
+            [
+                {
+                    "market_mediation_closing_coverage": 0.92,
+                    "market_mediation_selected_bets": 50.0,
+                    "market_mediation_selected_mean_clv": 0.010,
+                    "market_mediation_selected_clv_sum": 0.50,
+                    "market_mediation_selected_clv_sum_sq": 0.006,
+                },
+                {
+                    "market_mediation_closing_coverage": 0.88,
+                    "market_mediation_selected_bets": 60.0,
+                    "market_mediation_selected_mean_clv": 0.012,
+                    "market_mediation_selected_clv_sum": 0.72,
+                    "market_mediation_selected_clv_sum_sq": 0.010,
+                },
+                {
+                    "market_mediation_closing_coverage": 0.81,
+                    "market_mediation_selected_bets": 40.0,
+                    "market_mediation_selected_mean_clv": -0.001,
+                    "market_mediation_selected_clv_sum": -0.04,
+                    "market_mediation_selected_clv_sum_sq": 0.003,
+                },
+                {
+                    "market_mediation_closing_coverage": 0.90,
+                    "market_mediation_selected_bets": 70.0,
+                    "market_mediation_selected_mean_clv": 0.020,
+                    "market_mediation_selected_clv_sum": 1.40,
+                    "market_mediation_selected_clv_sum_sq": 0.030,
+                },
+            ]
+        )
+
+        assert summary["market_mediation_walk_forward_fold_count"] == 4.0
+        assert summary["market_mediation_walk_forward_coverage_min"] == pytest.approx(
+            0.81
+        )
+        assert summary["market_mediation_walk_forward_positive_clv_folds"] == 3.0
+        assert summary[
+            "market_mediation_walk_forward_pooled_selected_bets"
+        ] == pytest.approx(220.0)
+        assert summary[
+            "market_mediation_walk_forward_pooled_mean_clv"
+        ] == pytest.approx((0.50 + 0.72 - 0.04 + 1.40) / 220.0)
+
+    def test_handles_all_abstained_folds_without_raw_clv_arrays(self) -> None:
+        summary = TrainingPipeline._market_mediation_walk_forward_summary(
+            [
+                {
+                    "market_mediation_closing_coverage": 0.90,
+                    "market_mediation_selected_bets": 0.0,
+                    "market_mediation_selected_mean_clv": 0.0,
+                    "market_mediation_selected_clv_sum": 0.0,
+                    "market_mediation_selected_clv_sum_sq": 0.0,
+                },
+                {
+                    "market_mediation_closing_coverage": 0.85,
+                    "market_mediation_selected_bets": 0.0,
+                    "market_mediation_selected_mean_clv": 0.0,
+                    "market_mediation_selected_clv_sum": 0.0,
+                    "market_mediation_selected_clv_sum_sq": 0.0,
+                },
+            ],
+            pooled_clv_values=[np.array([]), np.array([])],
+        )
+
+        assert summary["market_mediation_walk_forward_pooled_selected_bets"] == 0.0
+        assert summary["market_mediation_walk_forward_pooled_mean_clv"] == 0.0
+        assert summary["market_mediation_walk_forward_pooled_clv_lower_95"] == 0.0
 
 
 class TestTrainModel:

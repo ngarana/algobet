@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from algobet.models import Match, ModelVersion, Season, Team, Tournament
 from algobet.predictions.training.pipeline import MODEL_FEATURE_SCHEMA_VERSION
+from algobet.services.ml_ops.training_runner import TrainingRunner
 
 
 @pytest.fixture
@@ -531,6 +532,90 @@ class TestTrainEndpoint:
         assert response.status_code == 200
         train_config = mock_pipeline_cls.call_args.kwargs["config"]
         assert train_config.feature_groups == ["odds"]
+
+    def test_train_accepts_market_mediation_payload(
+        self, test_client: TestClient
+    ) -> None:
+        """Training should pass selective market mediation fields through."""
+        with (
+            patch(
+                "algobet.services.ml_ops.training_runner.TrainingPipeline"
+            ) as mock_pipeline_cls,
+            patch(
+                "algobet.services.ml_ops.training_runner.ModelRegistry"
+            ) as mock_registry_cls,
+        ):
+            mock_pipeline = MagicMock()
+            mock_pipeline.run.return_value = MagicMock(
+                model_version="market_mediation_20260517_204500",
+                model_type="market_mediation",
+                feature_schema_version=MODEL_FEATURE_SCHEMA_VERSION,
+                num_features=25,
+                trained_at=datetime(2026, 5, 17, 20, 45, 0),
+                training_duration_seconds=5.0,
+                train_metrics={"accuracy": 0.5},
+                val_metrics={"accuracy": 0.45},
+                test_metrics={
+                    "accuracy": 0.44,
+                    "market_mediation_closing_coverage": 0.0,
+                },
+                feature_importance=None,
+                ensemble_weights=None,
+                ensemble_validation_metrics=None,
+            )
+            mock_pipeline_cls.return_value = mock_pipeline
+            mock_registry_cls.return_value = MagicMock()
+
+            response = test_client.post(
+                "/api/v1/ml/train",
+                json={
+                    "model_type": "market_mediation",
+                    "production_lane": "dual",
+                    "taken_odds_snapshot": "opening",
+                    "closing_odds_required": True,
+                    "min_expected_clv": 0.005,
+                    "min_positive_clv_probability": 0.55,
+                    "feature_groups": ["team_form"],
+                    "activate": False,
+                },
+            )
+
+        assert response.status_code == 200
+        train_config = mock_pipeline_cls.call_args.kwargs["config"]
+        assert train_config.model_type == "market_mediation"
+        assert train_config.production_lane == "dual"
+        assert train_config.taken_odds_snapshot == "opening"
+        assert train_config.closing_odds_required is True
+        assert train_config.min_expected_clv == pytest.approx(0.005)
+        assert train_config.min_positive_clv_probability == pytest.approx(0.55)
+        assert train_config.feature_groups == ["team_form", "market_mediation"]
+
+    def test_market_mediation_activation_requires_walk_forward_gates(self) -> None:
+        runner = TrainingRunner()
+        passing_result = MagicMock(
+            model_type="market_mediation",
+            test_metrics={
+                "predicted_classes": 3.0,
+                "market_mediation_walk_forward_fold_count": 4.0,
+                "market_mediation_walk_forward_coverage_min": 0.82,
+                "market_mediation_walk_forward_positive_clv_folds": 3.0,
+                "market_mediation_walk_forward_pooled_selected_bets": 220.0,
+                "market_mediation_walk_forward_pooled_mean_clv": 0.012,
+                "market_mediation_walk_forward_pooled_clv_lower_95": 0.002,
+                "final_split_market_mediation_residual_lane_log_loss": 1.04,
+                "final_split_market_mediation_opening_market_log_loss": 1.05,
+            },
+        )
+        failing_result = MagicMock(
+            model_type="market_mediation",
+            test_metrics={
+                **passing_result.test_metrics,
+                "market_mediation_walk_forward_positive_clv_folds": 2.0,
+            },
+        )
+
+        assert runner._passes_activation_gate(passing_result) is True
+        assert runner._passes_activation_gate(failing_result) is False
 
 
 class TestCalibrateEndpoint:

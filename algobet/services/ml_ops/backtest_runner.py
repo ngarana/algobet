@@ -138,6 +138,20 @@ class BacktestRunner:
             Match.odds_draw.is_not(None),
             Match.odds_away.is_not(None),
         ]
+        is_market_mediation = bool(
+            db_model and db_model.algorithm == "market_mediation"
+        )
+        if is_market_mediation:
+            filters.extend(
+                [
+                    Match.opening_odds_home.is_not(None),
+                    Match.opening_odds_draw.is_not(None),
+                    Match.opening_odds_away.is_not(None),
+                    Match.closing_odds_home.is_not(None),
+                    Match.closing_odds_draw.is_not(None),
+                    Match.closing_odds_away.is_not(None),
+                ]
+            )
 
         if request.tournament_id:
             filters.append(Match.tournament_id == request.tournament_id)
@@ -188,8 +202,28 @@ class BacktestRunner:
 
         X_test = feature_pipeline.transform(matches_df, repo)
 
-        # Get odds for betting simulation
-        odds = matches_df[["odds_home", "odds_draw", "odds_away"]].values
+        # Get odds for betting simulation. Market mediation uses the price
+        # taken at opening and true closing odds for classical CLV.
+        opening_cols = ["opening_odds_home", "opening_odds_draw", "opening_odds_away"]
+        closing_cols = ["closing_odds_home", "closing_odds_draw", "closing_odds_away"]
+        legacy_cols = ["odds_home", "odds_draw", "odds_away"]
+        has_opening_cols = all(col in matches_df.columns for col in opening_cols)
+        if is_market_mediation and has_opening_cols:
+            odds = matches_df[opening_cols].astype(float).to_numpy(dtype=np.float64)
+        else:
+            odds = matches_df[legacy_cols].astype(float).to_numpy(dtype=np.float64)
+        closing_odds = None
+        use_model_clv = True
+        if all(col in matches_df.columns for col in closing_cols):
+            candidate_closing = (
+                matches_df[closing_cols].astype(float).to_numpy(dtype=np.float64)
+            )
+            valid_closing = np.isfinite(candidate_closing).all(axis=1) & (
+                candidate_closing > 0
+            ).all(axis=1)
+            if valid_closing.all():
+                closing_odds = candidate_closing
+                use_model_clv = False
 
         # Get predictions
         y_proba = model.predict_proba(X_test)
@@ -205,10 +239,6 @@ class BacktestRunner:
             str(matches_df["match_date"].max().date()),
         )
 
-        # Only one odds snapshot per match is persisted (Match.odds_*).
-        # Treat it as the closing market price and route CLV through the
-        # model-CLV path so the metric reflects model-vs-closing edge
-        # rather than the structurally-zero dual-snapshot value.
         result = evaluate_predictions(
             y_true=y_true,
             y_pred=y_pred,
@@ -217,7 +247,8 @@ class BacktestRunner:
             model_version=model_meta.version if model_meta else "unknown",
             date_range=date_range,
             min_edge=request.min_edge,
-            use_model_clv=True,
+            closing_odds=closing_odds,
+            use_model_clv=use_model_clv,
         )
 
         # Save backtest results to database

@@ -1,5 +1,6 @@
 """SQL queries and repository for match data access."""
 
+from bisect import bisect_left
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -46,12 +47,24 @@ class MatchRepository:
         self.session = session
         # In-memory caches populated by preload_* methods
         self._team_matches_cache: dict[int, list[Match]] = {}
+        self._team_matches_asc_cache: dict[int, list[Match]] = {}
+        self._team_match_dates_asc_cache: dict[int, list[datetime]] = {}
         self._h2h_cache: dict[tuple[int, int], list[Match]] = {}
+        self._h2h_asc_cache: dict[tuple[int, int], list[Match]] = {}
+        self._h2h_dates_asc_cache: dict[tuple[int, int], list[datetime]] = {}
         # Standings cache keyed by (tournament_id, season_id)
         self._standings_cache: dict[
             tuple[int, int], dict[int, list[TeamStandings]]
         ] = {}
         self._historical_provider = HistoricalMatchProvider(session)
+
+    @staticmethod
+    def _normalize_before_date(value: datetime | object | None) -> datetime | None:
+        if value is not None and hasattr(value, "to_pydatetime"):
+            return value.to_pydatetime()
+        if isinstance(value, datetime):
+            return value
+        return None
 
     def preload_team_matches(self, team_ids: list[int], before_date: datetime) -> None:
         """Bulk-load all finished matches for a set of teams into memory.
@@ -94,6 +107,13 @@ class MatchRepository:
                 by_team[m.away_team_id].append(m)
 
         self._team_matches_cache = dict(by_team)
+        self._team_matches_asc_cache = {
+            team_id: list(reversed(matches)) for team_id, matches in by_team.items()
+        }
+        self._team_match_dates_asc_cache = {
+            team_id: [match.match_date for match in matches]
+            for team_id, matches in self._team_matches_asc_cache.items()
+        }
 
     def preload_h2h_matches(
         self, team_pairs: list[tuple[int, int]], before_date: datetime
@@ -138,6 +158,13 @@ class MatchRepository:
             by_pair[key].append(m)
 
         self._h2h_cache = dict(by_pair)
+        self._h2h_asc_cache = {
+            pair: list(reversed(matches)) for pair, matches in by_pair.items()
+        }
+        self._h2h_dates_asc_cache = {
+            pair: [match.match_date for match in matches]
+            for pair, matches in self._h2h_asc_cache.items()
+        }
 
     def preload_season_standings(
         self,
@@ -367,7 +394,11 @@ class MatchRepository:
     def clear_cache(self) -> None:
         """Clear in-memory caches."""
         self._team_matches_cache.clear()
+        self._team_matches_asc_cache.clear()
+        self._team_match_dates_asc_cache.clear()
         self._h2h_cache.clear()
+        self._h2h_asc_cache.clear()
+        self._h2h_dates_asc_cache.clear()
         self._standings_cache.clear()
 
     def get_historical_matches(
@@ -439,10 +470,14 @@ class MatchRepository:
             List of Match objects ordered by date (most recent first)
         """
         if team_id in self._team_matches_cache:
+            before_date = self._normalize_before_date(before_date)
+            asc_matches = self._team_matches_asc_cache.get(team_id, [])
+            asc_dates = self._team_match_dates_asc_cache.get(team_id, [])
+            end = (
+                bisect_left(asc_dates, before_date) if before_date else len(asc_matches)
+            )
             result: list[Match] = []
-            for match in self._team_matches_cache[team_id]:
-                if before_date and match.match_date >= before_date:
-                    continue
+            for match in reversed(asc_matches[:end]):
                 if home_only and match.home_team_id != team_id:
                     continue
                 if away_only and match.away_team_id != team_id:
@@ -507,10 +542,14 @@ class MatchRepository:
         """
         cache_key = (min(team1_id, team2_id), max(team1_id, team2_id))
         if cache_key in self._h2h_cache:
+            before_date = self._normalize_before_date(before_date)
+            asc_matches = self._h2h_asc_cache.get(cache_key, [])
+            asc_dates = self._h2h_dates_asc_cache.get(cache_key, [])
+            end = (
+                bisect_left(asc_dates, before_date) if before_date else len(asc_matches)
+            )
             result: list[Match] = []
-            for match in self._h2h_cache[cache_key]:
-                if before_date and match.match_date >= before_date:
-                    continue
+            for match in reversed(asc_matches[:end]):
                 result.append(match)
                 if len(result) >= limit:
                     break
@@ -550,11 +589,11 @@ class MatchRepository:
             Number of matches played
         """
         if team_id in self._team_matches_cache:
-            return sum(
-                1
-                for match in self._team_matches_cache[team_id]
-                if match.match_date < before_date
-            )
+            normalized_date = self._normalize_before_date(before_date)
+            if normalized_date is None:
+                return 0
+            dates = self._team_match_dates_asc_cache.get(team_id, [])
+            return bisect_left(dates, normalized_date)
 
         stmt = select(func.count(Match.id)).where(
             and_(

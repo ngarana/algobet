@@ -128,6 +128,9 @@ FEATURE_FAMILIES: dict[str, list[str]] = {
         "venue_surprise",
         "home_advantage_net",
     ],
+    "market_mediation": [
+        "mediation_",
+    ],
 }
 
 
@@ -206,6 +209,7 @@ def group_aware_selection(
     min_away_features: int = 3,
     min_enriched_or_coverage: int = 5,
     min_low_scoring_features: int = 2,
+    min_market_mediation_features: int = 0,
     enriched_coverage_threshold: float = 0.0,
 ) -> tuple[list[str], FeatureSelectionReport]:
     group_map = {name: classify_feature(name) for name in feature_names}
@@ -215,10 +219,31 @@ def group_aware_selection(
         group_counts_before[g] = group_counts_before.get(g, 0) + 1
 
     drop_log: list[dict[str, str]] = []
-    pruned_names = list(feature_names)
     corr_clusters: dict[str, list[str]] = {}
 
-    pruned_names, corr_drops = prune_correlation(pruned_names, X, max_correlation)
+    # Pre-select features that must survive correlation pruning.
+    # For market_mediation, structural features (overround, entropy, disagreement,
+    # AH/OU context) are required by the CLV head. They are often pruned because
+    # avg/max implied probs correlate with opening implied probs, and entropy/
+    # favorite_prob correlate with home_prob. Force-protect the top-N non-constant
+    # mediation features by temporarily removing them from the correlation pool,
+    # then reinserting after pruning.
+    forced_features: list[str] = []
+    prunable_names = list(feature_names)
+    if min_market_mediation_features > 0:
+        mm_candidates = [
+            n for n in feature_names
+            if group_map.get(n) == "market_mediation"
+            and not _is_constant(X, feature_names, n)
+        ]
+        forced_features = mm_candidates[:min_market_mediation_features]
+        prunable_names = [n for n in feature_names if n not in set(forced_features)]
+
+    all_name_to_idx = {n: i for i, n in enumerate(feature_names)}
+    prunable_col_indices = [all_name_to_idx[n] for n in prunable_names]
+    X_prunable = X[:, prunable_col_indices]
+    pruned_names, corr_drops = prune_correlation(prunable_names, X_prunable, max_correlation)
+    pruned_names = pruned_names + forced_features
     drop_log.extend(corr_drops)
     removed_by_corr = set(feature_names) - set(pruned_names)
     for name in removed_by_corr:

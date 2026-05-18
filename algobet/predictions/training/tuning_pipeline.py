@@ -36,13 +36,14 @@ class TuningPipelineMixin:
         # Score-based models (Dixon-Coles, HybridPoisson) require goal data
         # via fit_with_scores(); the tuner only has (X, y) and calls generic
         # fit(), which will crash. Skip tuning and use default params.
-        _SCORE_BASED_MODELS = {"dixon_coles", "hybrid_poisson"}
+        _SCORE_BASED_MODELS = {"dixon_coles", "hybrid_poisson", "market_mediation"}
         if model_type in _SCORE_BASED_MODELS:
             import logging
 
             logging.getLogger(__name__).info(
-                "Skipping hyperparameter tuning for score-based model '%s'. "
-                "The tuner cannot provide goal data required by fit_with_scores().",
+                "Skipping hyperparameter tuning for model '%s'. "
+                "The tuner cannot provide the extra target data required by "
+                "its specialized fit path.",
                 model_type,
             )
             return None

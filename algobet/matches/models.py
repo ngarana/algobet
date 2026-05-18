@@ -52,6 +52,15 @@ class Match(Base):
     odds_away: Mapped[float | None] = mapped_column(Float, nullable=True)
     num_bookmakers: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Explicit odds snapshots for classical CLV.  The legacy odds_* fields stay
+    # as a backward-compatible current/default snapshot.
+    opening_odds_home: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_odds_draw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_odds_away: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_odds_home: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_odds_draw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_odds_away: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Detailed odds from Football-Data.co.uk
     odds_asian_handicap: Mapped[float | None] = mapped_column(Float, nullable=True)
     odds_asian_handicap_line: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -63,6 +72,42 @@ class Match(Base):
     max_home_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_draw_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_away_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_avg_home_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_avg_draw_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_avg_away_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_avg_home_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_avg_draw_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_avg_away_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_max_home_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_max_draw_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_max_away_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_max_home_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_max_draw_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_max_away_odds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_asian_handicap: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_asian_handicap_away: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    opening_asian_handicap_line: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    closing_asian_handicap: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_asian_handicap_away: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    closing_asian_handicap_line: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    opening_over_under_25: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_over_under_25_under: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    opening_over_under_line: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_over_under_25: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_over_under_25_under: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    closing_over_under_line: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

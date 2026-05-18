@@ -437,93 +437,114 @@ class FDImporter:
         """Update match with betting odds from football-data.co.uk."""
         updated = False
 
-        # 1X2 odds - try Pinnacle Sports averages first, then Bet365
-        home_odds = self._safe_float(row.get("PSH")) or self._safe_float(
-            row.get("B365H")
-        )
-        draw_odds = self._safe_float(row.get("PSD")) or self._safe_float(
-            row.get("B365D")
-        )
-        away_odds = self._safe_float(row.get("PSA")) or self._safe_float(
-            row.get("B365A")
-        )
+        def first_float(*columns: str) -> float | None:
+            for column in columns:
+                value = self._safe_float(row.get(column))
+                if value is not None:
+                    return value
+            return None
 
-        if match.odds_home is None and home_odds is not None:
-            match.odds_home = home_odds
-            updated = True
-        if match.odds_draw is None and draw_odds is not None:
-            match.odds_draw = draw_odds
-            updated = True
-        if match.odds_away is None and away_odds is not None:
-            match.odds_away = away_odds
-            updated = True
+        def first_number(*columns: str) -> float | None:
+            for column in columns:
+                value = row.get(column)
+                if value is None or pd.isna(value):
+                    continue
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+            return None
 
-        # Average odds across bookmakers
-        avg_home = self._safe_float(row.get("PSH")) or self._safe_float(
-            row.get("BWA")  # Note: BWA is not in CSV, using PSH as approximation
-        )
-        avg_draw = self._safe_float(row.get("PSD")) or self._safe_float(
-            row.get("BWD")  # Note: BWD is not in CSV, using PSD as approximation
-        )
-        avg_away = self._safe_float(row.get("PSA")) or self._safe_float(
-            row.get("WHH")  # Using WHH as approximation, need to check
-        )
+        def set_if_empty(attr: str, value: float | None) -> None:
+            nonlocal updated
+            if getattr(match, attr) is None and value is not None:
+                setattr(match, attr, value)
+                updated = True
 
-        # Actually, let's use what's available in the CSV
-        # Check what average/max columns are actually present
-        avg_home = self._safe_float(row.get("PSH"))  # Pinnacle home odds
-        avg_draw = self._safe_float(row.get("PSD"))  # Pinnacle draw odds
-        avg_away = self._safe_float(row.get("PSA"))  # Pinnacle away odds
+        # 1X2 opening and closing snapshots.  Existing odds_* columns keep
+        # their legacy meaning, while explicit snapshots power classical CLV.
+        opening_home = first_float("PSH", "B365H", "AvgH")
+        opening_draw = first_float("PSD", "B365D", "AvgD")
+        opening_away = first_float("PSA", "B365A", "AvgA")
+        closing_home = first_float("PSCH", "B365CH", "AvgCH")
+        closing_draw = first_float("PSCD", "B365CD", "AvgCD")
+        closing_away = first_float("PSCA", "B365CA", "AvgCA")
 
-        if match.avg_home_odds is None and avg_home is not None:
-            match.avg_home_odds = avg_home
-            updated = True
-        if match.avg_draw_odds is None and avg_draw is not None:
-            match.avg_draw_odds = avg_draw
-            updated = True
-        if match.avg_away_odds is None and avg_away is not None:
-            match.avg_away_odds = avg_away
-            updated = True
+        set_if_empty("opening_odds_home", opening_home)
+        set_if_empty("opening_odds_draw", opening_draw)
+        set_if_empty("opening_odds_away", opening_away)
+        set_if_empty("closing_odds_home", closing_home)
+        set_if_empty("closing_odds_draw", closing_draw)
+        set_if_empty("closing_odds_away", closing_away)
+        set_if_empty("odds_home", opening_home)
+        set_if_empty("odds_draw", opening_draw)
+        set_if_empty("odds_away", opening_away)
 
-        # Max odds
-        max_home = self._safe_float(row.get("MaxH")) or self._safe_float(row.get("BWH"))
-        max_draw = self._safe_float(row.get("MaxD")) or self._safe_float(row.get("BWD"))
-        max_away = self._safe_float(row.get("MaxA")) or self._safe_float(row.get("BWA"))
+        opening_avg_home = first_float("AvgH", "PSH", "B365H")
+        opening_avg_draw = first_float("AvgD", "PSD", "B365D")
+        opening_avg_away = first_float("AvgA", "PSA", "B365A")
+        closing_avg_home = first_float("AvgCH", "PSCH", "B365CH")
+        closing_avg_draw = first_float("AvgCD", "PSCD", "B365CD")
+        closing_avg_away = first_float("AvgCA", "PSCA", "B365CA")
 
-        if match.max_home_odds is None and max_home is not None:
-            match.max_home_odds = max_home
-            updated = True
-        if match.max_draw_odds is None and max_draw is not None:
-            match.max_draw_odds = max_draw
-            updated = True
-        if match.max_away_odds is None and max_away is not None:
-            match.max_away_odds = max_away
-            updated = True
+        set_if_empty("opening_avg_home_odds", opening_avg_home)
+        set_if_empty("opening_avg_draw_odds", opening_avg_draw)
+        set_if_empty("opening_avg_away_odds", opening_avg_away)
+        set_if_empty("closing_avg_home_odds", closing_avg_home)
+        set_if_empty("closing_avg_draw_odds", closing_avg_draw)
+        set_if_empty("closing_avg_away_odds", closing_avg_away)
+        set_if_empty("avg_home_odds", opening_avg_home)
+        set_if_empty("avg_draw_odds", opening_avg_draw)
+        set_if_empty("avg_away_odds", opening_avg_away)
 
-        # Asian handicap
-        ah_line = self._safe_float(row.get("AHh"))
-        ah_home = self._safe_float(row.get("B365AHH"))
+        opening_max_home = first_float("MaxH", "BWH")
+        opening_max_draw = first_float("MaxD", "BWD")
+        opening_max_away = first_float("MaxA", "BWA")
+        closing_max_home = first_float("MaxCH", "B365CH", "PSCH")
+        closing_max_draw = first_float("MaxCD", "B365CD", "PSCD")
+        closing_max_away = first_float("MaxCA", "B365CA", "PSCA")
 
-        if match.odds_asian_handicap_line is None and ah_line is not None:
-            match.odds_asian_handicap_line = ah_line
-            updated = True
-        if match.odds_asian_handicap is None and ah_home is not None:
-            # Store home AH odds; away can be derived
-            match.odds_asian_handicap = ah_home
-            updated = True
+        set_if_empty("opening_max_home_odds", opening_max_home)
+        set_if_empty("opening_max_draw_odds", opening_max_draw)
+        set_if_empty("opening_max_away_odds", opening_max_away)
+        set_if_empty("closing_max_home_odds", closing_max_home)
+        set_if_empty("closing_max_draw_odds", closing_max_draw)
+        set_if_empty("closing_max_away_odds", closing_max_away)
+        set_if_empty("max_home_odds", opening_max_home)
+        set_if_empty("max_draw_odds", opening_max_draw)
+        set_if_empty("max_away_odds", opening_max_away)
 
-        # Over/Under
-        ou_line_raw = row.get("B365>2.5") or row.get("PSCH") or row.get("B365C>2.5")
-        ou_over = self._safe_float(ou_line_raw)
-        # Note: The line is typically 2.5, but we can also check for explicit line
-        ou_line = 2.5  # Standard line
+        opening_ah_line = first_number("AHh")
+        opening_ah_home = first_float("B365AHH", "PAHH", "AvgAHH")
+        opening_ah_away = first_float("B365AHA", "PAHA", "AvgAHA")
+        closing_ah_line = first_number("AHCh", "AHC")
+        closing_ah_home = first_float("B365CAHH", "PCAHH", "AvgCAHH")
+        closing_ah_away = first_float("B365CAHA", "PCAHA", "AvgCAHA")
 
-        if match.odds_over_under_25 is None and ou_over is not None:
-            match.odds_over_under_25 = ou_over
-            updated = True
-        if match.odds_over_under_line is None and ou_line is not None:
-            match.odds_over_under_line = ou_line
-            updated = True
+        set_if_empty("opening_asian_handicap_line", opening_ah_line)
+        set_if_empty("opening_asian_handicap", opening_ah_home)
+        set_if_empty("opening_asian_handicap_away", opening_ah_away)
+        set_if_empty("closing_asian_handicap_line", closing_ah_line)
+        set_if_empty("closing_asian_handicap", closing_ah_home)
+        set_if_empty("closing_asian_handicap_away", closing_ah_away)
+        set_if_empty("odds_asian_handicap_line", opening_ah_line)
+        set_if_empty("odds_asian_handicap", opening_ah_home)
+
+        opening_ou_over = first_float("B365>2.5", "P>2.5", "Avg>2.5")
+        opening_ou_under = first_float("B365<2.5", "P<2.5", "Avg<2.5")
+        closing_ou_over = first_float("B365C>2.5", "PC>2.5", "AvgC>2.5")
+        closing_ou_under = first_float("B365C<2.5", "PC<2.5", "AvgC<2.5")
+        opening_ou_line = first_float("OU") or 2.5
+        closing_ou_line = first_float("OUC") or opening_ou_line
+
+        set_if_empty("opening_over_under_25", opening_ou_over)
+        set_if_empty("opening_over_under_25_under", opening_ou_under)
+        set_if_empty("opening_over_under_line", opening_ou_line)
+        set_if_empty("closing_over_under_25", closing_ou_over)
+        set_if_empty("closing_over_under_25_under", closing_ou_under)
+        set_if_empty("closing_over_under_line", closing_ou_line)
+        set_if_empty("odds_over_under_25", opening_ou_over)
+        set_if_empty("odds_over_under_line", opening_ou_line)
 
         if updated:
             self.session.add(match)

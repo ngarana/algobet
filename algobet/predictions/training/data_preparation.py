@@ -133,12 +133,44 @@ class DataPreparationMixin:
         self._val_df = val_df
         self._test_df = test_df
 
-        X_train = self.feature_pipeline.fit_transform(train_df, self.repo)
-        self._train_raw_features = self.feature_pipeline.last_raw_features
-        X_val = self.feature_pipeline.transform(val_df, self.repo)
-        self._val_raw_features = self.feature_pipeline.last_raw_features
-        X_test = self.feature_pipeline.transform(test_df, self.repo)
-        self._test_raw_features = self.feature_pipeline.last_raw_features
+        raw_cache = getattr(self, "_prepared_raw_features", None)
+
+        if raw_cache is not None:
+            def raw_for_split(frame):
+                match_ids = frame["id"].tolist()
+                missing = [
+                    match_id
+                    for match_id in match_ids
+                    if match_id not in raw_cache.index
+                ]
+                if missing:
+                    raise ValueError(
+                        "Prepared raw feature cache is missing match ids: "
+                        f"{missing[:5]}"
+                    )
+                return raw_cache.loc[match_ids]
+
+            self._train_raw_features = raw_for_split(train_df)
+            self._val_raw_features = raw_for_split(val_df)
+            self._test_raw_features = raw_for_split(test_df)
+
+            X_train = self.feature_pipeline.fit_transform_raw_features(
+                self._train_raw_features,
+                y_train,
+            )
+            X_val = self.feature_pipeline.transform_raw_features(
+                self._val_raw_features
+            )
+            X_test = self.feature_pipeline.transform_raw_features(
+                self._test_raw_features
+            )
+        else:
+            X_train = self.feature_pipeline.fit_transform(train_df, self.repo)
+            self._train_raw_features = self.feature_pipeline.last_raw_features
+            X_val = self.feature_pipeline.transform(val_df, self.repo)
+            self._val_raw_features = self.feature_pipeline.last_raw_features
+            X_test = self.feature_pipeline.transform(test_df, self.repo)
+            self._test_raw_features = self.feature_pipeline.last_raw_features
 
         if cache_features and self.config.use_feature_cache:
             try:
@@ -192,6 +224,10 @@ class DataPreparationMixin:
         6. Cache raw features for reproducibility
         """
         matches_df = self._load_training_matches_dataframe()
+        self._prepared_raw_features = self.feature_pipeline.generate_raw(
+            matches_df,
+            self.repo,
+        )
         splitter = self._build_splitter()
         splits = list(splitter.split(matches_df))
         if not splits:

@@ -1034,61 +1034,172 @@ class SoccerDataImporter:
                 except (ValueError, TypeError):
                     return None
 
+            def _first_float(*columns: str, _row: pd.Series = row) -> float | None:
+                for column in columns:
+                    value = _safe_float(_row.get(column))
+                    if value is not None:
+                        return value
+                return None
+
+            def _first_number(*columns: str, _row: pd.Series = row) -> float | None:
+                for column in columns:
+                    value = _row.get(column)
+                    if value is None or pd.isna(value):
+                        continue
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        continue
+                return None
+
             # Average odds across bookmakers (if available)
             # Column names vary by league/season; try common patterns
-            avg_home = _safe_float(row.get("PSW")) or _safe_float(row.get("BWA"))
-            avg_draw = _safe_float(row.get("PSD")) or _safe_float(row.get("BWD"))
-            avg_away = _safe_float(row.get("PSA")) or _safe_float(row.get("BAA"))
+            opening_home = _first_float("PSH", "B365H", "AvgH")
+            opening_draw = _first_float("PSD", "B365D", "AvgD")
+            opening_away = _first_float("PSA", "B365A", "AvgA")
+            closing_home = _first_float("PSCH", "B365CH", "AvgCH")
+            closing_draw = _first_float("PSCD", "B365CD", "AvgCD")
+            closing_away = _first_float("PSCA", "B365CA", "AvgCA")
+            avg_home = _first_float("AvgH", "PSH", "B365H", "BWA")
+            avg_draw = _first_float("AvgD", "PSD", "B365D", "BWD")
+            avg_away = _first_float("AvgA", "PSA", "B365A", "BAA")
+            closing_avg_home = _first_float("AvgCH", "PSCH", "B365CH")
+            closing_avg_draw = _first_float("AvgCD", "PSCD", "B365CD")
+            closing_avg_away = _first_float("AvgCA", "PSCA", "B365CA")
 
             # Max odds across bookmakers
-            max_home = _safe_float(row.get("BWH")) or _safe_float(row.get("MaxH"))
-            max_draw = _safe_float(row.get("BWD")) or _safe_float(row.get("MaxD"))
-            max_away = _safe_float(row.get("BWA")) or _safe_float(row.get("MaxA"))
+            max_home = _first_float("MaxH", "BWH")
+            max_draw = _first_float("MaxD", "BWD")
+            max_away = _first_float("MaxA", "BWA")
+            closing_max_home = _first_float("MaxCH", "B365CH", "PSCH")
+            closing_max_draw = _first_float("MaxCD", "B365CD", "PSCD")
+            closing_max_away = _first_float("MaxCA", "B365CA", "PSCA")
 
             # Asian handicap (AHh = handicap line, AHH/AHA = home/away odds)
-            ah_line = _safe_float(row.get("AHh"))
-            ah_home_odds = _safe_float(row.get("AHH"))
+            ah_line = _first_number("AHh")
+            ah_home_odds = _first_float("B365AHH", "PAHH", "AvgAHH", "AHH")
+            ah_away_odds = _first_float("B365AHA", "PAHA", "AvgAHA", "AHA")
+            closing_ah_line = _first_number("AHCh", "AHC")
+            closing_ah_home = _first_float("B365CAHH", "PCAHH", "AvgCAHH")
+            closing_ah_away = _first_float("B365CAHA", "PCAHA", "AvgCAHA")
 
             # Over/Under 2.5 (OUH = over odds, OUA = under odds)
-            ou_over = _safe_float(row.get("OUH"))
-            ou_line = _safe_float(row.get("OU")) or 2.5
+            ou_over = _first_float("B365>2.5", "P>2.5", "Avg>2.5", "OUH")
+            ou_under = _first_float("B365<2.5", "P<2.5", "Avg<2.5", "OUA")
+            closing_ou_over = _first_float("B365C>2.5", "PC>2.5", "AvgC>2.5")
+            closing_ou_under = _first_float("B365C<2.5", "PC<2.5", "AvgC<2.5")
+            ou_line = _first_float("OU") or 2.5
+            closing_ou_line = _first_float("OUC") or ou_line
 
             # Update match with detailed odds
             updated = False
+            if opening_home is not None:
+                db_match.opening_odds_home = opening_home
+                db_match.odds_home = db_match.odds_home or opening_home
+                updated = True
+            if opening_draw is not None:
+                db_match.opening_odds_draw = opening_draw
+                db_match.odds_draw = db_match.odds_draw or opening_draw
+                updated = True
+            if opening_away is not None:
+                db_match.opening_odds_away = opening_away
+                db_match.odds_away = db_match.odds_away or opening_away
+                updated = True
+            if closing_home is not None:
+                db_match.closing_odds_home = closing_home
+                updated = True
+            if closing_draw is not None:
+                db_match.closing_odds_draw = closing_draw
+                updated = True
+            if closing_away is not None:
+                db_match.closing_odds_away = closing_away
+                updated = True
             if avg_home is not None:
                 db_match.avg_home_odds = avg_home
+                db_match.opening_avg_home_odds = avg_home
                 updated = True
             if avg_draw is not None:
                 db_match.avg_draw_odds = avg_draw
+                db_match.opening_avg_draw_odds = avg_draw
                 updated = True
             if avg_away is not None:
                 db_match.avg_away_odds = avg_away
+                db_match.opening_avg_away_odds = avg_away
+                updated = True
+            if closing_avg_home is not None:
+                db_match.closing_avg_home_odds = closing_avg_home
+                updated = True
+            if closing_avg_draw is not None:
+                db_match.closing_avg_draw_odds = closing_avg_draw
+                updated = True
+            if closing_avg_away is not None:
+                db_match.closing_avg_away_odds = closing_avg_away
                 updated = True
             if max_home is not None:
                 db_match.max_home_odds = max_home
+                db_match.opening_max_home_odds = max_home
                 updated = True
             if max_draw is not None:
                 db_match.max_draw_odds = max_draw
+                db_match.opening_max_draw_odds = max_draw
                 updated = True
             if max_away is not None:
                 db_match.max_away_odds = max_away
+                db_match.opening_max_away_odds = max_away
+                updated = True
+            if closing_max_home is not None:
+                db_match.closing_max_home_odds = closing_max_home
+                updated = True
+            if closing_max_draw is not None:
+                db_match.closing_max_draw_odds = closing_max_draw
+                updated = True
+            if closing_max_away is not None:
+                db_match.closing_max_away_odds = closing_max_away
                 updated = True
 
             # Store Asian handicap as combined field (line + home odds)
             if ah_line is not None:
                 db_match.odds_asian_handicap_line = ah_line
+                db_match.opening_asian_handicap_line = ah_line
                 updated = True
             if ah_home_odds is not None:
                 # Store home AH odds; away can be derived
                 db_match.odds_asian_handicap = ah_home_odds
+                db_match.opening_asian_handicap = ah_home_odds
+                updated = True
+            if ah_away_odds is not None:
+                db_match.opening_asian_handicap_away = ah_away_odds
+                updated = True
+            if closing_ah_line is not None:
+                db_match.closing_asian_handicap_line = closing_ah_line
+                updated = True
+            if closing_ah_home is not None:
+                db_match.closing_asian_handicap = closing_ah_home
+                updated = True
+            if closing_ah_away is not None:
+                db_match.closing_asian_handicap_away = closing_ah_away
                 updated = True
 
             # Store Over/Under odds
             if ou_over is not None:
                 db_match.odds_over_under_25 = ou_over
+                db_match.opening_over_under_25 = ou_over
+                updated = True
+            if ou_under is not None:
+                db_match.opening_over_under_25_under = ou_under
                 updated = True
             if ou_line is not None:
                 db_match.odds_over_under_line = ou_line
+                db_match.opening_over_under_line = ou_line
+                updated = True
+            if closing_ou_over is not None:
+                db_match.closing_over_under_25 = closing_ou_over
+                updated = True
+            if closing_ou_under is not None:
+                db_match.closing_over_under_25_under = closing_ou_under
+                updated = True
+            if closing_ou_line is not None:
+                db_match.closing_over_under_line = closing_ou_line
                 updated = True
 
             if updated:

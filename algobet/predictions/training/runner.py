@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 from datetime import datetime
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -33,11 +34,122 @@ class PipelineRunnerMixin:
             values = [
                 float(metrics[key])
                 for metrics in metric_dicts
-                if key in metrics and isinstance(metrics[key], int | float)
+                if key in metrics and isinstance(metrics[key], Real | np.number)
             ]
             if values:
                 averaged[key] = float(np.mean(values))
         return averaged
+
+    @staticmethod
+    def _market_mediation_walk_forward_summary(
+        fold_metrics: list[dict[str, float]],
+        pooled_clv_values: list[np.ndarray] | None = None,
+    ) -> dict[str, float]:
+        """Summarize selective CLV gates across walk-forward folds."""
+        if not fold_metrics:
+            return {}
+
+        selected_counts = [
+            float(metrics.get("market_mediation_selected_bets", 0.0))
+            for metrics in fold_metrics
+        ]
+        clv_sum = sum(
+            float(metrics.get("market_mediation_selected_clv_sum", 0.0))
+            for metrics in fold_metrics
+        )
+        clv_sum_sq = sum(
+            float(metrics.get("market_mediation_selected_clv_sum_sq", 0.0))
+            for metrics in fold_metrics
+        )
+        pooled_selected = float(sum(selected_counts))
+        positive_clv_folds = sum(
+            1
+            for metrics in fold_metrics
+            if float(metrics.get("market_mediation_selected_mean_clv", 0.0)) > 0.0
+        )
+        coverage_values = [
+            float(metrics.get("market_mediation_closing_coverage", 0.0))
+            for metrics in fold_metrics
+        ]
+
+        pooled_mean = clv_sum / pooled_selected if pooled_selected else 0.0
+        non_empty_clv_values = [
+            values for values in (pooled_clv_values or []) if len(values)
+        ]
+        raw_clv = (
+            np.concatenate(non_empty_clv_values)
+            if non_empty_clv_values
+            else np.array([], dtype=np.float64)
+        )
+        if len(raw_clv) >= 20:
+            rng = np.random.default_rng(42)
+            samples = rng.choice(raw_clv, size=(1000, len(raw_clv)), replace=True)
+            pooled_lower = float(np.percentile(samples.mean(axis=1), 5.0))
+        elif pooled_selected > 1:
+            variance = max(
+                (clv_sum_sq - (clv_sum * clv_sum / pooled_selected))
+                / (pooled_selected - 1.0),
+                0.0,
+            )
+            pooled_lower = float(
+                pooled_mean - 1.645 * np.sqrt(variance / pooled_selected)
+            )
+        else:
+            pooled_lower = 0.0
+
+        return {
+            "market_mediation_walk_forward_fold_count": float(len(fold_metrics)),
+            "market_mediation_walk_forward_coverage_min": float(
+                min(coverage_values) if coverage_values else 0.0
+            ),
+            "market_mediation_walk_forward_positive_clv_folds": float(
+                positive_clv_folds
+            ),
+            "market_mediation_walk_forward_pooled_selected_bets": pooled_selected,
+            "market_mediation_walk_forward_pooled_mean_clv": float(pooled_mean),
+            "market_mediation_walk_forward_pooled_clv_lower_95": float(
+                pooled_lower
+            ),
+        }
+
+    @staticmethod
+    def _market_mediation_selected_clv_values(
+        predictor: Any,
+        X: np.ndarray,
+        matches_df: Any,
+    ) -> np.ndarray:
+        """Return selected-bet CLV values for pooled walk-forward bootstrap."""
+        if matches_df is None or not hasattr(predictor, "predict_decisions"):
+            return np.array([], dtype=np.float64)
+        opening_cols = ["opening_odds_home", "opening_odds_draw", "opening_odds_away"]
+        closing_cols = ["closing_odds_home", "closing_odds_draw", "closing_odds_away"]
+        if not all(col in matches_df.columns for col in opening_cols + closing_cols):
+            return np.array([], dtype=np.float64)
+
+        opening = matches_df[opening_cols].astype(float).to_numpy(dtype=np.float64)
+        closing = matches_df[closing_cols].astype(float).to_numpy(dtype=np.float64)
+        valid = (
+            np.isfinite(opening).all(axis=1)
+            & (opening > 0).all(axis=1)
+            & np.isfinite(closing).all(axis=1)
+            & (closing > 0).all(axis=1)
+        )
+        decisions = predictor.predict_decisions(X)
+        selected = np.array(
+            [decision.action == "BET_CANDIDATE" for decision in decisions]
+        )
+        selected_indices = np.array(
+            [decision.outcome_index for decision in decisions],
+            dtype=np.int64,
+        )
+        selected = selected & valid
+        if not selected.any():
+            return np.array([], dtype=np.float64)
+        return (
+            opening[selected, selected_indices[selected]]
+            / closing[selected, selected_indices[selected]]
+            - 1.0
+        )
 
     def _snapshot_runtime_state(self) -> dict[str, Any]:
         """Capture mutable training state before temporary fold evaluation."""
@@ -52,6 +164,7 @@ class PipelineRunnerMixin:
             "_selected_feature_names": self._selected_feature_names,
             "_feature_selection_report": self._feature_selection_report,
             "_collapse_recovery": self._collapse_recovery,
+            "_prepared_raw_features": self._prepared_raw_features,
         }
 
     def _restore_runtime_state(self, state: dict[str, Any]) -> None:
@@ -75,6 +188,7 @@ class PipelineRunnerMixin:
         train_metrics_by_fold: list[dict[str, float]] = []
         val_metrics_by_fold: list[dict[str, float]] = []
         test_metrics_by_fold: list[dict[str, float]] = []
+        pooled_clv_values: list[np.ndarray] = []
 
         try:
             for split in splits:
@@ -147,22 +261,41 @@ class PipelineRunnerMixin:
                         apply_calibration=False,
                     )
                 )
-                test_metrics_by_fold.append(
-                    self._evaluate(
-                        fold_predictor,
-                        X_test,
-                        _y_test,
-                        self._test_df,
-                        apply_calibration=False,
-                    )
+                fold_test_metrics = self._evaluate(
+                    fold_predictor,
+                    X_test,
+                    _y_test,
+                    self._test_df,
+                    apply_calibration=False,
                 )
+                test_metrics_by_fold.append(fold_test_metrics)
+                if self.config.model_type == "market_mediation":
+                    pooled_clv_values.append(
+                        self._market_mediation_selected_clv_values(
+                            fold_predictor,
+                            X_test,
+                            self._test_df,
+                        )
+                    )
         finally:
             self._restore_runtime_state(state)
 
+        averaged_train = self._average_metric_dicts(train_metrics_by_fold)
+        averaged_val = self._average_metric_dicts(val_metrics_by_fold)
+        averaged_test = self._average_metric_dicts(test_metrics_by_fold)
+        if self.config.model_type == "market_mediation":
+            self._market_mediation_fold_metrics = test_metrics_by_fold
+            averaged_test.update(
+                self._market_mediation_walk_forward_summary(
+                    test_metrics_by_fold,
+                    pooled_clv_values,
+                )
+            )
+
         return (
-            self._average_metric_dicts(train_metrics_by_fold),
-            self._average_metric_dicts(val_metrics_by_fold),
-            self._average_metric_dicts(test_metrics_by_fold),
+            averaged_train,
+            averaged_val,
+            averaged_test,
             len(test_metrics_by_fold),
         )
 
@@ -255,7 +388,11 @@ class PipelineRunnerMixin:
         # calibrated probabilities from the bivariate goal distribution, and
         # the CV calibration path cannot refit them anyway (no goal data per
         # fold). Skip the calibrator for these model types.
-        is_score_model = self.config.model_type in ("dixon_coles", "hybrid_poisson")
+        is_score_model = self.config.model_type in (
+            "dixon_coles",
+            "hybrid_poisson",
+            "market_mediation",
+        )
         X_weight = X_val
         y_weight = y_val
         if self.config.calibrate_probabilities and not is_score_model:
@@ -454,6 +591,7 @@ class PipelineRunnerMixin:
         is_score_or_stacking = self.config.model_type in (
             "dixon_coles",
             "hybrid_poisson",
+            "market_mediation",
         ) or isinstance(predictor, StackingEnsemble)
         if self._is_prediction_collapsed(test_report) and not is_score_or_stacking:
             raise ValueError(
@@ -475,13 +613,13 @@ class PipelineRunnerMixin:
             val_metrics["walk_forward_folds"] = float(fold_count)
             test_metrics["walk_forward_folds"] = float(fold_count)
             for key, value in final_train_metrics.items():
-                if isinstance(value, int | float):
+                if isinstance(value, Real | np.number):
                     train_metrics[f"final_split_{key}"] = float(value)
             for key, value in final_val_metrics.items():
-                if isinstance(value, int | float):
+                if isinstance(value, Real | np.number):
                     val_metrics[f"final_split_{key}"] = float(value)
             for key, value in final_test_metrics.items():
-                if isinstance(value, int | float):
+                if isinstance(value, Real | np.number):
                     test_metrics[f"final_split_{key}"] = float(value)
 
         # Step 8: Register model
@@ -509,6 +647,13 @@ class PipelineRunnerMixin:
             "outcome_balance": class_weights is not None,
             "outcome_balance_strength": self.config.outcome_balance_strength,
             "min_prediction_classes": self.config.min_prediction_classes,
+            "production_lane": self.config.production_lane,
+            "taken_odds_snapshot": self.config.taken_odds_snapshot,
+            "closing_odds_required": self.config.closing_odds_required,
+            "min_expected_clv": self.config.min_expected_clv,
+            "min_positive_clv_probability": (
+                self.config.min_positive_clv_probability
+            ),
         }
         if self._selected_feature_names is not None:
             model_hyperparameters["selected_feature_names"] = (
@@ -548,6 +693,44 @@ class PipelineRunnerMixin:
             model_hyperparameters["draw_boost_factor"] = self.config.draw_boost_factor
         if self._collapse_recovery is not None:
             model_hyperparameters["collapse_recovery"] = self._collapse_recovery
+        if self.config.model_type == "market_mediation":
+            model_hyperparameters["market_mediation_activation_report"] = {
+                "thresholds": {
+                    "min_expected_clv": self.config.min_expected_clv,
+                    "min_positive_clv_probability": (
+                        self.config.min_positive_clv_probability
+                    ),
+                    "closing_odds_required": self.config.closing_odds_required,
+                },
+                "fold_metrics": self._market_mediation_fold_metrics,
+                "odds_coverage_report": {
+                    "final_split_closing_coverage": test_metrics.get(
+                        "final_split_market_mediation_closing_coverage",
+                        test_metrics.get("market_mediation_closing_coverage", 0.0),
+                    ),
+                    "walk_forward_min_closing_coverage": test_metrics.get(
+                        "market_mediation_walk_forward_coverage_min",
+                        test_metrics.get("market_mediation_closing_coverage", 0.0),
+                    ),
+                },
+                "selected_bet_report": {
+                    "final_split_selected_bets": test_metrics.get(
+                        "final_split_market_mediation_selected_bets",
+                        test_metrics.get("market_mediation_selected_bets", 0.0),
+                    ),
+                    "walk_forward_pooled_selected_bets": test_metrics.get(
+                        "market_mediation_walk_forward_pooled_selected_bets",
+                        test_metrics.get("market_mediation_selected_bets", 0.0),
+                    ),
+                    "walk_forward_pooled_clv_lower_95": test_metrics.get(
+                        "market_mediation_walk_forward_pooled_clv_lower_95",
+                        test_metrics.get(
+                            "market_mediation_selected_clv_lower_95",
+                            0.0,
+                        ),
+                    ),
+                },
+            }
 
         # Determine model artifact to persist
         if isinstance(predictor, DrawAwarePredictor):

@@ -15,7 +15,14 @@ const numberWithDefault = (
 
 export const TrainModelRequestSchema = z.object({
   model_type: z
-    .enum(["xgboost", "lightgbm", "random_forest", "dixon_coles", "hybrid_poisson"])
+    .enum([
+      "xgboost",
+      "lightgbm",
+      "random_forest",
+      "dixon_coles",
+      "hybrid_poisson",
+      "market_mediation",
+    ])
     .default("xgboost"),
   tune_hyperparameters: z.boolean().default(false),
   description: z.string().trim().min(1).max(500).optional(),
@@ -47,6 +54,12 @@ export const TrainModelRequestSchema = z.object({
   // Outcome balancing
   outcome_balance: z.boolean().optional(),
   outcome_balance_strength: z.number().min(0).max(1).default(0.5),
+  // Selective market mediation
+  production_lane: z.enum(["pure", "market", "dual"]).default("pure"),
+  taken_odds_snapshot: z.enum(["opening", "current"]).default("opening"),
+  closing_odds_required: z.boolean().default(false),
+  min_expected_clv: z.number().min(-1).max(1).default(0.005),
+  min_positive_clv_probability: z.number().min(0).max(1).default(0.55),
   // Feature groups selection
   feature_groups: z.array(z.string()).optional(),
   // Feature importance pruning

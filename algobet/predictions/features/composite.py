@@ -18,6 +18,9 @@ from algobet.predictions.features.expected_points_generator import (
     ExpectedPointsGenerator,
 )
 from algobet.predictions.features.head_to_head_generator import HeadToHeadGenerator
+from algobet.predictions.features.market_mediation_generator import (
+    MarketMediationFeatureGenerator,
+)
 from algobet.predictions.features.matchup_interaction_generator import (
     MatchupInteractionGenerator,
 )
@@ -168,6 +171,7 @@ def create_generators_by_names(generator_names: list[str]) -> CompositeFeatureGe
         "odds": lambda: OddsFeatureGenerator(),
         "odds_residual": lambda: OddsResidualFeatureGenerator(),
         "detailed_odds": lambda: DetailedOddsFeatureGenerator(),
+        "market_mediation": lambda: MarketMediationFeatureGenerator(),
     }
 
     unsupported = sorted(set(generator_names) - set(generator_factories))

@@ -23,6 +23,7 @@ ALLOWED_FEATURE_GROUPS = (
     "odds",
     "detailed_odds",
     "odds_residual",
+    "market_mediation",
 )
 
 # Search spaces for per-model tuning (~1900 training rows, ~200 features)
@@ -139,6 +140,13 @@ class TrainingConfig:
     collapse_recovery: bool = True
     min_prediction_classes: int = 3
 
+    # Selective market mediation
+    production_lane: str = "pure"  # "pure", "market", or "dual"
+    taken_odds_snapshot: str = "opening"  # "opening" or "current"
+    closing_odds_required: bool = False
+    min_expected_clv: float = 0.005
+    min_positive_clv_probability: float = 0.55
+
     # Feature selection settings
     feature_selection: bool = True
     feature_selection_threshold: float = 0.005
@@ -150,6 +158,7 @@ class TrainingConfig:
     min_away_features: int = 3
     min_enriched_or_coverage: int = 5
     min_low_scoring_features: int = 2
+    min_market_mediation_features: int = 0
 
     # Output settings
     model_name: str = "match_predictor"

@@ -22,7 +22,7 @@ from algobet.importers.fd_importer import (
     FDImportResult,
 )
 from algobet.infrastructure.models import Base
-from algobet.models import Team, TeamAlias, Tournament
+from algobet.models import Match, Team, TeamAlias, Tournament
 from algobet.utils.team_resolver import TeamResolver
 
 
@@ -227,6 +227,74 @@ class TestSafeFloat:
     def test_zero_or_negative(self, importer: FDImporter) -> None:
         assert importer._safe_float(0) is None
         assert importer._safe_float(-1.0) is None
+
+
+class TestOddsSnapshots:
+    """Tests for Football-Data opening/closing odds mapping."""
+
+    def test_update_odds_maps_opening_and_closing_snapshots(
+        self, importer: FDImporter
+    ) -> None:
+        import pandas as pd
+
+        match = Match(
+            tournament_id=1,
+            season_id=1,
+            home_team_id=1,
+            away_team_id=2,
+            match_date=pd.Timestamp("2024-08-01").to_pydatetime(),
+            status="FINISHED",
+            home_score=1,
+            away_score=0,
+        )
+        row = pd.Series(
+            {
+                "B365H": 2.20,
+                "B365D": 3.40,
+                "B365A": 3.10,
+                "B365CH": 2.00,
+                "B365CD": 3.30,
+                "B365CA": 3.60,
+                "AvgH": 2.18,
+                "AvgD": 3.35,
+                "AvgA": 3.05,
+                "AvgCH": 2.02,
+                "AvgCD": 3.25,
+                "AvgCA": 3.55,
+                "MaxH": 2.30,
+                "MaxD": 3.50,
+                "MaxA": 3.20,
+                "MaxCH": 2.10,
+                "MaxCD": 3.40,
+                "MaxCA": 3.70,
+                "AHh": -0.25,
+                "B365AHH": 1.95,
+                "B365AHA": 1.93,
+                "AHCh": -0.50,
+                "B365CAHH": 1.88,
+                "B365CAHA": 2.02,
+                "B365>2.5": 1.90,
+                "B365<2.5": 1.95,
+                "B365C>2.5": 1.82,
+                "B365C<2.5": 2.05,
+            }
+        )
+
+        importer._update_odds(match, row)
+
+        assert match.opening_odds_home == pytest.approx(2.20)
+        assert match.opening_odds_draw == pytest.approx(3.40)
+        assert match.opening_odds_away == pytest.approx(3.10)
+        assert match.closing_odds_home == pytest.approx(2.00)
+        assert match.closing_odds_draw == pytest.approx(3.30)
+        assert match.closing_odds_away == pytest.approx(3.60)
+        assert match.odds_home == pytest.approx(2.20)
+        assert match.opening_avg_home_odds == pytest.approx(2.18)
+        assert match.closing_avg_away_odds == pytest.approx(3.55)
+        assert match.opening_asian_handicap_line == pytest.approx(-0.25)
+        assert match.closing_asian_handicap_line == pytest.approx(-0.50)
+        assert match.opening_over_under_25_under == pytest.approx(1.95)
+        assert match.closing_over_under_25 == pytest.approx(1.82)
 
 
 class TestImportProgress:

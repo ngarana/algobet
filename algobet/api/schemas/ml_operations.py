@@ -142,7 +142,10 @@ class TrainModelRequest(BaseModel):
 
     model_type: str = Field(
         default=DEFAULT_TRAIN_MODEL_TYPE,
-        pattern="^(xgboost|lightgbm|random_forest|dixon_coles|hybrid_poisson|catboost)$",
+        pattern=(
+            "^(xgboost|lightgbm|random_forest|dixon_coles|hybrid_poisson|"
+            "catboost|market_mediation)$"
+        ),
     )
     tune_hyperparameters: bool = False
     description: str | None = None
@@ -181,6 +184,13 @@ class TrainModelRequest(BaseModel):
     # Outcome balancing control
     outcome_balance: bool | None = None
     outcome_balance_strength: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    # Selective market mediation
+    production_lane: str = Field(default="pure", pattern="^(pure|market|dual)$")
+    taken_odds_snapshot: str = Field(default="opening", pattern="^(opening|current)$")
+    closing_odds_required: bool = False
+    min_expected_clv: float = Field(default=0.005, ge=-1.0, le=1.0)
+    min_positive_clv_probability: float = Field(default=0.55, ge=0.0, le=1.0)
 
     # Feature importance pruning
     feature_selection: bool = True

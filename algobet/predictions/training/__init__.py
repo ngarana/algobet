@@ -20,6 +20,9 @@ from algobet.predictions.training.classifiers import (
     create_predictor,
 )
 from algobet.predictions.training.ensemble import EnsembleWeightOptimizer
+from algobet.predictions.training.market_mediation import (
+    MarketMediationPredictor,
+)
 from algobet.predictions.training.pipeline import (
     TrainingConfig,
     TrainingPipeline,
@@ -57,6 +60,7 @@ __all__ = [
     "EnsemblePredictor",
     "DixonColesPredictor",
     "HybridPoissonPredictor",
+    "MarketMediationPredictor",
     "create_predictor",
     "compute_adaptive_regularization",
     # Split

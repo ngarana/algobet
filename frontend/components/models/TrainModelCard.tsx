@@ -77,6 +77,12 @@ export function TrainModelCard() {
           // Outcome balancing
           outcome_balance: config.outcomeBalance,
           outcome_balance_strength: config.outcomeBalanceStrength,
+          // Selective market mediation
+          production_lane: config.productionLane,
+          taken_odds_snapshot: config.takenOddsSnapshot,
+          closing_odds_required: config.closingOddsRequired,
+          min_expected_clv: config.minExpectedClv,
+          min_positive_clv_probability: config.minPositiveClvProbability,
           // Feature groups
           feature_groups:
             config.featureGroups.length > 0 ? config.featureGroups : undefined,

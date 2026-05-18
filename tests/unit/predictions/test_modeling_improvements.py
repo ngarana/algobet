@@ -29,6 +29,7 @@ from algobet.predictions.training.classifiers import (
     RandomForestPredictor,
 )
 from algobet.predictions.training.config import ALLOWED_FEATURE_GROUPS
+from algobet.predictions.training.market_mediation import MarketMediationPredictor
 from algobet.predictions.training.split import WalkForwardSplitter
 from algobet.predictions.training.stacking import StackingEnsemble
 
@@ -200,6 +201,7 @@ class TestOddsFeatureRegistration:
         assert "odds" in ALLOWED_FEATURE_GROUPS
         assert "odds_residual" in ALLOWED_FEATURE_GROUPS
         assert "detailed_odds" in ALLOWED_FEATURE_GROUPS
+        assert "market_mediation" in ALLOWED_FEATURE_GROUPS
 
     def test_create_odds_generator(self) -> None:
         from algobet.predictions.features.odds_generator import OddsFeatureGenerator
@@ -222,6 +224,17 @@ class TestOddsFeatureRegistration:
 
         gen = create_generators_by_names(["detailed_odds"])
         assert any(isinstance(g, DetailedOddsFeatureGenerator) for g in gen.generators)
+
+    def test_market_mediation_features_exclude_closing_odds(self) -> None:
+        from algobet.predictions.features.market_mediation_generator import (
+            MarketMediationFeatureGenerator,
+        )
+
+        gen = create_generators_by_names(["market_mediation"])
+        assert any(
+            isinstance(g, MarketMediationFeatureGenerator) for g in gen.generators
+        )
+        assert not any("closing" in name for name in gen.feature_names)
 
 
 class TestStackingOOF:
@@ -493,6 +506,138 @@ class TestMarketResidualPredictor:
         # Without a base predictor, predict_proba should raise
         with pytest.raises(ValueError, match="not fitted"):
             predictor.predict_proba(np.array([[1.0, 2.0, 3.0]]))
+
+
+class TestMarketMediationPredictor:
+    """Tests for selective market mediation."""
+
+    def test_clv_target_calculation_for_each_outcome(self) -> None:
+        matches = pd.DataFrame(
+            {
+                "opening_odds_home": [2.0],
+                "opening_odds_draw": [3.5],
+                "opening_odds_away": [4.0],
+                "closing_odds_home": [1.8],
+                "closing_odds_draw": [3.6],
+                "closing_odds_away": [4.4],
+            }
+        )
+
+        opening = MarketMediationPredictor._odds_matrix(matches, "opening")
+        closing = MarketMediationPredictor._odds_matrix(matches, "closing")
+        clv = opening / closing - 1.0
+
+        assert clv[0, 0] == pytest.approx((2.0 / 1.8) - 1.0)
+        assert clv[0, 1] == pytest.approx((3.5 / 3.6) - 1.0)
+        assert clv[0, 2] == pytest.approx((4.0 / 4.4) - 1.0)
+
+    def test_predictor_abstains_when_thresholds_fail(self) -> None:
+        predictor = MarketMediationPredictor(
+            ModelConfig(
+                model_type="market_mediation",
+                hyperparameters={
+                    "min_expected_clv": 0.50,
+                    "min_positive_clv_probability": 0.95,
+                    "pure_max_iter": 20,
+                },
+                random_seed=42,
+            )
+        )
+        feature_names = [
+            "form_signal",
+            "mediation_opening_implied_prob_home",
+            "mediation_opening_implied_prob_draw",
+            "mediation_opening_implied_prob_away",
+        ]
+        predictor.set_feature_names(feature_names)
+        X = np.array(
+            [
+                [0.1, 0.50, 0.28, 0.22],
+                [0.2, 0.45, 0.30, 0.25],
+                [0.3, 0.40, 0.31, 0.29],
+                [0.4, 0.36, 0.32, 0.32],
+                [0.5, 0.34, 0.33, 0.33],
+                [0.6, 0.30, 0.34, 0.36],
+                [0.7, 0.28, 0.32, 0.40],
+                [0.8, 0.25, 0.30, 0.45],
+                [0.9, 0.22, 0.28, 0.50],
+            ],
+            dtype=np.float64,
+        )
+        y = np.array([0, 0, 0, 1, 1, 2, 2, 2, 2], dtype=np.int64)
+        matches = pd.DataFrame(
+            {
+                "opening_odds_home": [2.0] * len(X),
+                "opening_odds_draw": [3.4] * len(X),
+                "opening_odds_away": [3.8] * len(X),
+                "closing_odds_home": [1.98] * len(X),
+                "closing_odds_draw": [3.35] * len(X),
+                "closing_odds_away": [3.75] * len(X),
+            }
+        )
+
+        predictor.fit_with_market_data(X, y, matches)
+        decisions = predictor.predict_decisions(X)
+
+        assert {decision.action for decision in decisions} == {"ABSTAIN"}
+
+    def test_fit_with_validation_data_marks_model_fitted_before_diagnostics(
+        self,
+    ) -> None:
+        predictor = MarketMediationPredictor(
+            ModelConfig(
+                model_type="market_mediation",
+                hyperparameters={"pure_max_iter": 20},
+                random_seed=42,
+            )
+        )
+        predictor.set_feature_names(
+            [
+                "form_signal",
+                "mediation_opening_implied_prob_home",
+                "mediation_opening_implied_prob_draw",
+                "mediation_opening_implied_prob_away",
+            ]
+        )
+        X = np.array(
+            [
+                [0.1, 0.50, 0.28, 0.22],
+                [0.2, 0.45, 0.30, 0.25],
+                [0.3, 0.40, 0.31, 0.29],
+                [0.4, 0.36, 0.32, 0.32],
+                [0.5, 0.34, 0.33, 0.33],
+                [0.6, 0.30, 0.34, 0.36],
+                [0.7, 0.28, 0.32, 0.40],
+                [0.8, 0.25, 0.30, 0.45],
+                [0.9, 0.22, 0.28, 0.50],
+            ],
+            dtype=np.float64,
+        )
+        y = np.array([0, 0, 0, 1, 1, 2, 2, 2, 2], dtype=np.int64)
+        matches = pd.DataFrame(
+            {
+                "opening_odds_home": [2.0] * len(X),
+                "opening_odds_draw": [3.4] * len(X),
+                "opening_odds_away": [3.8] * len(X),
+                "closing_odds_home": [1.98] * len(X),
+                "closing_odds_draw": [3.35] * len(X),
+                "closing_odds_away": [3.75] * len(X),
+            }
+        )
+
+        predictor.fit_with_market_data(
+            X[:6],
+            y[:6],
+            matches.iloc[:6],
+            X[6:],
+            y[6:],
+            matches.iloc[6:],
+        )
+
+        assert predictor._is_fitted
+        assert "validation_log_loss" in predictor.effective_hyperparameters[
+            "market_mediation_fit_metadata"
+        ]
 
 
 class TestFeatureSelectionOddsAllowance:

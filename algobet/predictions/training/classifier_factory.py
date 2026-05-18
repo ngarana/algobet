@@ -16,6 +16,7 @@ def create_predictor(
         RandomForestPredictor,
         XGBoostPredictor,
     )
+    from algobet.predictions.training.market_mediation import MarketMediationPredictor
 
     predictors = {
         "xgboost": XGBoostPredictor,
@@ -24,6 +25,7 @@ def create_predictor(
         "dixon_coles": DixonColesPredictor,
         "hybrid_poisson": HybridPoissonPredictor,
         "catboost": CatBoostPredictor,
+        "market_mediation": MarketMediationPredictor,
     }
 
     if model_type not in predictors:

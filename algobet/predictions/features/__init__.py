@@ -21,6 +21,9 @@ from algobet.predictions.features.expected_points_generator import (
 )
 from algobet.predictions.features.form_features import FormCalculator
 from algobet.predictions.features.head_to_head_generator import HeadToHeadGenerator
+from algobet.predictions.features.market_mediation_generator import (
+    MarketMediationFeatureGenerator,
+)
 from algobet.predictions.features.odds_generator import OddsFeatureGenerator
 from algobet.predictions.features.odds_residual_generator import (
     OddsResidualFeatureGenerator,
@@ -60,6 +63,7 @@ __all__ = [
     "OddsFeatureGenerator",
     "OddsResidualFeatureGenerator",
     "DetailedOddsFeatureGenerator",
+    "MarketMediationFeatureGenerator",
     "EnrichedStatsFeatureGenerator",
     "StandingsFeatureGenerator",
     "TemporalFeatureGenerator",

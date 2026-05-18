@@ -53,6 +53,13 @@ class TrainingRunner:
                     "use_ensemble": request.use_ensemble,
                     "split_strategy": request.split_strategy,
                     "outcome_balance_strength": request.outcome_balance_strength,
+                    "production_lane": request.production_lane,
+                    "taken_odds_snapshot": request.taken_odds_snapshot,
+                    "closing_odds_required": request.closing_odds_required,
+                    "min_expected_clv": request.min_expected_clv,
+                    "min_positive_clv_probability": (
+                        request.min_positive_clv_probability
+                    ),
                 }
             )
         )
@@ -64,6 +71,12 @@ class TrainingRunner:
                 status_code=400,
                 detail=f"Split ratios must sum to 1.0, got {total_ratio:.2f}",
             )
+
+        feature_groups = request.feature_groups
+        if request.model_type == "market_mediation":
+            feature_groups = list(feature_groups or [])
+            if "market_mediation" not in feature_groups:
+                feature_groups.append("market_mediation")
 
         config = TrainingConfig(
             model_type=request.model_type,
@@ -95,12 +108,17 @@ class TrainingRunner:
             # Outcome balancing
             outcome_balance=request.outcome_balance or False,
             outcome_balance_strength=request.outcome_balance_strength,
+            production_lane=request.production_lane,
+            taken_odds_snapshot=request.taken_odds_snapshot,
+            closing_odds_required=request.closing_odds_required,
+            min_expected_clv=request.min_expected_clv,
+            min_positive_clv_probability=request.min_positive_clv_probability,
             # Feature importance pruning
             feature_selection=request.feature_selection,
             feature_selection_threshold=request.feature_selection_threshold,
             min_samples_per_feature=request.min_samples_per_feature,
             # Feature groups
-            feature_groups=request.feature_groups,
+            feature_groups=feature_groups,
             # Ensemble training
             use_ensemble=request.use_ensemble,
             ensemble_types=request.ensemble_types or ["xgboost", "lightgbm"],
@@ -124,6 +142,9 @@ class TrainingRunner:
             # Custom hyperparameters
             hyperparameters=request.hyperparameters,
             feature_schema_version=MODEL_FEATURE_SCHEMA_VERSION,
+            min_market_mediation_features=15
+            if request.model_type == "market_mediation"
+            else 0,
         )
 
         try:
@@ -212,6 +233,78 @@ class TrainingRunner:
         predicted_classes = float(test_metrics.get("predicted_classes", 3.0))
         if predicted_classes < 2.0:
             return False
+
+        if getattr(result, "model_type", None) == "market_mediation":
+            fold_count = float(
+                test_metrics.get("market_mediation_walk_forward_fold_count", 0.0)
+            )
+            if fold_count >= 4.0:
+                coverage = float(
+                    test_metrics.get(
+                        "market_mediation_walk_forward_coverage_min",
+                        0.0,
+                    )
+                )
+                selected_bets = float(
+                    test_metrics.get(
+                        "market_mediation_walk_forward_pooled_selected_bets",
+                        0.0,
+                    )
+                )
+                mean_clv = float(
+                    test_metrics.get(
+                        "market_mediation_walk_forward_pooled_mean_clv",
+                        0.0,
+                    )
+                )
+                lower_95 = float(
+                    test_metrics.get(
+                        "market_mediation_walk_forward_pooled_clv_lower_95",
+                        0.0,
+                    )
+                )
+                positive_folds = float(
+                    test_metrics.get(
+                        "market_mediation_walk_forward_positive_clv_folds",
+                        0.0,
+                    )
+                )
+                if positive_folds < 3.0:
+                    return False
+            else:
+                coverage = float(
+                    test_metrics.get("market_mediation_closing_coverage", 0.0)
+                )
+                selected_bets = float(
+                    test_metrics.get("market_mediation_selected_bets", 0.0)
+                )
+                mean_clv = float(
+                    test_metrics.get("market_mediation_selected_mean_clv", 0.0)
+                )
+                lower_95 = float(
+                    test_metrics.get("market_mediation_selected_clv_lower_95", 0.0)
+                )
+            residual_ll = test_metrics.get(
+                "final_split_market_mediation_residual_lane_log_loss",
+                test_metrics.get(
+                    "market_mediation_residual_lane_log_loss",
+                    test_metrics.get("log_loss"),
+                ),
+            )
+            opening_ll = test_metrics.get(
+                "final_split_market_mediation_opening_market_log_loss",
+                test_metrics.get(
+                    "market_mediation_opening_market_log_loss",
+                    test_metrics.get("market_log_loss"),
+                ),
+            )
+            if coverage < 0.80 or selected_bets < 200.0:
+                return False
+            if mean_clv <= 0.0 or lower_95 <= 0.0:
+                return False
+            if residual_ll is None or opening_ll is None:
+                return False
+            return float(residual_ll) <= float(opening_ll)
 
         model_log_loss = test_metrics.get("log_loss")
         market_log_loss = test_metrics.get("market_log_loss")

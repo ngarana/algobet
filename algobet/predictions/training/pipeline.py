@@ -114,7 +114,9 @@ class TrainingPipeline(
         self._feature_selection_report: FeatureSelectionReport | None = None
         self._collapse_recovery: dict[str, Any] | None = None
         self._prepared_matches_df: pd.DataFrame | None = None
+        self._prepared_raw_features: pd.DataFrame | None = None
         self._prepared_splits: list[Any] = []
+        self._market_mediation_fold_metrics: list[dict[str, float]] = []
 
     def _new_feature_pipeline(self) -> FeaturePipeline:
         """Create a fresh feature pipeline matching the training config."""

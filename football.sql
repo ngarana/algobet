@@ -87,3 +87,45 @@ LEFT JOIN match_statistics ms ON m.id = ms.match_id
 LEFT JOIN (SELECT DISTINCT match_id FROM player_match_stats) pms ON m.id = pms.match_id
 WHERE m.status='FINISHED' AND m.tournament_id=359 AND m.home_score IS NOT NULL
 GROUP BY period ORDER BY period;
+
+
+docker exec algobet-db psql -U algobet -d football -c "WITH scoped AS (SELECT CASE WHEN EXTRACT(MONTH FROM match_date) < 7 THEN EXTRACT(YEAR FROM match_date)::int - 1 ELSE EXTRACT(YEAR FROM match_date)::int END AS football_season, * FROM matches WHERE tournament_id IN (359,545,98,28,123) AND match_date >= DATE '2012-07-01' AND match_date <= TIMESTAMP '2025-06-30 23:59:59' AND status='FINISHED' AND home_score IS NOT NULL AND away_score IS NOT NULL) SELECT football_season, COUNT(*) AS matches, COUNT(*) FILTER (WHERE opening_odds_home IS NOT NULL AND opening_odds_draw IS NOT NULL AND opening_odds_away IS NOT NULL) AS opening_1x2, COUNT(*) FILTER (WHERE closing_odds_home IS NOT NULL AND closing_odds_draw IS NOT NULL AND closing_odds_away IS NOT NULL) AS closing_1x2, ROUND(100.0 * COUNT(*) FILTER (WHERE closing_odds_home IS NOT NULL AND closing_odds_draw IS NOT NULL AND closing_odds_away IS NOT NULL) / NULLIF(COUNT(*), 0), 2) AS closing_pct FROM scoped GROUP BY football_season ORDER BY football_season;
+
+
+curl -sS -X POST http://localhost:8010/api/v1/ml/train -H 'Content-Type: application/json' -d '{"model_type":"market_mediation","description":"Top5 selective market mediation with true closing-line CLV","activate":false,"tournament_ids":[359,545,98,28,123],"start_date":"2012-07-01","end_date":"2025-06-30T23:59:59","split_strategy":"walk_forward","train_seasons":8,"val_seasons":1,"test_seasons":1,"feature_groups":["team_form","head_to_head","temporal","standings","enriched_stats","draw_signals","matchup_interaction","player_quality","market_mediation"],"closing_odds_required":true,"production_lane":"dual","taken_odds_snapshot":"opening","min_expected_clv":0.005,"min_positive_clv_probability":0.55}
+
+
+
+UV_CACHE_DIR=/tmp/uv-cache POSTGRES_HOST=localhost POSTGRES_PORT=5432 POSTGRES_USER=algobet POSTGRES_PASSWORD=password POSTGRES_DB=football uv run python - <<'PY'
+from datetime import datetime
+from pathlib import Path
+import traceback
+import algobet.teams.models  # noqa: F401
+import algobet.predictions.models.base  # noqa: F401
+from algobet.infrastructure.database import session_scope
+from algobet.predictions.training.pipeline import TrainingConfig, TrainingPipeline
+
+config = TrainingConfig(
+    model_type='market_mediation',
+    description='debug market mediation',
+    tournament_ids=[359,545,98,28,123],
+    start_date=datetime(2021,7,1),
+    end_date=datetime(2025,6,30,23,59,59),
+    split_strategy='walk_forward',
+    train_seasons=1,
+    val_seasons=1,
+    test_seasons=1,
+    feature_groups=['team_form','head_to_head','temporal','standings','enriched_stats','draw_signals','matchup_interaction','player_quality','market_mediation'],
+    closing_odds_required=True,
+    production_lane='dual',
+    taken_odds_snapshot='opening',
+    min_expected_clv=0.005,
+    min_positive_clv_probability=0.55,
+)
+with session_scope() as session:
+    try:
+        result = TrainingPipeline(config=config, session=session, models_path=Path('/tmp/algobet-debug-models')).run()
+        print('OK', result.model_version, result.test_metrics)
+    except Exception:
+        traceback.print_exc()
+PY

@@ -54,6 +54,12 @@ export const defaultConfig = {
   // Outcome balancing
   outcomeBalance: false,
   outcomeBalanceStrength: 0.5,
+  // Selective market mediation
+  productionLane: "pure" as const,
+  takenOddsSnapshot: "opening" as const,
+  closingOddsRequired: false,
+  minExpectedClv: 0.005,
+  minPositiveClvProbability: 0.55,
   // Feature groups (empty = backend default)
   featureGroups: [] as string[],
   // Feature selection

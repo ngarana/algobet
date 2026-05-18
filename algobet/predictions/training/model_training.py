@@ -14,6 +14,7 @@ from algobet.predictions.training.classifiers import (
     ModelConfig,
     create_predictor,
 )
+from algobet.predictions.training.market_mediation import MarketMediationPredictor
 
 
 class ModelTrainingMixin:
@@ -108,6 +109,35 @@ class ModelTrainingMixin:
                 away_goals = self._train_df["away_score"].values.astype(np.float64)
                 predictor.fit_with_scores(
                     X_train, y_train, home_goals, away_goals, X_val, y_val
+                )
+                return predictor
+
+            if self.config.model_type == "market_mediation":
+                mediation_params = {
+                    **hyperparameters,
+                    "min_expected_clv": self.config.min_expected_clv,
+                    "min_positive_clv_probability": (
+                        self.config.min_positive_clv_probability
+                    ),
+                    "closing_odds_required": self.config.closing_odds_required,
+                }
+                predictor = MarketMediationPredictor(
+                    ModelConfig(
+                        model_type="market_mediation",
+                        hyperparameters=mediation_params,
+                        class_weights=class_weights,
+                        random_seed=self.config.random_seed,
+                        early_stopping_rounds=self.config.early_stopping_rounds,
+                    )
+                )
+                predictor.set_feature_names(self.feature_pipeline.feature_names)
+                predictor.fit_with_market_data(
+                    X_train,
+                    y_train,
+                    self._train_df,
+                    X_val,
+                    y_val,
+                    self._val_df,
                 )
                 return predictor
 

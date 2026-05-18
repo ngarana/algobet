@@ -7,7 +7,8 @@ export interface TrainingConfig {
     | "lightgbm"
     | "random_forest"
     | "dixon_coles"
-    | "hybrid_poisson";
+    | "hybrid_poisson"
+    | "market_mediation";
   description: string;
   tune: boolean;
   activate: boolean;
@@ -37,6 +38,12 @@ export interface TrainingConfig {
   // Outcome balancing
   outcomeBalance: boolean;
   outcomeBalanceStrength: number;
+  // Selective market mediation
+  productionLane: "pure" | "market" | "dual";
+  takenOddsSnapshot: "opening" | "current";
+  closingOddsRequired: boolean;
+  minExpectedClv: number;
+  minPositiveClvProbability: number;
   // Feature groups
   featureGroups: string[];
   // Feature selection

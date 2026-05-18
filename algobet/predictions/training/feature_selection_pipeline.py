@@ -57,10 +57,23 @@ class FeatureSelectionPipelineMixin:
             or self.config.min_away_features > 0
             or self.config.min_enriched_or_coverage > 0
             or self.config.min_low_scoring_features > 0
+            or self.config.min_market_mediation_features > 0
         ):
             # Use val features for correlation computation if available
             X_for_corr = (
                 X_val if X_val is not None else np.zeros((1, len(feature_names)))
+            )
+            # MarketMediationPredictor returns uniform feature importance (1/N)
+            # because it is a dual-head model with no intrinsic tree-based
+            # ranking. With N≈200 features, each gets 1/N ≈ 0.005, which is
+            # exactly at the typical threshold and causes ALL features to be
+            # rejected. Use threshold=0 so all correlation-pruned features
+            # survive into the family guards; selection for market_mediation
+            # is driven entirely by correlation pruning and family minimums.
+            effective_threshold = (
+                0.0
+                if self.config.model_type == "market_mediation"
+                else self.config.feature_selection_threshold
             )
 
             selected, report = group_aware_selection(
@@ -68,13 +81,14 @@ class FeatureSelectionPipelineMixin:
                 X=X_for_corr,
                 importance=feature_importance,
                 n_samples=n_samples,
-                threshold=self.config.feature_selection_threshold,
+                threshold=effective_threshold,
                 min_samples_per_feature=self.config.min_samples_per_feature,
                 max_correlation=self.config.max_feature_correlation,
                 min_draw_features=self.config.min_draw_features,
                 min_away_features=self.config.min_away_features,
                 min_enriched_or_coverage=self.config.min_enriched_or_coverage,
                 min_low_scoring_features=self.config.min_low_scoring_features,
+                min_market_mediation_features=self.config.min_market_mediation_features,
             )
             return selected, report
 
@@ -136,12 +150,24 @@ class FeatureSelectionPipelineMixin:
             n_samples=len(y_train),
             X_val=X_val,
         )
+        if self.config.model_type == "market_mediation":
+            required = [
+                "mediation_opening_implied_prob_home",
+                "mediation_opening_implied_prob_draw",
+                "mediation_opening_implied_prob_away",
+            ]
+            for name in required:
+                if (
+                    name in original_feature_names
+                    and name not in selected_feature_names
+                ):
+                    selected_feature_names.append(name)
         self._selected_feature_names = selected_feature_names
         self._feature_selection_report = feature_report
 
         # Verify no odds-derived features leaked into the selected subset
         # unless odds features were explicitly requested via feature_groups.
-        odds_groups = {"odds", "odds_residual"}
+        odds_groups = {"odds", "odds_residual", "detailed_odds", "market_mediation"}
         requested_groups = set(self.config.feature_groups or [])
         allow_odds = bool(requested_groups & odds_groups)
 
