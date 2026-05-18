@@ -4,6 +4,7 @@ from bisect import bisect_left
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session, joinedload
@@ -61,7 +62,7 @@ class MatchRepository:
     @staticmethod
     def _normalize_before_date(value: datetime | object | None) -> datetime | None:
         if value is not None and hasattr(value, "to_pydatetime"):
-            return value.to_pydatetime()
+            return cast(datetime, value.to_pydatetime())
         if isinstance(value, datetime):
             return value
         return None
