@@ -94,9 +94,7 @@ class MarketMediationFeatureGenerator(FeatureGenerator):
         avg_probs, _avg_overround = self._implied_probs(avg)
         max_probs, _max_overround = self._implied_probs(max_odds)
         favorite = max(range(3), key=lambda idx: opening_probs[idx])
-        disagreement = [
-            self._disagreement(avg[idx], max_odds[idx]) for idx in range(3)
-        ]
+        disagreement = [self._disagreement(avg[idx], max_odds[idx]) for idx in range(3)]
 
         ah_line = self._safe_float(match.get("opening_asian_handicap_line"))
         if ah_line is None:

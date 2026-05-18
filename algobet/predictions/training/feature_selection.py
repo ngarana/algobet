@@ -232,7 +232,8 @@ def group_aware_selection(
     prunable_names = list(feature_names)
     if min_market_mediation_features > 0:
         mm_candidates = [
-            n for n in feature_names
+            n
+            for n in feature_names
             if group_map.get(n) == "market_mediation"
             and not _is_constant(X, feature_names, n)
         ]
@@ -242,7 +243,9 @@ def group_aware_selection(
     all_name_to_idx = {n: i for i, n in enumerate(feature_names)}
     prunable_col_indices = [all_name_to_idx[n] for n in prunable_names]
     X_prunable = X[:, prunable_col_indices]
-    pruned_names, corr_drops = prune_correlation(prunable_names, X_prunable, max_correlation)
+    pruned_names, corr_drops = prune_correlation(
+        prunable_names, X_prunable, max_correlation
+    )
     pruned_names = pruned_names + forced_features
     drop_log.extend(corr_drops)
     removed_by_corr = set(feature_names) - set(pruned_names)

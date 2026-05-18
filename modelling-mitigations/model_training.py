@@ -2,9 +2,11 @@
 import json
 from datetime import datetime
 from pathlib import Path
+
 import algobet.models  # noqa: F401 - ensures SQLAlchemy relationship targets are registered
 from algobet.infrastructure.database import session_scope
 from algobet.predictions.training.pipeline import TrainingConfig, TrainingPipeline
+
 TOP5_TOURNAMENT_IDS = [359, 545, 98, 28, 123]
 DEFAULT_GROUPS = [
     "team_form",
@@ -81,7 +83,9 @@ for run_name, groups in RUNS:
             models_path=Path("data/models"),
         )
         result = pipeline.run()
-        selected = pipeline._selected_feature_names or pipeline.feature_pipeline.feature_names
+        selected = (
+            pipeline._selected_feature_names or pipeline.feature_pipeline.feature_names
+        )
         selected_detailed = sorted(set(selected) & DETAILED_ODDS_FEATURES)
     row = {
         "run_name": run_name,
@@ -107,15 +111,25 @@ comparison = {
     "date_range": [common["start_date"].isoformat(), common["end_date"].isoformat()],
     "runs": results,
     "delta_new_minus_baseline": {
-        "test_accuracy": new["test_metrics"].get("accuracy", 0.0) - baseline["test_metrics"].get("accuracy", 0.0),
-        "test_log_loss": new["test_metrics"].get("log_loss", 0.0) - baseline["test_metrics"].get("log_loss", 0.0),
-        "test_brier_score": new["test_metrics"].get("brier_score", 0.0) - baseline["test_metrics"].get("brier_score", 0.0),
-        "test_ece": new["test_metrics"].get("ece", 0.0) - baseline["test_metrics"].get("ece", 0.0),
-        "test_market_model_probability_mae": new["test_metrics"].get("market_model_probability_mae", 0.0) - baseline["test_metrics"].get("market_model_probability_mae", 0.0),
+        "test_accuracy": new["test_metrics"].get("accuracy", 0.0)
+        - baseline["test_metrics"].get("accuracy", 0.0),
+        "test_log_loss": new["test_metrics"].get("log_loss", 0.0)
+        - baseline["test_metrics"].get("log_loss", 0.0),
+        "test_brier_score": new["test_metrics"].get("brier_score", 0.0)
+        - baseline["test_metrics"].get("brier_score", 0.0),
+        "test_ece": new["test_metrics"].get("ece", 0.0)
+        - baseline["test_metrics"].get("ece", 0.0),
+        "test_market_model_probability_mae": new["test_metrics"].get(
+            "market_model_probability_mae", 0.0
+        )
+        - baseline["test_metrics"].get("market_model_probability_mae", 0.0),
     },
 }
 path = Path("/tmp/top5_detailed_odds_comparison.json")
 path.write_text(json.dumps(comparison, indent=2, sort_keys=True, default=float))
 print(f"SUMMARY_PATH {path}", flush=True)
-print("SUMMARY " + json.dumps(comparison["delta_new_minus_baseline"], sort_keys=True), flush=True)
+print(
+    "SUMMARY " + json.dumps(comparison["delta_new_minus_baseline"], sort_keys=True),
+    flush=True,
+)
 # PY

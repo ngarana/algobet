@@ -342,9 +342,11 @@ class MarketMediationPredictor(MatchPredictor):
         )
 
         if selected.any():
-            clv = opening[selected, selected_indices[selected]] / closing[
-                selected, selected_indices[selected]
-            ] - 1.0
+            clv = (
+                opening[selected, selected_indices[selected]]
+                / closing[selected, selected_indices[selected]]
+                - 1.0
+            )
             metrics["market_mediation_selected_mean_clv"] = float(clv.mean())
             metrics["market_mediation_selected_clv_hit_rate"] = float(
                 np.mean(clv > 0.0)
@@ -426,8 +428,7 @@ class MarketMediationPredictor(MatchPredictor):
         if self._feature_names is None:
             raise ValueError("Feature names are required for market mediation.")
         indices = [
-            self._feature_names.index(name)
-            for name in self.REQUIRED_MARKET_FEATURES
+            self._feature_names.index(name) for name in self.REQUIRED_MARKET_FEATURES
         ]
         probs = np.asarray(X[:, indices], dtype=np.float64)
         valid = np.isfinite(probs).all(axis=1) & (probs > 0).all(axis=1)

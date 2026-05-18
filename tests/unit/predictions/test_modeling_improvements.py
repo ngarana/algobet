@@ -635,9 +635,10 @@ class TestMarketMediationPredictor:
         )
 
         assert predictor._is_fitted
-        assert "validation_log_loss" in predictor.effective_hyperparameters[
-            "market_mediation_fit_metadata"
-        ]
+        assert (
+            "validation_log_loss"
+            in predictor.effective_hyperparameters["market_mediation_fit_metadata"]
+        )
 
 
 class TestFeatureSelectionOddsAllowance:

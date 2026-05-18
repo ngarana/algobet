@@ -76,9 +76,7 @@ class EvaluationPipelineMixin:
         metrics.update(cal_metrics)
         metrics.update(self._calculate_market_diagnostics(y, probas, matches_df))
         if hasattr(predictor, "market_mediation_diagnostics"):
-            metrics.update(
-                predictor.market_mediation_diagnostics(X, y, matches_df)
-            )
+            metrics.update(predictor.market_mediation_diagnostics(X, y, matches_df))
 
         return metrics
 

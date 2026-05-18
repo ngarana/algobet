@@ -136,6 +136,7 @@ class DataPreparationMixin:
         raw_cache = getattr(self, "_prepared_raw_features", None)
 
         if raw_cache is not None:
+
             def raw_for_split(frame):
                 match_ids = frame["id"].tolist()
                 missing = [
@@ -158,9 +159,7 @@ class DataPreparationMixin:
                 self._train_raw_features,
                 y_train,
             )
-            X_val = self.feature_pipeline.transform_raw_features(
-                self._val_raw_features
-            )
+            X_val = self.feature_pipeline.transform_raw_features(self._val_raw_features)
             X_test = self.feature_pipeline.transform_raw_features(
                 self._test_raw_features
             )

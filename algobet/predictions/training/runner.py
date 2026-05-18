@@ -107,9 +107,7 @@ class PipelineRunnerMixin:
             ),
             "market_mediation_walk_forward_pooled_selected_bets": pooled_selected,
             "market_mediation_walk_forward_pooled_mean_clv": float(pooled_mean),
-            "market_mediation_walk_forward_pooled_clv_lower_95": float(
-                pooled_lower
-            ),
+            "market_mediation_walk_forward_pooled_clv_lower_95": float(pooled_lower),
         }
 
     @staticmethod
@@ -651,9 +649,7 @@ class PipelineRunnerMixin:
             "taken_odds_snapshot": self.config.taken_odds_snapshot,
             "closing_odds_required": self.config.closing_odds_required,
             "min_expected_clv": self.config.min_expected_clv,
-            "min_positive_clv_probability": (
-                self.config.min_positive_clv_probability
-            ),
+            "min_positive_clv_probability": (self.config.min_positive_clv_probability),
         }
         if self._selected_feature_names is not None:
             model_hyperparameters["selected_feature_names"] = (

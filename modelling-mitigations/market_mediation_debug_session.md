@@ -1,8 +1,8 @@
 # Market Mediation Model — Debug Session Report
 
-**Branch:** `feat/pure-ml-improvements`  
-**Date:** 2026-05-18  
-**Starting model version:** `market_mediation_20260517_191919` (model_id 234)  
+**Branch:** `feat/pure-ml-improvements`
+**Date:** 2026-05-18
+**Starting model version:** `market_mediation_20260517_191919` (model_id 234)
 **Final working model:** `market_mediation_20260518_042022` (model_id 243)
 
 ---
